@@ -46,20 +46,6 @@
 \usepackage{setspace}
 \onehalfspacing                % 1.5 line spacing (standard for master theses)
 
-% ------------------------------------------------------------------------------
-% HEADERS & FOOTERS
-% ------------------------------------------------------------------------------
-\usepackage{fancyhdr}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{\small\textit{Outcome Weights, Kappa Estimators, and Covariate Balance}}
-\fancyhead[R]{\small\thepage}
-\renewcommand{\headrulewidth}{0.4pt}
-\fancypagestyle{plain}{%      % Chapter opening pages
-  \fancyhf{}
-  \fancyfoot[C]{\small\thepage}
-  \renewcommand{\headrulewidth}{0pt}
-}
 
 % ------------------------------------------------------------------------------
 % MATHEMATICS
@@ -263,14 +249,16 @@ double machine learning.
 \listoftables
 \addcontentsline{toc}{section}{List of Tables}
 
-% ------------------------------------------------------------------------------
-% MAIN TEXT
-% ------------------------------------------------------------------------------
+
+
 \newpage
 \pagenumbering{arabic}
 \setcounter{page}{1}
 
-\section{Translation invariance}
+
+\section{Econometric Framework}
+
+\subsection{Translation invariance}
 \label{subsec:invariance_normalization}
 
 The outcome-weight representation makes it possible to distinguish several
@@ -481,29 +469,43 @@ outcome. This follows from translation invariance in log outcomes. \\
 \end{table}
 
 
+\newpage
 
 
+\subsection{Cross Fitting}
+The DML estimators used in this thesis rely on nuisance functions that are estimated before the final treatment-effect parameter is computed. The reason for this seperation is that flexible machine-learning methods can overfit.
+If the same observations are used both to train the nuisance functions and to evaluate the estimating equation, the nuisance estimation error can become mechanically related to the score residuals.
+This can create finite-sample bias even when the nuisance learner has good predictive performance.
+Double Machine Learning addresses this problem with cross fitting \citep{chernozhukov2018double}.
+For this K-fold cross fitting procedure is used in which he sample is first split into K folds. For each fold, the nuisance functions are estimated using only the observations outside that fold.
+These fitted nuisance functions are then used to predict the nuisance components for the held-out observations.
+Repeating this procedure over all folds produces out-of-sample nuisance predictions for every observation.
+The final DML estimate is then obtained from the orthogonal score using these cross-fitted predictions.
+It is important to mention that each observation is used twice, but for different purposes. It is used to train nuisance functions for other folds, and it is used in the final score only with nuisance predictions obtained from models that were not trained on that observation.
+This preserves the practical advantage of using the full sample while avoiding the direct own-observation overfitting problem.
+Cross-fitting is combined with Neyman orthogonal scores. Orthogonality means that small first-stage errors in the nuisance functions have only a second-order effect on the final parameter estimate. Intuitively, the score is constructed such that the treatment-effect estimate is locally insensitive to small perturbations in the nuisance estimates.
+This makes it possible to use tree based learners such as random forest or xgboost without treating the resulting causal estimate as a simple plug-in machine-learning prediction. In the empirical applications below, I use five-fold cross-fitting.
+The choice of five folds is due to the reason that moderate fold numbers keep enough observations for nuisance training while still ensuring that the score is evaluated out of sample.
 
-
-
-
-
-
+\subsubsection{Nuisance Training}
+The cross fitting procedure determines on which observations the nuisance functions are trained and evaluated. However it does not determine how complex a nuisance learner should be.
+This is especially relevant for XGBoost which has many hyperparamters such as the number of boosting rounds, the learning rate, the maximum tree depth, and the minimum child-node weight.
+For this reason I will use an additional tuning round for it.
+It is important to mention that tuning is not based on the final treatment-effect estimate, rather hyperparameters are selected only by predictive performance of the nuisance functions.
+For each nuisance function j, the selected hyperparameter vector is 
+\begin{equation}
+\arg\min_{\lambda \in \Lambda_j}
+CV_j(\lambda)
+\end{equation}
+where $\lambda$ is the hyperparameter search space and $(CV_j(\lambda))$ is the inner cross-validation loss.
+As Loss for continous outcome regressions the root mean squarred error is used and for binary treatment and instrument models the log-loss is used. 
+The tuning is nested inside the DML procedure. Within each outer cross-fitting fold, the inner cross-validation is performed only on the corresponding training sample.
+The held-out fold used for evaluating the final orthogonal score is therefore not used for choosing the XGBoost hyperparameters. This avoids tuning directly on the observations that enter the final score evaluation.In the empirical analysis, I apply this tuning step only to the XGBoost Wald-AIPW specification. Especially for the Card framework in which the XGBoost is very reliant on tuning due to the rich covariate specification in the Card and Kitagawa specification.
+The other learners are used as benchmark nuisance specifications.
+Tuning will show whether the unstable default XGBoost results are driven by poorly calibrated nuisance predictions.
  
-sum_i \omega_i^a = (\sum_i \kappa_{i1} - \sum_i \kappa_{i0}) /
-\sum_i \kappa_i$, which is not zero in general \citep[Appendix~A.4]{knaus2024treatment}.
-$\hat\tau_{a,1}$ uses the raw IPW contrast $\lambda_{1i} - \lambda_{0i}$ without
-Hájek correction, giving $\sum_i \omega_i^{a,1} = \widehat\Delta_D^{a,1\,-1} N^{-1}
-(s_1 - s_0) \neq 0$ whenever $s_1 \neq s_0$.\\
-It is important to note that this co-occurrence is specific to the kappa family. The two
-normalization concepts are logically independent: it is possible in principle to construct
-an estimator that is normalized in the SUW sense but not in the Knaus sense, or vice
-versa. The alignment observed here reflects the particular algebraic structure of
-kappa-based Wald estimators, not a general theorem.
 
 
-
-% ==============================================================================
 \section{Empirical Application: Military Service and Wages}
 \label{sec:vietnam}
 % ==============================================================================
@@ -1422,36 +1424,7 @@ The used subsample retains the central compliance structure of the original inco
 \subsection{Cross-Application Summary}
 \label{subsec:cross_application}
 
-% Placeholder for Table 5 (cross-application comparison)
-\begin{table}[H]
-  \centering
-  \caption{Cross-application comparison of outcome weight diagnostics}
-  \label{tab:cross_app}
-  \begin{threeparttable}
-    \begin{tabular}{llrrrr}
-      \toprule
-      Application & Estimator & $\sum_i\omega_i$ & ESS & \% neg. & Balance \\
-      \midrule
-      \multicolumn{6}{l}{\textit{Angrist (1990) — Vietnam (cubic spec.)}} \\
-      & DML Wald-AIPW & & & & \\
-      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
-      \multicolumn{6}{l}{\textit{Card (1995) — Card spec, somecol}} \\
-      & DML Wald-AIPW & & & & \\
-      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
-      \multicolumn{6}{l}{\textit{Card (1995) — Kitagawa spec, somecol}} \\
-      & DML Wald-AIPW & & & & \\
-      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
-      \multicolumn{6}{l}{\textit{Angrist \& Evans (1998) — LFP}} \\
-      & $\hat\tau_u^{cb}$ & & & & \\
-      \bottomrule
-    \end{tabular}
-    \begin{tablenotes}
-      \small\item Balance = maximum absolute SMD from Love plot.
-      DML not reported for Angrist--Evans due to memory constraints
-      ($N \approx 254{,}000$; see Section~\ref{subsec:ae}).
-    \end{tablenotes}
-  \end{threeparttable}
-\end{table}
+
 
 \subsection{The Outcome-Weights Lens: What It Adds}
 \label{subsec:lens}
