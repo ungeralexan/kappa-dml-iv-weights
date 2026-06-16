@@ -1,0 +1,1824 @@
+% ==============================================================================
+% MASTER'S THESIS — EBERHARD KARLS UNIVERSITÄT TÜBINGEN
+% Faculty of Economics and Social Sciences
+% Chair of Econometrics (Prof. Dr. Michael Knaus)
+%
+% Title: Outcome Weights, Kappa Estimators, and Covariate Balance
+%        in LATE Estimation
+%
+% Compile with: pdflatex → biber → pdflatex → pdflatex
+%   or in Overleaf: set compiler to pdfLaTeX, bibliography tool to Biber
+% ==============================================================================
+
+\documentclass[12pt, a4paper, oneside]{article}
+
+% ------------------------------------------------------------------------------
+% ENCODING & LANGUAGE
+% ------------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ------------------------------------------------------------------------------
+% FONTS  — matches standard econometrics journals (Times-like serif)
+% ------------------------------------------------------------------------------
+
+\usepackage[scaled=0.90]{helvet}
+\usepackage{courier}
+
+% ------------------------------------------------------------------------------
+% PAGE GEOMETRY
+% ------------------------------------------------------------------------------
+\usepackage[
+  a4paper,
+  top    = 2.5cm,
+  bottom = 2.5cm,
+  left   = 3.0cm,
+  right  = 2.5cm,
+  headheight = 14pt
+]{geometry}
+
+% ------------------------------------------------------------------------------
+% SPACING
+% ------------------------------------------------------------------------------
+\usepackage{setspace}
+\onehalfspacing                % 1.5 line spacing (standard for master theses)
+
+% ------------------------------------------------------------------------------
+% HEADERS & FOOTERS
+% ------------------------------------------------------------------------------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textit{Outcome Weights, Kappa Estimators, and Covariate Balance}}
+\fancyhead[R]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancypagestyle{plain}{%      % Chapter opening pages
+  \fancyhf{}
+  \fancyfoot[C]{\small\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+% ------------------------------------------------------------------------------
+% MATHEMATICS
+% ------------------------------------------------------------------------------
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{bm}                % bold math symbols
+
+% Theorem-like environments
+\theoremstyle{plain}
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{lemma}[proposition]{Lemma}
+\newtheorem{corollary}[proposition]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[proposition]{Definition}
+\newtheorem{remark}[proposition]{Remark}
+
+% Convenient math macros
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\indic}{\mathbf{1}}
+\newcommand{\tauhat}{\hat{\tau}}
+\newcommand{\phat}{\hat{p}}
+\newcommand{\omegavec}{\boldsymbol{\omega}}
+\newcommand{\kappavec}{\boldsymbol{\kappa}}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\plim}{plim}
+
+% ------------------------------------------------------------------------------
+% TABLES & FIGURES
+% ------------------------------------------------------------------------------
+\usepackage{booktabs}          % publication-quality tables
+\usepackage{threeparttable}    % notes below tables
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{bbm}
+\usepackage{caption}
+\usepackage{subcaption}
+\captionsetup{
+  font      = small,
+  labelfont = bf,
+  format    = hang,
+  width     = 0.95\textwidth
+}
+
+% ------------------------------------------------------------------------------
+% HYPERLINKS & CROSS-REFERENCES
+% ------------------------------------------------------------------------------
+\usepackage[
+  colorlinks = true,
+  linkcolor  = black,
+  citecolor  = black,
+  urlcolor   = black
+]{hyperref}
+\usepackage{cleveref}
+
+% ------------------------------------------------------------------------------
+% BIBLIOGRAPHY  — Author-year (AER/econometrics standard)
+% ------------------------------------------------------------------------------
+\usepackage[round,authoryear]{natbib}
+
+
+% ------------------------------------------------------------------------------
+% MISC
+% ------------------------------------------------------------------------------
+\usepackage{microtype}         % better typography
+\usepackage{parskip}           % space between paragraphs instead of indent
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{lscape}            % landscape pages for wide tables
+\usepackage{rotating}
+\usepackage{pdflscape}
+\usepackage[normalem]{ulem}    % strikethrough if needed
+
+% Code listings (for appendix R code)
+\usepackage{listings}
+\lstset{
+  basicstyle   = \small\ttfamily,
+  breaklines   = true,
+  frame        = single,
+  language     = R,
+  commentstyle = \color{gray},
+  keywordstyle = \color{blue!70!black},
+  numbers      = left,
+  numberstyle  = \tiny\color{gray},
+  xleftmargin  = 2em
+}
+
+% ------------------------------------------------------------------------------
+% PDF METADATA
+% ------------------------------------------------------------------------------
+\hypersetup{
+  pdftitle  = {Outcome Weights, Kappa Estimators, and Covariate Balance in LATE Estimation},
+  pdfauthor = {Alexander Unger},
+  pdfsubject= {Master's Thesis, University of Tübingen},
+}
+
+
+% ==============================================================================
+\begin{document}
+% ==============================================================================
+
+% ------------------------------------------------------------------------------
+% TITLE PAGE
+% ------------------------------------------------------------------------------
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+
+  \vspace*{1.5cm}
+
+  {\large \textsc{Eberhard Karls Universität Tübingen}}\\[0.3cm]
+  {\large Faculty of Economics and Social Sciences}\\[0.1cm]
+  {\normalsize Department of Economics}\\[0.1cm]
+  {\normalsize Chair of Data Science in Economics}
+
+  \vspace{1.5cm}
+
+  \rule{\textwidth}{1.5pt}\\[0.4cm]
+  {\LARGE \bfseries Comparing Kappa Weighting and Causal Machine \\[0.3cm]
+   Learning Estimators via Weight-Based Diagnostics}\\[0.4cm]
+  \rule{\textwidth}{1.5pt}
+
+  \vspace{1.5cm}
+
+  {\large Master's Thesis}\\[0.2cm]
+  {\normalsize submitted in partial fulfilment of the requirements for the degree of}\\[0.2cm]
+  {\large \textit{Master of Science in Data Science in Business and Economics}}
+
+  \vspace{2.0cm}
+
+  \begin{tabular}{ll}
+    \textbf{Author:}     & Alexander Unger \\[0.2cm]
+    \textbf{Matriculation number:} & [6946672] \\[0.2cm]
+    \textbf{First supervisor:}  & Junior Prof.\ Dr.\ Michael Knaus \\[0.2cm]
+    \textbf{Submission date:}   & \today \\
+  \end{tabular}
+
+  \vfill
+
+  {\small Tübingen, Germany}
+
+\end{titlepage}
+
+% ------------------------------------------------------------------------------
+% FRONT MATTER
+% ------------------------------------------------------------------------------
+\pagenumbering{roman}
+
+% Abstract
+\newpage
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This thesis applies the outcome-weights framework of \citet{knaus2024} to kappa-based
+local average treatment effect (LATE) estimators of \citet{abadie2003} and
+\citet{suw2025}. Any estimator that can be written as a weighted sum of observed outcomes,
+$\hat\tau = \sum_i \omega_i Y_i$, admits direct covariate balance diagnostics via Love
+plots and effective sample size (ESS) calculations. Knaus (2024) derives such outcome
+weights for double machine learning (DML) and generalised random forest estimators;
+Appendix A.4 sketches but does not implement the same for kappa estimators. We fill
+this gap by deriving closed-form outcome weights for all five kappa-based LATE estimators
+and showing that the sum-to-zero condition $\sum_i \omega_i = 0$ is the exact finite-sample
+criterion for translation invariance---the property that the LATE estimate is unaffected
+by additive rescaling of the outcome variable.
+
+We apply the unified outcome-weight diagnostics to three empirical settings: the Vietnam
+draft lottery \citep{angrist1990}, college proximity as an instrument for education
+\citep{card1995}, and sibling sex composition as an instrument for fertility
+\citep{angrist1998}. A striking finding across applications is that in low-dimensional,
+near-random-assignment designs, ESS and the percentage of negative weights are virtually
+identical across all estimators and all machine learning learners---a pattern we term
+\emph{design dominates learner}. Normalization, not covariate adjustment, drives estimate
+divergence. Unnormalized kappa estimators fail translation invariance dramatically in the
+Angrist--Evans design, with estimates changing sign under outcome recoding. Normalized
+estimators $\hat\tau_u$ and $\hat\tau_{a,10}$ are robust throughout.
+
+\bigskip
+\noindent\textbf{Keywords:} local average treatment effect, instrumental variables,
+kappa weighting, outcome weights, translation invariance, covariate balance,
+double machine learning.
+
+\bigskip
+\noindent\textbf{JEL classification:} C14, C21, C26.
+
+% Table of contents
+\newpage
+\tableofcontents
+
+% List of figures
+\newpage
+\listoffigures
+\addcontentsline{toc}{section}{List of Figures}
+
+% List of tables
+\newpage
+\listoftables
+\addcontentsline{toc}{section}{List of Tables}
+
+% ------------------------------------------------------------------------------
+% MAIN TEXT
+% ------------------------------------------------------------------------------
+\newpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\section{Translation invariance}
+\label{subsec:invariance_normalization}
+
+The outcome-weight representation makes it possible to distinguish several
+finite-sample properties that are closely related but conceptually different.
+Throughout this section, consider an estimator that admits the representation
+\begin{equation}
+    \hat\tau = \sum_{i=1}^N \omega_i Y_i = \omega'Y,
+    \label{eq:ow_rep_ch2}
+\end{equation}
+where the weights \(\omega_i\) are the final outcome weights of the estimator.
+These weights should be distinguished from identification weights such as
+Abadie's \(\kappa\)-weights. The latter identify moments of the complier
+population, whereas the former describe how the finite-sample estimator combines
+the observed outcomes.\\
+Translation invariance requires that adding a constant to all outcomes does not
+change the treatment effect estimate. Formally, for any constant \(c\),
+\begin{equation}
+    \hat\tau(Y+c\mathbf{1}_N) = \hat\tau(Y).
+    \label{eq:ti_definition}
+\end{equation}
+Using the outcome-weight representation in \eqref{eq:ow_rep_ch2}, the effect of
+such a shift is
+\begin{align}
+    \hat\tau(Y+c\mathbf{1}_N)
+    &= \sum_{i=1}^N \omega_i (Y_i+c) \nonumber \\
+    &= \sum_{i=1}^N \omega_i Y_i
+       + c \sum_{i=1}^N \omega_i \nonumber \\
+    &= \hat\tau(Y) + c \sum_{i=1}^N \omega_i .
+    \label{eq:ti_shift}
+\end{align}
+Hence,
+\begin{equation}
+    \hat\tau(Y+c\mathbf{1}_N)=\hat\tau(Y)
+    \quad\Longleftrightarrow\quad
+    \sum_{i=1}^N \omega_i=0.
+    \label{eq:ti_sumzero_ch2}
+\end{equation}
+The total sum of the outcome weights is therefore an exact finite-sample
+criterion for translation invariance. If \(\sum_i\omega_i\neq0\), the estimator
+changes by \(c\sum_i\omega_i\) under an additive shift of size \(c\). Thus,
+\(\sum_i\omega_i\) measures the per-unit sensitivity of the estimator to
+additive recodings of the outcome.
+This property is particularly relevant for log outcomes. If wages are measured
+in cents instead of dollars before taking logs, then
+\begin{equation}
+    \log(100Y_i) = \log(Y_i) + \log(100).
+    \label{eq:log_units}
+\end{equation}
+Changing the unit of the untransformed wage variable therefore corresponds to an
+additive shift of the log outcome. A translation-invariant estimator is unaffected
+by this transformation, whereas an estimator with \(\sum_i\omega_i\neq0\) changes
+by \(\log(100)\sum_i\omega_i\).
+
+Scale equivariance refers to the behavior of the estimator under transformations
+of the scale of the outcome variable. In the context of log outcomes, the most
+important implication is invariance to multiplicative changes in the
+untransformed outcome. Since multiplying the original outcome by a positive
+constant \(a>0\) changes the log outcome by an additive constant,
+\begin{equation}
+    \log(aY_i) = \log(Y_i) + \log(a),
+    \label{eq:scale_log}
+\end{equation}
+translation invariance of the estimator in log outcomes implies invariance to
+the units in which the original outcome is measured. Thus, for log outcomes,
+scale invariance with respect to the original variable is closely connected to
+translation invariance of the transformed outcome.
+It is important, however, not to confuse scale equivariance with normalization of
+the outcome weights. Scale equivariance concerns transformations of the outcome
+variable. Normalization concerns the total mass of the final outcome weights
+assigned to treated and untreated observations.
+
+A stronger property than translation invariance is full normalization of the
+outcome weights. In treatment-effect settings with binary treatment \(D_i\), the
+weights are fully normalized if
+\begin{equation}
+    \sum_{i=1}^N \omega_i D_i = 1
+    \quad\text{and}\quad
+    \sum_{i=1}^N \omega_i(1-D_i) = -1.
+    \label{eq:full_normalization}
+\end{equation}
+The first condition says that the total weight assigned to treated observations
+equals one. The second says that the total weight assigned to untreated
+observations equals minus one. Under these two conditions,
+\begin{equation}
+    \sum_{i=1}^N \omega_i
+    =
+    \sum_{i=1}^N \omega_iD_i
+    +
+    \sum_{i=1}^N \omega_i(1-D_i)
+    =
+    1-1
+    =
+    0.
+    \label{eq:fullnorm_implies_ti}
+\end{equation}
+Full normalization therefore implies translation invariance. The converse does
+not generally hold.\\
+The interpretation of full normalization is straightforward. If
+\eqref{eq:full_normalization} holds, the estimator can be viewed as a normalized
+weighted treated mean minus a normalized weighted untreated mean:
+\begin{equation}
+    \hat\tau
+    =
+    \sum_{D_i=1}\omega_iY_i
+    +
+    \sum_{D_i=0}\omega_iY_i,
+    \qquad
+    \sum_{D_i=1}\omega_i=1,
+    \quad
+    \sum_{D_i=0}\omega_i=-1.
+    \label{eq:fullnorm_interpretation}
+\end{equation}
+Thus, full normalization gives the outcome-weight representation the intuitive
+structure of a treated-control contrast.
+
+Partial normalization and the relation to translation invariance.
+Some estimators normalize only one side of the comparison. For example, an
+estimator may satisfy
+\begin{equation}
+    \sum_{i=1}^N \omega_iD_i = 1,
+    \qquad
+    \sum_{i=1}^N \omega_i(1-D_i) \neq -1.
+    \label{eq:partial_treated_norm}
+\end{equation}
+In this case, the treated part of the estimator has the interpretation of a
+proper weighted treated mean, but the untreated part does not have the
+corresponding normalized control-mean interpretation. Moreover,
+\begin{equation}
+    \sum_{i=1}^N \omega_i
+    =
+    1+\sum_{i=1}^N \omega_i(1-D_i),
+    \label{eq:partial_norm_sum}
+\end{equation}
+so translation invariance generally fails unless the untreated weights happen to
+sum to \(-1\). Analogously, if the untreated weights sum to \(-1\) but the treated
+weights do not sum to \(1\), translation invariance also generally fails.
+
+A different case arises when the total weight sum is zero but the treated and
+untreated components are not separately normalized. For example, it may be that
+\begin{equation}
+    \sum_{i=1}^N \omega_iD_i = a,
+    \qquad
+    \sum_{i=1}^N \omega_i(1-D_i) = -a,
+    \qquad
+    a\neq1.
+    \label{eq:ti_without_fullnorm}
+\end{equation}
+Then \(\sum_i\omega_i=0\), so the estimator is translation invariant. However,
+the treated and untreated components do not separately correspond to normalized
+weighted means. Such an estimator is stable to additive recodings of the outcome,
+but it lacks the stronger interpretation of a fully normalized treated-control
+contrast.
+
+Table~\ref{tab:normalization_properties_ch2} summarizes the distinction between
+these properties.
+
+\begin{table}[htbp]
+\centering
+\caption{Outcome-weight properties and their interpretation}
+\label{tab:normalization_properties_ch2}
+\begin{tabular}{p{0.25\textwidth}p{0.35\textwidth}p{0.32\textwidth}}
+\toprule
+Property & Algebraic condition & Interpretation \\
+\midrule
+Translation invariance
+&
+\(\sum_i \omega_i = 0\)
+&
+The estimator is invariant to additive shifts of the outcome, \(Y_i\mapsto
+Y_i+c\). \\
+\addlinespace
+Treated-side normalization
+&
+\(\sum_i \omega_iD_i = 1\)
+&
+The treated component has the scale of a normalized weighted treated mean. \\
+\addlinespace
+Untreated-side normalization
+&
+\(\sum_i \omega_i(1-D_i) = -1\)
+&
+The untreated component has the scale of minus a normalized weighted untreated
+mean. \\
+\addlinespace
+Full normalization
+&
+\(\sum_i \omega_iD_i = 1\) and
+\(\sum_i \omega_i(1-D_i) = -1\)
+&
+The estimator can be interpreted as a normalized weighted treated mean minus a
+normalized weighted untreated mean. This implies translation invariance. \\
+\addlinespace
+Translation invariance without full normalization
+&
+\(\sum_i\omega_i=0\), but treated and untreated sums are not \(1\) and \(-1\)
+&
+The estimator is stable to additive outcome shifts but does not have the full
+treated-control weighted-mean interpretation. \\
+\addlinespace
+Scale invariance in log outcomes
+&
+\(\hat\tau(\log(aY))=\hat\tau(\log Y)\)
+&
+The estimate in logs is invariant to the unit of measurement of the original
+outcome. This follows from translation invariance in log outcomes. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
+
+
+
+
+
+
+
+ 
+sum_i \omega_i^a = (\sum_i \kappa_{i1} - \sum_i \kappa_{i0}) /
+\sum_i \kappa_i$, which is not zero in general \citep[Appendix~A.4]{knaus2024treatment}.
+$\hat\tau_{a,1}$ uses the raw IPW contrast $\lambda_{1i} - \lambda_{0i}$ without
+Hájek correction, giving $\sum_i \omega_i^{a,1} = \widehat\Delta_D^{a,1\,-1} N^{-1}
+(s_1 - s_0) \neq 0$ whenever $s_1 \neq s_0$.\\
+It is important to note that this co-occurrence is specific to the kappa family. The two
+normalization concepts are logically independent: it is possible in principle to construct
+an estimator that is normalized in the SUW sense but not in the Knaus sense, or vice
+versa. The alignment observed here reflects the particular algebraic structure of
+kappa-based Wald estimators, not a general theorem.
+
+
+
+% ==============================================================================
+\section{Empirical Application: Military Service and Wages}
+\label{sec:vietnam}
+% ==============================================================================
+
+\subsection{Data and Design}
+\label{subsec:vietnam_data}
+\begin{quotation}
+\noindent\textit{``Tonight for the first time in 27 years the United
+States has again started a draft lottery.''}
+
+\smallskip
+\noindent\hfill --- Roger Mudd, CBS News, 1 December 1969
+\end{quotation}
+The economic consequences of military service have long been a central question in the evaluation of veterans' compensation and labour-market policy. In the United States, this question is especially relevant for the Vietnam era, where military service was politically contested and where the long-run civilian outcomes of veterans remained difficult to assess. A simple comparison between veterans and nonveterans, however, does not provide a credible causal estimate of the effect of military service on earnings. Men who served in the military were not selected at random. They may differ from nonveterans in health, education, ability, labour-market opportunities, or willingness to enlist. As a result, observed earnings differences may reflect both the causal effect of service and the characteristics that selected individuals into military service.\\
+This is the selection problem adressed in \citet{angrist1990lifetime}.
+Key to his idea to overcome it is to use the Vietnam-era draft lottery as a source of quasi random variation in the probability of taking on military service. 
+The lottery did not randomly assigned military service itself, instead, it randomly assigned draft risk.
+
+\subsubsection{The Draft Lottery - The instrument}
+During the Vietnam-era draft lotteries, Random Sequence Numbers (RSNs) were assigned to dates of birth. For each birth cohort, the Department of Defense later announced an induction ceiling. Men with lottery numbers below the relevant cohort-specific ceiling were classified as draft-eligible, while men with higher lottery numbers were not. Formally, draft eligibility can be written as: 
+\begin{equation}
+  Z_i \;=\; \mathbbm{1}\!\left\{RSN_i \leq c_{b(i)}\right\},
+  \label{eq:vietnam_z}
+\end{equation}
+%
+where $RSN_i$ denotes individual $i$'s lottery number, $b(i)$ his birth
+cohort, and $c_{b(i)}$ the draft-eligibility ceiling for that cohort.
+Table~\ref{tab:vietnam_cutoffs} reports the cohort-specific ceilings
+for the four birth cohorts in the sample.
+\begin{table}[htbp]
+\centering
+\caption{Draft-eligibility ceilings by birth cohort (Vietnam application)}
+\label{tab:vietnam_cutoffs}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Birth cohort & Lottery year & Eligibility ceiling \\
+\midrule
+1950 & 1970 & $RSN_i \leq 195$ \\
+1951 & 1971 & $RSN_i \leq 125$ \\
+1952 & 1972 & $RSN_i \leq 95$  \\
+1953 & 1973 & $RSN_i \leq 95$  \\
+\bottomrule
+\end{tabular}
+\end{table}
+Hence, draft eligibility did not determine military service perfectly, since some eligible men did not serve and other ineligible men volunteered. It however shift the probability of military service (Relevance).
+Furthermore, the RSN where randomly assigned to birth dates. As the birth is genuinly an event that is in a random relation to military services especially since partens did not have knowledge at the time that tehre was gonna be a lottery the usage of this instrument can also be seen as as good as randomly assigned.
+Finally the thought that eligibility would affect later earnings only over military service is an assumption that is plausible to take (Exclusion restriction).\\
+The cohort-specific nature of the lottery matters for the estimators
+used below. Lottery numbers were assigned randomly within each cohort,
+but the eligibility ceiling differed across cohorts, so the
+unconditional probability of draft eligibility varies with birth year:
+%
+\begin{equation}
+  \Pr(Z_i = 1 \mid b(i)) \;=\; \Pr\!\left(RSN_i \leq c_{b(i)} \mid b(i)\right).
+  \label{eq:vietnam_propensity_cohort}
+\end{equation}
+In the pooled sample, draft eligibility is therefore conditionally
+random given birth cohort, not unconditionally random. This is why
+controlling for age is required
+for the instrument propensity score $p(X_i) = \Pr(Z_i = 1 \mid X_i)$
+to be correctly specified.
+\subsubsection{Sample, Variables, and Design Diagnostics}
+\label{subsubsec:vietnam_sample}
+
+The used sample in this thesis follows \citet{sloczynski2025abadie} in revisiting \citet{angrist1990lifetime}.
+Here it especially uses Angrists subsample of the 1984 Survey of Income and Program Participation
+(SIPP) which contains $N = 3{,}027$ white men born between 1950 and
+1953. Table~\ref{tab:vietnam_vars} summarises the three
+core variables of the IV design.
+
+\begin{table}[htbp]
+\centering
+\caption{IV design variables: Vietnam draft lottery application}
+\label{tab:vietnam_vars}
+\begin{tabular}{@{}llp{7.5cm}@{}}
+\toprule
+Role & Symbol & Definition \\
+\midrule
+Instrument  & $Z_i$ & Draft eligibility: $\mathbbm{1}\{RSN_i \leq c_{b(i)}\}$;
+                       randomly assigned within birth cohort \\[4pt]
+Treatment   & $D_i$ & Vietnam-era veteran status: indicator for
+                       military service \\[4pt]
+Outcome     & $Y_i$ & Log hourly wages \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:vietnam_descr} summarizes the design diagnostics that are of most relevance for the estimator comaprison in the later outcome weights analysis.
+From the table it can be seen that the assignment probability $\Pr(Z_i = 1) = 0.456$ is close to one half,
+indicating that draft eligibility was distributed near-evenly in the
+pooled sample. This reflects the random nature of the RSN assignment
+within each cohort.
+The overall veteran rate $\Pr(D_i = 1) = 0.328$ is substantially higher
+among draft-eligible men ($\Pr(D_i=1 \mid Z_i=1) = 0.404$) than among
+draft-ineligible men ($\Pr(D_i=1 \mid Z_i=0) = 0.265$), yielding a
+first-stage estimate of $\hat\delta = 0.139$. Under the IV assumptions, this first stage can be interpreted as the estimated share of compliers, that is, individuals whose veteran status is shifted by draft eligibility.
+
+\begin{table}[htbp]
+\centering
+\caption{Design diagnostics: Vietnam draft lottery (SIPP 1984)}
+\label{tab:vietnam_descr}
+\begin{threeparttable}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Quantity & Value \\
+\midrule
+Sample size $N$                              & $3{,}027$ \\
+$\Pr(Z_i = 1)$                               & $0.456$   \\
+$\Pr(D_i = 1)$                               & $0.328$   \\
+$\Pr(D_i = 1 \mid Z_i = 1)$                  & $0.404$   \\
+$\Pr(D_i = 1 \mid Z_i = 0)$                  & $0.265$   \\
+First stage $\hat\delta$                     & $0.139$   \\
+First-stage $F$, linear age\tnote{a}         & $30.1$    \\
+First-stage $F$, cubic age\tnote{a}          & $26.3$    \\
+First-stage $F$, saturated age\tnote{a}      & $27.2$    \\
+Complier share estimate\tnote{b}             & $13.9\,\%$ \\
+Compliance pattern                           & Incomplete \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+  \footnotesize
+  \item[$^a$] HC1-robust Wald statistic for the coefficient on \(Z_i\)
+  in the first-stage regression of \(D_i\) on \(Z_i\) and the corresponding
+  age controls. With one excluded instrument, this statistic equals the
+  squared robust \(t\)-statistic.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+The first-stage (F)-statistics exceed 26 across all three age specifications. Thus, weak-instrument concerns are not central in this application.
+At the same time, the nonzero treatment rate $\Pr(D_i=1 \mid Z_i=0) = 0.265$ among draft-ineligible men shows that the design exhibits incomplete compliance. Draft eligibility increases the probability of military service, but it does not determine veteran status. This distinction is important for the outcome-weight diagnostics below. The identifying variation comes from the margin shifted by the instrument, not from the full sample. Consequently, the effective sample size of the outcome weights may be much smaller than (N), especially when the weights concentrate on the complier-relevant variation.\\
+Figure~\ref{fig:vietnam_firststage} illustrates the first stage across
+age groups. The blue bars show the veteran rate among draft-eligible men
+($Z_i = 1$) and the red bars among draft-ineligible men ($Z_i = 0$).
+Across age groups, veteran rates are higher among draft-eligible men than among draft-ineligible men, providing a visual check of the instrument relevance condition. At the same time, the positive veteran rates among draft-ineligible men show that the design exhibits incomplete compliance.
+
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{pics/fs_visu.png}
+\caption{Veteran rates by draft eligibility and age group.
+  Blue bars: $\Pr(D_i=1 \mid Z_i=1)$; red bars:
+  $\Pr(D_i=1 \mid Z_i=0)$. The gap between bars is the
+  cohort-specific first-stage estimate $\hat\delta$.
+  Non-zero red bars confirm incomplete compliance across
+  all age groups. Dashed line: pooled first stage
+  $\hat\delta = 0.139$.}
+\label{fig:vietnam_firststage}
+\end{figure}
+
+\newpage
+\paragraph{Instrument propensity score.}
+A final design feature is the distribution of the estimated instrument propensity score $\hat{p}(X_i) = \Pr(Z_i = 1 \mid X_i)$.
+The quantity enters all kappa-based estimators and will be therefore relevant for the weight diagnostics below. Extreme or highly dispersed propensity scores can generate more concentrated outcome weights and lower effective sample size. In the Vietnam application, however, the covariate adjustment problem is low-dimensional because $(X_i)$ consists only of age controls.
+\begin{table}[htbp]
+\centering
+\caption{Propensity score summary statistics by covariate specification}
+\label{tab:vietnam_pscore_stats}
+\begin{threeparttable}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Specification & Min & P25 & Mean & P75 & Max & SD \\
+\midrule
+Linear age    & 0.2810 & 0.3793 & 0.4556 & 0.5258 & 0.6341 & 0.1011 \\
+Cubic in age  & 0.1373 & 0.4110 & 0.4556 & 0.5464 & 0.5501 & 0.1146 \\
+Saturated age & 0.2093 & 0.3707 & 0.4556 & 0.5482 & 0.5671 & 0.1200 \\
+\bottomrule
+\end{tabular}
+\end{threeparttable}
+\end{table}
+The estimated instrument
+propensity scores remain centered around the pooled draft-eligibility rate,
+with a mean of \(0.456\) in all three specifications.
+The main difference across specifications is the amount and shape of variation
+around this mean. The linear age specification produces fitted values between
+\(0.281\) and \(0.634\), while the cubic and saturated specifications allow more
+flexibility at the lower end. In particular, the cubic specification reaches a
+minimum of \(0.137\), indicating that it assigns substantially lower draft-
+eligibility probabilities to some age observations. The saturated specification
+has the largest standard deviation, \(0.120\), reflecting its discrete age-cell
+structure.
+Appendix Figure~\ref{fig:vietnam_pscore} illustrates this difference visually. Relative to the linear specification, the cubic and saturated specifications produce more clustered fitted values, with the saturated model generating distinct mass points by age group.
+This makes evere inverse-propensity instability unlikely in this application.
+
+
+
+
+
+\subsection{Point Estimates and Replication}
+\label{subsec:vietnam_estimates}
+A central finite-sample concern in kappa-based LATE estimation is that some estimators are sensitive to arbitrary transformations of the outcome variable.
+\citet{sloczynski2025abadie}
+provide a a direct illustration of this problem because wages can be measured either in dollars or in cents before taking logarithms $$\log(100 \cdot wage_i)=\log(wage_i)+\log(100),$$
+the two outcomes differ only by an additive constant. Any change in the estimated treatment effect across these two codings therefore reflects a failure of translation invariance in the log-outcome scale.
+Table 6 uses this recoding exercise to benchmark the kappa estimators, especially with a purpose of not only to reproduce the pattern documented by \citet{sloczynski2025abadie}, but also to establish the point-estimate insights that the outcome-weight diagnostics maybe can explain in the next section.\\
+The normalized estimators are essentially unchanged by the recoding of wages. Across the linear and cubic specifications, $(\hat\tau_u^{cb})$,$ (\hat\tau_u^{ml}),$ and $(\hat\tau_{a,10})$ remain close to the corresponding 2SLS benchmarks. This is the expected behaviour for translation-invariant estimatiors.
+On the other hand the unnormalized estimators display the opposite pattern.
+In the linear-age specification, the estimates are negative when wages are
+measured in cents but close to zero and positive when wages are measured in
+dollars.
+$\hat{\tau}_a$ moves from $-0.429$ to $0.015$, an implied gap of
+$0.444$ log points.
+ In the cubic specification, the sign does not change, but the magnitude remains strongly affected by the outcome coding. Interestingly, in the saturated specification all estimators coincide. 
+This is rather due to the fully flexible age-cell specification of the instrument propensity score rather than a general robustness property of the unnormalized estimators.
+The table therefore motivates the outcome weight analysis that follows.It shows that some estimators react to an additive shift in the log outcome, but the point estimates alone do not identify the mechanical source of the sensitivity. The next section uses this identity to diagnose translation invariance directly through the implied weights.
+
+
+
+
+
+
+
+
+\newpage
+\subsection{Double Machine Learning Comparison}
+\label{subsec:vietnam_dml}
+The kappa estimators in the preceding section require an estimate of the instrument propensity score.
+For $\hat\tau_u^{ml}$ and the Abadie-type estimators this is obtained by logistic Maximum Likelihood Estimation (MLE), while $\hat\tau_u^{cb}$ uses CBPS moment conditions. 
+The idea here to replace those models with a flexible machine learning nuisance etsimator materially could change the LATE estimate in this design.
+To assess this, the analysis adds two DML based IV estimators which are the PLR-IV and the WALD-AIPW, both implemented using he \textsc{OutcomeWeights}
+package of \citet{knaus2024treatment}.
+The nuisance functions are estimated by generalised random forest with five-fold cross-fitting and automatic hyperparameter tuning. \\
+The linear-age specification is omitted from the DML comparison because it is not a meaningful benchmark for flexible nuisance estimation: with only one continuous covariate, the flexible learner has little scope to improve on the parametric specification. The DML comparison therefore focuses on the cubic and saturated specifications, where the nuisance learner can, in principle, exploit nonlinear age patterns. Relevant benchmarks are provided by the cubic and saturated age specifications, as both supply enough structural variation for the flexible learner to differ, in principle from the other two specifications.
+Table~\ref{tab:vietnam_dml} reports point estimates for the two DML
+estimators alongside the three normalised kappa estimators and the 2SLS
+benchmark, for the cubic and saturated specifications and log wages in
+dollars. 
+\begin{table}[htbp]
+\centering
+\caption{Point estimates: DML and kappa estimators (Vietnam)}
+\label{tab:vietnam_dml}
+\small
+\begin{tabular}{l cc cc}
+\toprule
+ & \multicolumn{2}{c}{Cubic age}
+ & \multicolumn{2}{c}{Saturated age} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Estimator & Est. & SE & Est. & SE \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{5}{l}{\textit{Panel A: DML}} \\[2pt]
+PLR-IV           & 0.243 & (0.228) & 0.242 & (0.228) \\
+Wald-AIPW        & 0.229 & (0.231) & 0.244 & (0.233) \\[4pt]
+\multicolumn{5}{l}{\textit{Panel B: Normalised kappa}} \\[2pt]
+$\hat{\tau}_{u}^{cb}$   & 0.210 & (0.233) & 0.241 & (0.229) \\
+$\hat{\tau}_{u}^{ml}$   & 0.202 & (0.235) & 0.241 & (0.229) \\
+$\hat{\tau}_{a,10}$     & 0.204 & (0.239) & 0.241 & (0.229) \\[4pt]
+\multicolumn{5}{l}{\textit{Panel C: 2SLS benchmark}} \\[2pt]
+2SLS             & 0.227 & (0.229) & 0.254 & (0.227) \\
+\bottomrule
+\addlinespace[4pt]
+\end{tabular}
+\end{table}
+ Two patterns stand out. First, the DML estimates are closely aligned
+with the normalised kappa estimators. In the cubic specification, PLR-IV
+yields 0.243 and Wald-AIPW yields 0.229, compared with a range of
+0.202--0.210 for the normalised kappa estimators and 0.227 for 2SLS.
+In the saturated specification, PLR-IV gives 0.242 and Wald-AIPW gives
+0.244, again consistent with the normalised kappa estimates of 0.241 and
+the 2SLS benchmark of 0.254.
+The DML estimates remain statistically and substantively close to the normalized kappa and 2SLS benchmarks, although PLR-IV is somewhat larger than the normalized kappa estimates in the cubic specification. For the PLR-IV it is to take into account though that this framework just estimate the Local Average Treatment Effect under certain conditions. 
+The convergence hence is expected given the design. The Vietnam draft lottery
+instrument is near-randomly assigned conditional on birth cohort, and the
+only adjustment variable is age. In this low-dimensional, near-random-
+assignment setting, the parametric logit and the generalised random forest
+estimate essentially the same propensity-score surface.
+ The effective sample size and the share of negative weights are virtually identical across all estimators, which confirms that the instrument design rather then than the nuisance learner dirves the weight structure. In this case the primary idea is to suspect that the design dominates the learner. 
+
+The generalized random forest based estimates above use a single learner class, a natural question results in assessing whther the convergence result is specific to generalised random forests or whether it holds across fundamentally different nuisance estimators such as parametric, tree ensembles with other packages or boosted sequential learners.
+These make different approximation choices and carry different theoretical guarantees for the smoother condition $\sum_i \omega_i = 0$.
+To assess whether learner choice within the DoubleML framework
+produces different results, Table~\ref{tab:vietnam_dml} additionally
+reports Wald-AIPW estimates from \texttt{DoubleMLIIVM} with three
+alternative nuisance learners: linear regression and logistic
+classification (the parametric baseline), ranger random forests, and
+XGBoost.
+The three learner variants span a range from 0.218 to 0.246. These estimates remain close to the grf Wald-AIPW benchmark of 0.229, the cubic 2SLS
+estimate of 0.227, and the broader range of normalised kappa estimates reported
+above. The parametric linear/logistic learner lies at the lower end of the
+DoubleML range, which is consistent with stronger functional-form restrictions
+relative to the more flexible tree-based learners. Given the large standard
+errors and the low-dimensional covariate structure of the Vietnam design, these
+differences should be interpreted as learner sensitivity checks rather than as
+distinct empirical conclusions.
+
+
+
+
+
+
+
+
+\subsection{Outcome Weight Diagnostics and Covariate Balance}
+\label{subsec:vietnam_weights}
+The point estimate comparison in the prior section showed that unnormalised kappa estimators respond to an additive shift in the log outcome, while normalised estimators and DML do not. Section~\ref{subsec:vietnam_dml}
+showed that DML and normalised kappa estimators agree numerically. This section
+explains both findings by looking through the lens of the Outcome weights.
+\begin{table}[htbp]
+\centering
+\caption{Outcome weight diagnostics: Vietnam draft lottery}
+\label{tab:vietnam_weights}
+\small
+\begin{tabular}{l cccc}
+\toprule
+Estimator & $\sum_i\omega_i$ & ESS & \% neg.\ & $\max|\omega_i|$ \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{5}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
+PLR-IV (DML)                      & 0.000 & 6 & 54.4 & 0.0125 \\
+Wald-AIPW (DML)                   & 0.000 & 5 & 54.4 & 0.0176 \\
+$\hat{\tau}_{u}^{cb}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0254 \\
+$\hat{\tau}_{u}^{ml}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0281 \\
+$\hat{\tau}_{a,10}$ (kappa)       & 0.000 & 5 & 54.4 & 0.0291 \\
+$\hat{\tau}_{a}$ (kappa)          & 0.048 & 5 & 54.4 & 0.0289 \\
+$\hat{\tau}_{t}$ (kappa)          & 0.046 & 5 & 54.4 & 0.0277 \\
+$\hat{\tau}_{a,0}$ (kappa)        & 0.049 & 5 & 54.4 & 0.0291 \\[4pt]
+\multicolumn{5}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
+PLR-IV (DML)                      & 0.000 & 6 & 54.4 & 0.0131 \\
+Wald-AIPW (DML)                   & 0.000 & 5 & 54.4 & 0.0169 \\
+$\hat{\tau}_{u}^{cb}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0178 \\
+$\hat{\tau}_{u}^{ml}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0178 \\
+$\hat{\tau}_{a,10}$ (kappa)       & 0.000 & 5 & 54.4 & 0.0178 \\
+$\hat{\tau}_{a}$ (kappa)          & 0.000 & 5 & 54.4 & 0.0178 \\
+$\hat{\tau}_{t}$ (kappa)          & 0.000 & 5 & 54.4 & 0.0178 \\
+$\hat{\tau}_{a,0}$ (kappa)        & 0.000 & 5 & 54.4 & 0.0178 \\
+\bottomrule
+\addlinespace[4pt]
+\end{tabular}
+\end{table}
+Table~\ref{tab:vietnam_weights} reports four weight diagnostics for every
+estimator. The weight sum $\sum_i \omega_i$, the effective sample size
+$\text{ESS} = 1/\sum_i \omega_i^2$, the share of negative weights, and the
+maximum absolute weight. \\
+The first column directly operationalises the
+translation-invariance criterion derived in Chapter~\ref{sec:framework} which can be seen as the necessary and sufficient finite sample condition for translation invariance.
+In the cubic specification, $\sum_i\omega_i = 0$ holds 
+for PLR-IV, Wald-AIPW, and all three normalised kappa estimators.
+On the other hand the three
+unnormalised kappa estimators have weight sums between 0.046 and 0.049,
+accounting precisely for the instability observed in Table~\ref{tab:vietnam_kappa}.
+ The result in Table~\ref{tab:vietnam_dml} extends to the alternative
+DoubleML learner specifications. The linear/logistic and \texttt{ranger}
+variants both pass the algebraic identity check
+\(\hat\tau=\sum_i\omega_iY_i\) and have \(\sum_i\omega_i=0\), so their
+recovered outcome weights can be interpreted as translation-invariant
+Wald-AIPW weights in this application. This is consistent with
+\citet{knaus2024treatment}, who shows that Wald-AIPW is normalized when
+the relevant outcome nuisance learners are affine smoothers.
+XGBoost is different. Although the recovered weights have an almost-zero
+sum, \(\sum_i\omega_i=-3.7\times10^{-6}\), they fail the algebraic identity
+\(\hat\tau=\sum_i\omega_iY_i\).
+This caveat is consistent with
+\citet{knaus2024treatment}, who notes that boosted trees can violate the
+affine-smoother condition required for the normalization results.
+
+
+The saturated specification does not make the unnormalised estimators translation invariant in general. Rather, in this application it estimates the instrument propensity score at the age-cell level, which aligns the sample normalisations of the kappa components closely enough that the implied outcome weights sum to zero. The disappearance of the cents--dollars discrepancy is therefore a feature of this saturated design, not a general robustness property of the unnormalised estimators.\\
+The remaining three columns of Table~\ref{tab:vietnam_weights} reveal a
+striking uniformity. In the cubic specification, every estimator has an ESS
+of either 5 or 6, a negative-weight share of exactly 54.4\%, and a maximum
+absolute weight below 0.030. These diagnostics are shared in the saturated specification.
+The uniformity is not a limitation of the diagnostics. It rather reflects a structural feature of the Vietnam design as with a near randomly assigned instrument and a single continuos adjustment variable, the instrument design determines the weight structure almost entirely. 
+The flexible
+DML model and the kappa estimates that are based on a parametric logistic model and on parametric moment conditions produce virtually the same outcome weights because the propensity-
+score surface is nearly flat.
+Hence it can be seen that in the Vietnam application, outcome weight properties are set by design, not the learner.
+% here design dominates the learner appears often maybe some source for that can be found or so. 
+
+
+\subsection{Love plots}
+The weight sum diagnostics establish the translation invariance audit numerically, in this section Love plots follow to assess whether the implied outcome weights also achieve covariate balance in the conventional sense. 
+Figure~\ref{fig:vietnam_love_full} reports Love plots for all eight estimators
+in the cubic specification, plotting absolute standardised mean differences
+(ASMD).The unadjusted ASMD for all three
+moments lies around 0.5, reflecting the fact that veteran status is not
+unconditionally randomly assigned.
+Men who served differ systematically from those who did not in tehir age distribution across cohorts. 
+All eight estimators reduce the adjusted ASMD to approximately 0.05-0.10,
+well below the conventional 0.1 threshold.  This holds uniformly across the DML estimates and the normalised and unnormalised Kappa estimators. The fact that the estimators that fail translation invariance chieve
+indistinguishable covariate balance from those that pass it once again emphasizes that this is a design specific consequence. % Denk dran das is cubic and not saturated and it still looks the same (I mean the sum to 0 war auch nicht so krass different).
+This confirms that in this
+low-dimensional, near-random-assignment setting, the instrument design
+enforces covariate balance irrespective of normalization choice or learner
+flexibility.
+
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{pics/normal_love_plots.png}
+\caption{%
+    Dark circles: unadjusted sample.
+    Yellow triangles: weight-adjusted.
+    Dashed line: 0.1 threshold.
+    balance assessed using \texttt{love.plot()} from
+    \textsc{cobalt} \citep{greifer2024cobalt}.%
+  }
+\label{fig:vietnam_love_full}
+\end{figure}
+
+
+\subsection{Conclusion on Angrist Vietnam Framework}
+\label{subsec:vietnam_summary}
+The Vietnam application establishes a solid based behaviour of the unified outcome weights diagnostics in a clean, low dimensional, near-random-assignment design.
+Several results stand out. Section~\ref{subsec:vietnam_estimates} using the cents/dollars recoding reproduces
+the central finding of \citet{sloczynski2025abadie}.Normalised kappa
+estimators are invariant to additive outcome shifts, while unnormalised
+estimators are not, with the linear-age specification reversing sign entirely. In the case of the staurated specification all estimators collapse to a common value (0.241). As \citet{sloczynski2025abadie} note his as a demonstration that fully flexible
+propensity-score specifications can remove finite-sample pathologies.
+Moreover, using the \textit{Outcome Weights} package provided by \citet{knaus2024treatment} it is can be seen that the identity \(\hat\tau=\sum_i\omega_iY_i\) holds and  point estimates,
+effective sample sizes, and negative-weight shares are virtually identical
+across all kappa and DML estimators and across grf, ranger, and XGBoost
+learners. It is to mention that when using Wald-AIPW with gradient-boosted trees the affine-smoother condition fails. This caveat is also documented by \citet{knaus2024treatment} as XGBoost does not produce an exact smoother matrix not guaranteeing that the weights sum up to 0 even with the four required hyperparameters set. \\
+Apart from the application of the theoretical concepts a central finding is that in this design the instrument structure, not the choice of estimator
+or learner, determines the weight properties, this can be shown as the weight diagnostics are virtually identical across all estimators.
+. The four
+Wald-AIPW variants (grf 0.229, linear+logit 0.218, ranger 0.246,
+XGBoost 0.246) span only 0.03 log points, all consistent with the
+normalised kappa range of 0.20–0.21.
+The covariate balance is achieved equally by all estimators as Unadjusted
+ASMD 0.5 on all three age moments all eight estimators reduce it below
+0.1. The estimators that FAIL translation invariance achieve the same
+balance as those that pass it, emphasizing that the balance is rather set by design and nor by normalization choice. 
+Finally in the saturated design the parametric learner is the one that breaks  as the linear and logistic Wald-AIPW cannot produce outcome weights
+in the saturated specification, while flexible learners can handle it without issue.
+Hence, the Vietnam design can be seen as a benchmark precisely
+because the diagnostics are almost too clean. 
+In the next section the \citet{card1993using} application introduces a richer covariate-adjustment problem and an observational instrument, to detect whether the diagnistcs begin to differentiate across estimators.
+
+
+
+\newpage
+
+\section{Empirical Applications: Card (1995)}
+\label{sec:card_ae}
+% You have to find here way more citations for that
+One of the central empirical questions in labour economics is the effect of education on earnings. Human capital tradition often displays schooling as an investment that raises productivity and is therefore expected to increase later wages. The difficulty is that schooling is not random assigned. Individuals who acquire more education may differ systematically in ability, motivation, family background, or labour-market expectations, so a simple regression of wages on schooling need not recover a causal return.
+This identification problem motivated a large literature on the econometrics of schooling returns. \citet{griliches1977estimating} emphasized that estimates of the return to schooling are affected by omitted ability and measurement error, making both the direction and the magnitude of bias theoretically ambiguous. Later work therefore turned to quasi-experimental sources of variation in education. \citet{angrist1991does}, for example, use compulsory-schooling laws interacted with quarter of birth as an instrument for completed education. The college-proximity design of \citet{card1993using} belongs to this causal-identification tradition. It uses geographic proximity to a four year college as an instrument for schooling. \\
+The Card application is useful for this thesis because it changes the empirical design relative to the Vietnam draft lottery. In the Vietnam application, the instrument was close to randomly assigned conditional on age, and the covariate adjustment problem was deliberately low-dimensional. In the Card application, by contrast, college proximity is observational. The credibility of the instrument depends on conditioning on individual, family, regional, and labour-market characteristics. The instrument propensity score is therefore no longer nearly flat, and the choice of covariate specification becomes part of the empirical problem.
+This makes it a natural second application,
+ as it tests whether the outcome-weight diagnostics remain uniform once the instrument is observational and the covariate structure is richer.
+
+
+
+\subsection{Data}
+The analysis follows \citet{sloczynski2025abadie} in revisiting the Card college-proximity application using the National Longitudinal Survey of Young Men. The sample contains 3,010 men with valid wage and education information who were interviewed in 1976. The outcome is log hourly wages. 
+\subsubsection{College Proximity: The instrument}
+The instrument in this design is an indicator for whether an individual grew up near a four year college in 1966. The economic mechanism behind is a cost of attendance channel. Individuals that live close to a four-year college could attend without bearing the full cost of relocation or long-distance commuting. Proximity should therefore increase the probability of post-secondary schooling, especially for individuals whose schooling choices are sensitive to the direct and indirect costs of college attendance.
+Unlike draft eligibility in the Vietnam application, college proximity is not randomized by design. In the draft-lottery setting, conditional on birth cohort, the instrument is generated by the random assignment of lottery numbers to dates of birth. The source of variation is therefore institutional and close to experimental. In the Card application, by contrast, the instrument is determined by where individuals grew up. Living near a four-year college is related to residential location and therefore potentially to family background, region, urban status, school quality, and local labour-market conditions. These factors may also affect later wages directly.
+Formally, the instrument must shift schooling choices, satisfy exclusion from the wage equation, and be conditionally independent of potential earnings given the covariates. Under these assumptions, the IV estimand is a local average treatment effect for individuals whose schooling decision is shifted by access to a nearby college.
+
+
+\begin{table}[htbp]
+\centering
+\caption{IV design variables: Card application}
+\label{tab:card_design}
+\small
+\begin{tabular}{lll}
+\toprule
+Role & Symbol & Definition \\
+\midrule
+Instrument & $Z_i$ & Near a four-year college in 1966, \\
+Treatment 1 & $D_{1i}$ & Some college attendance, $1\{\texttt{educ}_i>12\}$ \\
+Treatment 2 & $D_{2i}$ & College completion, $1\{\texttt{educ}_i\ge16\}$ \\
+Outcome & $Y_i$ & Log hourly wage \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Treatment Definitions and Outcomes}
+Card's original application studies the effect of completed years of schooling on earnings \citep{card1993using}. The kappa estimators considered in this thesis, however, are defined for a binary treatment. I therefore use two binary schooling margins. The first treatment is some college attendance, which indicates whether an individual  obtained any schooling beyond high school. The second treatment is college completion,
+which indicates whether individual completed at least sixteen years of education. 
+The two treatment margins correspond to different complier groups. The first group of compliers are individuals whose decision to continue beyond high school is shifted by growing up near a four-year college. The second group of compliers are individuals whose probability of completing college is shifted by the same instrument. The resulting Local Average Treatment Effects should therefore not be interpreted as the average return to one additional year of schooling in Card's original continuous-treatment specification \citep{card1993using}. They are binary-treatment Local Average Treatment Effects for the schooling margin affected by college proximity.\\
+
+
+
+
+
+\subsubsection{Covariate Specifications}
+For the reason that college proximity is not randomly assigned, the covariates play a more central role in the Card application than in the Vietnam draft-lottery design.
+In Vietnam, conditioning on age mainly reflected the cohort-specific lottery rules. \textbf{In the Card application, by contrast, the covariates define the conditional exogeneity assumption itself.}
+The choice of covariate specification is therefore not merely a robustness detail, but a part of the identifying design. 
+Paralleled \citet{sloczynski2025abadie} I use two covariate specifications. The first follows \citet{card1993using} and is the richer baseline specification. It includes experience, experience squared, indicators for Black, living in the South, living in an SMSA in 1976, living in an SMSA in 1966, and regional indicators.This specification controls for individual labour-market experience and geographic differences in college access and wage levels. It is therefore very close to Card's original design.
+\begin{table}[htbp]
+\centering
+\caption{Covariate specifications in the Card application}
+\label{tab:card_covariates}
+\small
+\begin{tabular}{lcc}
+\toprule
+Covariate & Card specification & Kitagawa specification \\
+\midrule
+Experience, $\texttt{exper}$ & Yes & No \\
+Experience squared, $\texttt{expersq}$ & Yes & No \\
+Black, $\texttt{black}$ & Yes & Yes \\
+South in 1976, $\texttt{south}$ & Yes & Yes \\
+SMSA in 1976, $\texttt{smsa}$ & Yes & Yes \\
+SMSA in 1966, $\texttt{smsa66}$ & Yes & Yes \\
+South in 1966, $\texttt{south66}$ & No & Yes \\
+Region indicators, $\texttt{reg661}$--$\texttt{reg668}$ & Yes & No \\
+\bottomrule
+\addlinespace[4pt]
+\end{tabular}
+\end{table}
+The second specification follows \citet{kitagawa2015test}
+and is more parsimonious. It includes indicators for Black, living in the South in 1976, living in an SMSA in 1976, living in an SMSA in 1966, and living in the South in 1966. This lower-dimensional specification is useful because it has been used in the binary-treatment IV literature and because it provides a direct check of how sensitive the outcome-weight diagnostics are to the richness of the covariate adjustment set.
+The comparison between the two will be central for the present analysis.
+In the next sections a few descriptive analysis will be depicted with the purpose of not merley describe the sampel but to evaluate whether the instrument has sufficient first-stage relevance and whether overlap in the instrument propensity score is plausible.
+\subsection{Descriptives}
+Table~\ref{tab:card_compliance_raw} reports important descriptives such as the unconditional treatment shares and the treatment rates by instrument status. This is usefully as it shows the amount of variation available and especially how strongly the instrument shifts the treatment probability under monotonicity. It can be seen how there are clear discrepancies between our first stages what depicts clearly the strength of the first stage. For the some-college margin, the probability of treatment is 54.4 percent among individuals who grew up near a four-year college and 42.2 percent among those who did not.
+The raw first-stage gap is therefore 12.2 percentage points.
+On the other hand, for the college-completion margin, the first stage is substantially smaller. The probability of completing at least sixteen years of schooling is 29.3 percent among individuals near a four-year college and 22.5 percent among those farther away.
+The implied raw first stage is only 6.9 percentage points. This indicates that the stricter treatment margin is identified from a much smaller complier group.
+This shows that the empirical design contains less identifying variation for college completion than for some college attendance.
+Furtheremore, the table shows that neither treatment margin corresponds to one-sided compliance, as there are substantial always-taker and never-taker shares.
+\begin{table}[htbp]
+\centering
+\caption{Raw compliance diagnostics in the Card application}
+\label{tab:card_compliance_raw}
+\begin{tabular}{lcc}
+\toprule
+ & \texttt{somecol} & \texttt{educ16} \\
+\midrule
+$\Pr(D=1)$                         & 0.505 & 0.271 \\
+$\Pr(D=1 \mid Z=1)$                & 0.544 & 0.293 \\
+$\Pr(D=1 \mid Z=0)$                & 0.422 & 0.225 \\
+Raw first stage / complier share   & 0.122 & 0.069 \\
+Always-taker share                 & 0.422 & 0.225 \\
+Never-taker share                  & 0.456 & 0.707 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Next to the raw first stage the the covariate-adjusted first stage is very important, hence Table~\ref{tab:card_first_stage_wald} compares the covariate adjusted first stage for the two treatment specifications using both covariate sets.
+It can be clearly seen for \texttt{somecol}, how once we include Card or Kitagawa covariates are included, the first stage falls to about 6.4--6.5 percentage points.
+Once tge part of the raw relationship between college proximity and some college attendance is explained by the covariates, the value of the first stage nearly drops by the half.
+The pattern is more concerning for \texttt{educ16}. The raw first stage is already smaller, at 6.9 percentage points, and the covariate-adjusted first stage falls further to 3.0 percentage points under the Card specification and 3.8 percentage points under the Kitagawa specification.\\
+The corresponding first-stage F-statistics are only 3.5 and 3.9. This indicates that college proximity provides only limited identifying variation for the college-completion margin once the covariates are held fixed.\\
+This gives already a central interpretation for the later estimator comparisons implying that the \texttt{somecol} estimates are based on a not very strong first stage. By contrast, the \texttt{educ16} estimates rely on a much weaker first stage. Large Wald contrasts or unstable weighting estimates for \texttt{educ16} should therefore not be over-interpreted.
+\begin{table}[htbp]
+\centering
+\caption{First stage, reduced form, and Wald contrasts in the Card application}
+\label{tab:card_first_stage_wald}
+\begin{tabular}{llrrrr}
+\toprule
+Treatment & Specification & First stage $\hat{\delta}$ & F-statistic & Reduced form $\hat{\gamma}$ & Wald $\hat{\gamma}/\hat{\delta}$ \\
+\midrule
+\texttt{somecol} & Card     & 0.0636 & 12.5 & 0.0421 & 0.6613 \\
+\texttt{somecol} & Kitagawa & 0.0653 &  9.0 & 0.0375 & 0.5748 \\
+\texttt{educ16}  & Card     & 0.0302 &  3.5 & 0.0421 & 1.3915 \\
+\texttt{educ16}  & Kitagawa & 0.0379 &  3.9 & 0.0375 & 0.9909 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\\
+A final descriptive diagnostic that is especially interesting for the current framework is the distribution of the fitted instrument propensity score. This will especially matter for the Kappa estimators as they use inverse propensity scores. Extreme fitted probabilities can therefore create large weights and reduce the effective sample size in the later outcome-weight diagnostics.
+Table~\ref{tab:card_pscore_summary} summarizes the fitted propensity scores for the Card and Kitagawa specifications.
+The Card specification produces slightly more dispersion, with fitted values ranging from 0.172 to 0.952 and a standard deviation of 0.236. The Kitagawa specification ranges from 0.253 to 0.907 and has a similar but slightly smaller standard deviation of 0.228. 
+\begin{table}[htbp]
+\centering
+\caption{Instrument propensity-score summary in the Card application}
+\label{tab:card_pscore_summary}
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+Specification & Min & P05 & P25 & Mean & P75 & P95 & Max & SD & Near 0/1 \\
+\midrule
+Card     & 0.1724 & 0.2459 & 0.4376 & 0.6821 & 0.8726 & 0.9341 & 0.9517 & 0.2356 & 0.0056 \\
+Kitagawa & 0.2532 & 0.2532 & 0.4554 & 0.6821 & 0.8783 & 0.8783 & 0.9067 & 0.2280 & 0.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Figure~\ref{fig:card_pscore_overlap} provides a more detailed view by plotting the propensity-score distribution separately for the two instrument groups. Here the most relevant feature is the upper tail. Specifically in the Card specification, many individuals have high predicted probabilities of living near a four-year college, but relatively few observations with $(Z_i=0)$ appear in that same region.
+These observations will later turn out to be important as when $(\hat p(X_i))$ is close to one, the inverse term $(1/(1-\hat p(X_i)))$becomes large for individuals with $(Z_i=0)$. They can be seen as individuals whose covariates make them look likely to live near a college but who in fact did not, which are rare comparison observations.
+The Kitagawa specification is more discrete because it uses fewer covariates, but it shows a similar qualitative pattern. Most mass is concentrated above the pooled instrument share, and the relevant scarcity concerns occur mainly for $(Z_i=0)$ observations in high-propensity regions.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{pics/card_pscore.png}
+\caption{Distribution of the fitted instrument propensity score by instrument status}
+\label{fig:card_pscore_overlap}
+\end{figure}
+
+\subsection{Point Estimates and Replication}
+\label{subsec:card_point_estimates}
+As shown in the previous descriptives section and grounded by the fact that college proximity is not randomly assigned, the Card application is a more demanding IV design than the Vietnam draft-lottery application.
+Hence, next it is to examine
+ whether the design features translate into the point estimates documented by \citet{sloczynski2025abadie}.
+The purpose of the replication is that it provides a benchmark against which the later outcome-weight diagnostics can be interpreted. If the point estimates already differ strongly across estimators or covariate specifications, later weight diagnostics may can help to explain this instability. 
+Table~\ref{tab:card_kappa_dollars} reports the main point estimates for log wages measured in dollars. 
+The point estimates for log wages measured in cents will then be explored in the Translation invariance section, in which the reproduction section will be expanded using log wages in cents and a translation invariance pipeline will be designed. \\
+First, taking a look at the \texttt{somecol}
+specification it is visible that the normalized kappa estimates are moderate and relatively close across the two covariate specifications.
+Under the Card specification, the normalized estimates range from 0.331 to 0.376. Under the Kitagawa specification, they range from 0.293 to 0.356. 
+  Thus, once the estimator is normalized, changing the covariate set affects the estimates but does not lead to large qualitative changes.
+  On the other hand, the unnormalized estimators behave differently.They seem close to the normalized estimates under the Card specification, but become much larger under the Kitagawa specification. For example, $\hat{\tau}^{ml}_{a}$ increases from 0.170 under the Card specification to 0.842 under the Kitagawa specification, and $\hat{\tau}^{ml}_{a,0}$ increases from 0.154 to 1.066. 
+  Important to mention that all the estimators are still quite far from the benchamrk 2SLS estimator. \\
+The difference is even clearer for the \texttt{educ16} margin. 
+he normalized kappa estimates remain between 0.586 and 0.853, although with large standard errors. By contrast, the unnormalized estimates become substantially larger under the Kitagawa specification, reaching 1.617 for $\hat{\tau}^{ml}_{a}$ and 2.712 for $\hat{\tau}^{ml}_{a,0}$.
+This is consistent with the descriptive evidence that showd that the 
+adjusted first stage for college completion is weak under both specifications, especially for the college completition application. 
+Estimators hence already reflect the combination of a weak first stage and estimator-specific normalization behavior.\\
+Rather than comparing point estimates alone, the following sections use the outcome-weight representation to examine which observations receive influential weights, whether the final weights are normalized, and whether the resulting weighted comparison improves covariate balance.
+
+
+\begin{table}[htbp]
+\centering
+\caption{Kappa and 2SLS point estimates in the Card application}
+\label{tab:card_kappa_dollars}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{\texttt{somecol}} & \multicolumn{2}{c}{\texttt{educ16}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Estimator
+& Card & Kitagawa
+& Card & Kitagawa \\
+\midrule
+\multicolumn{5}{l}{\textit{Panel A: 2SLS}} \\
+2SLS
+& $0.661^{**}$ & $0.575^{*}$ & $1.392^{*}$ & $0.991$ \\
+& $(0.295)$ & $(0.308)$ & $(0.801)$ & $(0.611)$ \\
+\addlinespace
+
+\multicolumn{5}{l}{\textit{Panel B: Normalized kappa estimators}} \\
+$\hat{\tau}^{cb}_{u}$
+& $0.376^{*}$ & $0.331$ & $0.853$ & $0.588$ \\
+& $(0.223)$ & $(0.236)$ & $(0.549)$ & $(0.433)$ \\
+
+$\hat{\tau}^{ml}_{u}$
+& $0.331$ & $0.356$ & $0.619$ & $0.628$ \\
+& $(0.202)$ & $(0.244)$ & $(0.387)$ & $(0.448)$ \\
+
+$\hat{\tau}^{ml}_{a,10}$
+& $0.346^{*}$ & $0.293$ & $0.586^{*}$ & $0.836$ \\
+& $(0.200)$ & $(0.252)$ & $(0.356)$ & $(0.821)$ \\
+\addlinespace
+
+\multicolumn{5}{l}{\textit{Panel C: Unnormalized kappa estimators}} \\
+$\hat{\tau}^{ml}_{a}$
+& $0.170$ & $0.842^{**}$ & $0.315$ & $1.617^{*}$ \\
+& $(0.370)$ & $(0.362)$ & $(0.696)$ & $(0.891)$ \\
+
+$\hat{\tau}^{ml}_{t}$
+& $0.171$ & $0.769^{**}$ & $0.319$ & $1.367^{**}$ \\
+& $(0.367)$ & $(0.308)$ & $(0.687)$ & $(0.648)$ \\
+
+$\hat{\tau}^{ml}_{a,0}$
+& $0.154$ & $1.066^{*}$ & $0.266$ & $2.712$ \\
+& $(0.354)$ & $(0.574)$ & $(0.639)$ & $(2.577)$ \\
+\bottomrule
+\end{tabular}
+\begin{minipage}{0.92\textwidth}
+\footnotesize
+\emph{Notes:} The table reports point estimates for log wages measured in dollars.
+Standard errors are shown in parentheses.
+Stars denote significance levels: $^{*}p<0.10$, $^{**}p<0.05$, $^{***}p<0.01$.
+\end{minipage}
+\end{table}
+
+
+\subsection{Double Machine Learning Estimates}
+\label{subsec:card_dml_estimates}
+A in Section~\ref{subsec:vietnam_dml}
+I complement the classical IV and kappa estimates with double machine learning estimators.
+Again I consider the PLR-IV, which is based on a partially linear IV score. Moroever, the Wald-AIPW, which combines a binary-instrument Wald contrast with augmented inverse-propensity components
+Table~\ref{tab:card_dml_estimates} shows a clear separation between PLR-IV and Wald-AIPW. PLR-IV is close to the conventional 2SLS benchmark. For the \texttt{somecol} margin, PLR-IV gives 0.681 under the Card specification and 0.593 under the Kitagawa specification, almost identical to the corresponding 2SLS estimates.
+The same pattern appears for \texttt{educ16}, where PLR-IV remains close to the larger 2SLS estimates. This is consistent with the interpretation of PLR-IV as a flexible version of a partially linear IV, rather than as a direct analogue of the normalized kappa LATE estimators.
+On the other hand, the Wald AIPW behaves different. 
+The grf and ranger implementations are substantially smaller than PLR-IV and closer to the normalized kappa benchmark. For \texttt{somecol}, both forest-based Wald-AIPW estimates lie around 0.26--0.29, compared with normalized kappa estimates of 0.331 and 0.356. For \texttt{educ16}, the forest-based Wald-AIPW estimates are around 0.49--0.54, again below PLR-IV and 2SLS but close to the normalized kappa estimates.
+These estimates are very close to the $\hat{\tau}^{ml}_{u}$ but more conservative then the PLR-IV.
+The parametric linear/logit Wald-AIPW estimator provides an intermediate benchmark. For \texttt{somecol}, it is close to the normalized kappa and forest-based Wald-AIPW estimates. For \texttt{educ16}, however, it is larger under the Card specification.
+This could be due to the fact that the parametric learner imposes stronger functional-form restrictions on the nuisance functions. 
+The XGBoost row is qualitatively different. Its estimates are not only larger or smaller than the other DML estimates, but they are outside the empirical range of all other estimators and even change sign.
+These values hence are not interpreted, rather treated as evidence of nuisance-estimation instability in this application.
+The Wald-AIPW score depends on several nuisance components, including instrument propensities and conditional outcome and treatment regressions. In weak-first-stage designs, the final ratio can be highly sensitive to small errors in these components.
+Sequential boosting can amplify this problem if the fitted nuisance functions are poorly calibrated in regions with limited overlap, especially in the upper tail of the instrument propensity score documented above.
+The XGBoost row can therefore be read as a diagnostic warning.
+It showcases that that the combination of weak first-stage variation, observational covariate adjustment, and a highly adaptive boosted nuisance learner produces unstable Wald-AIPW point estimates.
+Overall it can be seen how flexible nuisance estimation does not remove the empirical difficulty of this particular design. PLR-IV remains close to 2SLS, while Wald-AIPW with grf, ranger, and the parametric learner is closer to the normalized kappa estimates. The extreme XGBoost results show that learner choice can matter strongly once the design is less sharply identified than in the Vietnam application.
+
+\begin{table}[htbp]
+\centering
+\caption{DML-IV estimates in the Card application}
+\label{tab:card_dml_estimates}
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\texttt{somecol}} & \multicolumn{2}{c}{\texttt{educ16}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Estimator
+& Card & Kitagawa
+& Card & Kitagawa \\
+\midrule
+2SLS
+& 0.661 & 0.575 & 1.392 & 0.991 \\
+
+$\hat{\tau}^{ml}_{u}$ (kappa)
+& 0.331 & 0.356 & 0.619 & 0.628 \\
+
+PLR-IV (grf / OutcomeWeights)
+& 0.681 & 0.593 & 1.140 & 1.030 \\
+
+Wald-AIPW (grf / OutcomeWeights)
+& 0.279 & 0.292 & 0.530 & 0.535 \\
+
+Wald-AIPW (linear/logit)
+& 0.399& 0.311 & 0.884 & 0.534  \\
+
+Wald-AIPW (ranger)
+& 0.262 & 0.294 & 0.493 & 0.514 \\
+
+Wald-AIPW (XGBoost)
+& -13.416 & -0.113 & -3.198 & -3.656 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Outcome Weight Diagnostics: Dispersion, Extrapolation, and Normalization}
+The previous sections compared point estimates. 
+I now turn to the outcome weights behind these estimates. 
+\subsubsection{Overall Dispersion and Extrapolation}
+Table~\ref{tab:card_owd} reports the main dispersion diagnostics for a selected set of estimators.
+Paralleled to the Vietnam framework I include PLR-IV and Wald-AIPW as the two DML-IV estimators, $(\hat{\tau}^{cb}{u})$ and $(\hat{\tau}^{ml}{u})$ as normalized kappa benchmarks, and $(\hat{\tau}^{ml}_{t})$ as a representative unnormalized kappa estimator.
+Because the outcome weights are signed, I use the modified effective sample size as the main dispersion measure. The usual Kish effective sample size is designed for nonnegative normalized weights and can become difficult to interpret for signed contrasts. 
+This measure remains interpretable for signed weights and reduces to the usual Kish expression when all weights are nonnegative.
+The first result is that all non-XGBoost estimators shown in Table~\ref{tab:card_owd} retain a substantial modified effective sample size. Across the four design cells, $(ESS_{\mathrm{mod}})$ remains between approximately 1345 and 1954 for the DML estimators and between approximately 1561 and 1786 for the kappa estimators.
+Relative to the nominal sample size of 3010, the Card application therefore uses a smaller but still substantial effective sample.
+Furtheremore when comparing the 2 treatment specifications it can be seen that the \texttt{educ16} margin generates more concentrated weights than the \texttt{somecol} margin. This is visible in the maximum absolute weights and in the top-ten-percent mass. Under the Card specification, the Wald-AIPW maximum weight increases from 0.146 for \texttt{somecol} to 0.277 for \texttt{educ16}. Similarly, $(\hat{\tau}^{cb}_{u})$ increases from 0.087 to 0.197. The same pattern appears under the Kitagawa specification, although less sharply. This again underlines the descriptive weak first stage diagnostic as college completion is weakly shifted by the instrument, whihch causes the estimators to require more concentrated weights to construct the complier contrast. 
+Furtheremore, the share of negative weights is remarkably stable across the main estimators. It is close to 32 percent in almost every non-XGBoost case. Thus, the negative-weight share itself is not the main source of estimator differentiation in the Card application. What varies more meaningfully is the magnitude of the largest weights and the amount of absolute reweighting. Negative weights are therefore best interpreted together with weight magnitude and effective sample size,instead of a standalone failure criterion.
+
+
+\begin{table}[htbp]
+\centering
+\caption{Outcome-weight dispersion diagnostics in the Card application}
+\label{tab:card_owd}
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llrrrrrr}
+\toprule
+Cell & Estimator & Min & Max & \% Neg. & $\Sigma_{\mathrm{Top10}}$ & $\sum|\omega|$ & $ESS_{\mathrm{mod}}$ \\
+\midrule
+\multicolumn{8}{l}{\textit{Panel A: Card specification, \texttt{somecol}}} \\
+Card--\texttt{somecol} & PLR-IV (DML) & -0.033 & 0.032 & 33.1 & 6.03 & 30.11 & 1819 \\
+Card--\texttt{somecol} & Wald-AIPW (DML) & -0.146 & 0.039 & 31.8 & 3.03 & 20.70 & 1345 \\
+Card--\texttt{somecol} & $\hat{\tau}^{cb}_{u}$ & -0.087 & 0.022 & 31.8 & 3.48 & 23.46 & 1609 \\
+Card--\texttt{somecol} & $\hat{\tau}^{ml}_{u}$ & -0.052 & 0.020 & 31.8 & 2.94 & 20.28 & 1569 \\
+Card--\texttt{somecol} & $\hat{\tau}^{ml}_{t}$ & -0.055 & 0.020 & 31.8 & 3.07 & 21.31 & 1561 \\
+\addlinespace
+
+\multicolumn{8}{l}{\textit{Panel B: Card specification, \texttt{educ16}}} \\
+Card--\texttt{educ16} & PLR-IV (DML) & -0.055 & 0.053 & 33.1 & 10.10 & 50.42 & 1819 \\
+Card--\texttt{educ16} & Wald-AIPW (DML) & -0.277 & 0.074 & 31.8 & 5.76 & 39.31 & 1345 \\
+Card--\texttt{educ16} & $\hat{\tau}^{cb}_{u}$ & -0.197 & 0.051 & 31.8 & 7.90 & 53.20 & 1609 \\
+Card--\texttt{educ16} & $\hat{\tau}^{ml}_{u}$ & -0.097 & 0.037 & 31.8 & 5.50 & 37.96 & 1569 \\
+Card--\texttt{educ16} & $\hat{\tau}^{ml}_{t}$ & -0.103 & 0.038 & 31.8 & 5.75 & 39.86 & 1561 \\
+\addlinespace
+
+\multicolumn{8}{l}{\textit{Panel C: Kitagawa specification, \texttt{somecol}}} \\
+Kitagawa--\texttt{somecol} & PLR-IV (DML) & -0.033 & 0.025 & 31.8 & 6.51 & 33.33 & 1954 \\
+Kitagawa--\texttt{somecol} & Wald-AIPW (DML) & -0.065 & 0.015 & 31.8 & 3.51 & 24.57 & 1631 \\
+Kitagawa--\texttt{somecol} & $\hat{\tau}^{cb}_{u}$ & -0.046 & 0.016 & 31.8 & 3.44 & 23.91 & 1743 \\
+Kitagawa--\texttt{somecol} & $\hat{\tau}^{ml}_{u}$ & -0.044 & 0.016 & 31.8 & 3.53 & 24.49 & 1764 \\
+Kitagawa--\texttt{somecol} & $\hat{\tau}^{ml}_{t}$ & -0.038 & 0.014 & 31.8 & 3.10 & 21.21 & 1786 \\
+\addlinespace
+
+\multicolumn{8}{l}{\textit{Panel D: Kitagawa specification, \texttt{educ16}}} \\
+Kitagawa--\texttt{educ16} & PLR-IV (DML) & -0.057 & 0.043 & 31.8 & 11.32 & 57.95 & 1954 \\
+Kitagawa--\texttt{educ16} & Wald-AIPW (DML) & -0.119 & 0.028 & 31.8 & 6.42 & 44.98 & 1631 \\
+Kitagawa--\texttt{educ16} & $\hat{\tau}^{cb}_{u}$ & -0.081 & 0.028 & 31.8 & 6.12 & 42.50 & 1743 \\
+Kitagawa--\texttt{educ16} & $\hat{\tau}^{ml}_{u}$ & -0.078 & 0.028 & 31.8 & 6.23 & 43.22 & 1764 \\
+Kitagawa--\texttt{educ16} & $\hat{\tau}^{ml}_{t}$ & -0.067 & 0.025 & 31.8 & 5.51 & 37.72 & 1786 \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\end{table}
+
+\subsubsection{Treated-Control Normalization}
+After the examining the dispersion and extrapolation in the weights, a different question is whether the outcome weights form a normalized treated-minus-control comparison. 
+Under full normalization both quantities equal one. 
+\begin{table}[htbp]
+\centering
+\caption{Treated-control normalization of outcome weights}
+\label{tab:treat_norm_card}
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lccccccc}
+\toprule
+Cell & PLR-IV & Wald-AIPW & Linear/logit & Ranger & XGBoost & $\hat{\tau}^{ml}_{u}$ & $\hat{\tau}^{ml}_{t}$ \\
+\midrule
+Card--\texttt{somecol}     & 1.00/1.00 & 0.97/0.97 & 1.00/1.00 & 0.98/0.98 & -7.31/-6.03 & 1.00/1.00 & 1.00/1.11 \\
+Card--\texttt{educ16}      & 0.96/0.96 & 0.94/0.94 & 0.92/0.92 & 0.95/0.95 & -2.19/-1.88 & 1.00/1.00 & 1.00/1.20 \\
+Kitagawa--\texttt{somecol} & 1.00/1.00 & 0.99/0.99 & 1.00/1.00 & 1.00/1.00 &  0.43/0.49  & 1.00/1.00 & 1.00/0.72 \\
+Kitagawa--\texttt{educ16}  & 1.01/1.01 & 1.01/1.01 & 0.99/0.99 & 1.00/1.00 &  0.75/2.75  & 1.00/1.00 & 1.00/0.50 \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\end{table}
+
+Table~\ref{tab:treat_norm_card} shows that the normalized kappa estimator $(\hat{\tau}^{ml}_{u})$ is exactly normalized in all four design cells.
+Its treated mass equals one and its sign-flipped untreated mass also equals one. Due to its structure of a normalized weighted treated mean minus a normalized weighted untreated mean, $(\hat{\tau}^{ml}_{u})$ can be seen as the cleanest finite-sample benchmark.
+The DML estimators are close to this benchmark but not identical to it. PLR-IV is very close to one in all four cells. Wald-AIPW is also close, although slightly below one in the Card specification and slightly above one in the Kitagawa \texttt{educ16} case. The parametric linear/logit and ranger versions behave similarly. This is consistent with the idea that these implementations produce approximately normalized contrasts, but not the exact finite-sample normalization imposed by the normalized kappa formulas.
+The unnormalized kappa estimator $(\hat{\tau}^{ml}_{t})$ illustrates why treated-control normalization is informative. Its treated mass is one by construction, but the untreated mass is not.
+Under the Kitagawa specification, the sign-flipped untreated mass falls to 0.72 for \texttt{somecol} and 0.50 for \texttt{educ16}. This is the untreated-unnormalized case mentioned in \citet{knaus2024treatment}, where the treated component is normalized by construction, while the untreated component is not separately rescaled to minus one.
+The XGBoost row is qualitatively different from all other rows. In the Card specification, the treated and untreated masses are negative. In the Kitagawa \texttt{educ16} case, the untreated mass rises to 2.75. This confirms that the XGBoost estimates are not just different point estimates. They are generated by a fundamentally different and unstable weight structure.
+
+
+\subsubsection{Learner Sensitivity within Wald-AIPW}
+When taking a look at the learner comparison in the max absolute weights and in the modified effective sample size it is visible for the ranger specification that its modified ESS and maximum absolute weights are close to the grf and linear/logit implementations. For example, in the Kitagawa specification, ranger has $(ESS_{\mathrm{mod}})$ above 1600 in both treatment margins, and its maximum absolute weights remain below 0.10.
+The XGBoost is the clear exception. In the Card specification, $(ESS_{\mathrm{mod}}) $falls to 74 for both treatment margins. The maximum absolute weight reaches 20.03 for \texttt{somecol} and 4.77 for \texttt{educ16}. In the Kitagawa \texttt{educ16} case, the maximum absolute weight reaches 22.04. These values are orders of magnitude larger than the corresponding linear/logit and ranger weights.
+This underlines that the extreme XGBoost point estimates are therefore not an isolated numerical accident, but rather the direct consequence of an unstable weight geometry.\\
+This can be seen as a substantive implemenation finding as it indicates that the Wald-AIPW score can become highly sensitive to the nuisance learner in a weak-first-stage, observational IV design.
+The Card application combines a nonrandom instrument, relevant covariate imbalance, and limited identifying variation for college completion. In this environment, highly adaptive nuisance estimation can generate extreme residualized or inverse-propensity components, which then propagate into the final outcome weights.
+Overall, the outcome-weight diagnostics clarify the point-estimate results. PLR-IV and the valid Wald-AIPW implementations use sizeable effective samples and have treated-control masses close to one. Normalized kappa estimators provide the exact finite-sample normalization benchmark. The unnormalized kappa estimator differs mainly in the treated-control mass structure, not in the negative-weight share. XGBoost is the only case where the weight structure itself becomes pathological.
+
+
+\begin{table}[htbp]
+\centering
+\caption{Learner sensitivity of Wald-AIPW outcome weights}
+\label{tab:sensitivity_card}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+Cell & \multicolumn{3}{c}{$ESS_{\mathrm{mod}}$} & \multicolumn{3}{c}{$\max_i|\omega_i|$} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+& Linear/logit & Ranger & XGBoost & Linear/logit & Ranger & XGBoost \\
+\midrule
+Card--\texttt{somecol}     & 1555 & 1309 &  74 & 0.081 & 0.135 & 20.028 \\
+Card--\texttt{educ16}      & 1555 & 1309 &  74 & 0.179 & 0.254 &  4.774 \\
+Kitagawa--\texttt{somecol} & 1724 & 1681 & 435 & 0.048 & 0.057 &  0.683 \\
+Kitagawa--\texttt{educ16}  & 1724 & 1681 & 435 & 0.082 & 0.099 & 22.039 \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\end{table}
+
+
+
+
+
+\newpage
+
+
+\subsection{Translation invariance }
+As in the Vietnam application, wages will be later measured either in cents or in dollars before taking logarithms, so the two outcome variables differ by the additive constant $(\log(100))$. This preserves the same translation-invariance test used in the preceding chapter.
+
+
+
+\subsection{Love Plots}
+After having shown whether the weights are concentrated and normalized, it is now to determine for this particular specification whether treated and untreated components of the final outcome-weight contrast actually look balanced in covariates.
+The balance diagnostics are shown using Love plots. Each plot reports absolute standardized mean differences before and after applying the estimator-specific outcome weights. The unadjusted points describe the raw imbalance between treated and untreated observations. The adjusted points describe the imbalance induced by the final outcome weights. The dashed vertical line marks the conventional threshold of 0.1. The love plots will focus on the Card specification and the \texttt{educ16}. This is the most informative case because the descriptive diagnostics already showed that college completion has the weakest first stage. The weight diagnostics also showed larger maximum weights and stronger concentration for \texttt{educ16} than for \texttt{somecol}. 
+The Love plots therefore test whether this more fragile weight structure translates into weaker covariate balance.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{pics/loveplots_card_spec.png}
+\caption{Covariate balance for DML and kappa estimators: Card specification, \texttt{educ16}}
+\label{fig:card_love_dml_kappa_educ16}
+\end{figure}
+Figure~\ref{fig:card_love_dml_kappa_educ16} compares PLR-IV, Wald-AIPW, and the kappa estimators.
+The unadjusted imbalance is substantial, especially for experience, experience squared, race, region, and urban-status variables. This confirms again that the Card application is not a near-random-assignment design like the Vietnam draft lottery.After weighting, the estimators behave very differently. The CBPS-based normalized kappa estimator $(\hat{\tau}^{cb}_{u})$ achieves the strongest balance improvement, with adjusted standardized mean differences close to zero across almost all displayed covariates. This is consistent with the role of CBPS as a balancing propensity-score method.
+The other estimators do not uniformly achieve the same balance. PLR-IV and Wald-AIPW reduce some of the largest raw imbalances, but several adjusted regional differences remain above the 0.1 threshold. The ML-based normalized kappa estimator $(\hat{\tau}^{ml}_{u})$ also satisfies the normalization properties discussed above, but it does not automatically deliver covariate balance. In particular, several regional indicators remain strongly imbalanced after weighting.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{pics/euc16card_learner.png}
+\caption{Learner sensitivity of Wald-AIPW covariate balance: Card specification, \texttt{educ16}}
+\label{fig:card_love_learners_educ16}
+\end{figure}
+Figure~\ref{fig:card_love_learners_educ16} examines learner sensitivity within Wald-AIPW.
+The linear/logit implementation provides the cleanest balance among the DoubleML learner variants. Ranger performs reasonably but leaves larger adjusted imbalances for some regional variables. XGBoost is the clear exception. Its adjusted standardized mean differences are large for several covariates, including urban-status and regional indicators. This mirrors the previous weight diagnostics, where XGBoost had very low modified effective sample size and extremely large maximum absolute weights. The Love plot therefore confirms that the XGBoost estimates are generated by an unstable weighted comparison rather than by a credible balanced contrast.\\
+Those plots now add an additional layer to the analysis, showing whether the resulting weighted comparisons are credible in terms of observed covariates.
+Especially for the Card application, this depends on the estimator. CBPS-based normalized kappa produces the strongest covariate balance, linear/logit Wald-AIPW performs well, ranger is acceptable but less clean, and XGBoost fails both the weight-dispersion and balance diagnostics.
+
+
+
+\newpage
+\section{Empirical Child Application}
+
+
+\subsection{Data}
+\subsubsection{Stratified Sampling}
+The log income analysis based on the income valid subsample with positive reported income used in \citet{sloczynski2025abadie}
+entails 220,502 observations. Since the present thesis focuses on outcome-weight diagnostics and, for DML estimators, on objects derived from smoother matrices, applying the full diagnostic pipeline to the complete income sample is not computationally feasible.
+I therefore construct a smaller diagnostic subsample for the Angrist-Evans application used in \citet{sloczynski2025abadie}.
+The subsample is not intended to reproduce the full-sample point estimates, rather to preserve the empirical IV structure while making the outcome-weight diagnostics feasible.
+
+
+
+\begin{table}[h]
+\centering
+\caption{Full income sample vs.\ stratified subsample ($n = 3{,}000$, seed = 202)}
+\label{tab:subsample}
+\begin{tabular}{lrr}
+\hline
+Statistic & Full sample & Subsample \\
+          & ($N = 220{,}502$) & ($n = 3{,}000$) \\
+\hline
+$\Pr(Z=1)$                        & 0.5018 & 0.5020 \\
+$\Pr(D=1)$                        & 0.3493 & 0.3493 \\
+Complier share                    & 0.0543 & 0.0545 \\
+Mean log income                   & 8.9394 & 8.9819 \\
+SD log income                     & 1.2410 & 1.2170 \\
+Mean $\hat{p}(X)$                 & 0.5018 & 0.5020 \\
+SD $\hat{p}(X)$                   & 0.0152 & 0.0306 \\
+\hline
+\end{tabular}
+\end{table}
+Hence for the subsample restrict the data to the same income-valid sample used for the log-income analysis, and from this sample draw (N=3{,}000) observations using proportional stratification over the four realized instrument-treatment cells ((Z,D)).
+As it can be seen in Table~\ref{tab:subsample} this sampling rule preserves instrument rate
+$\Pr(Z=1)$, the treatment rate $\Pr(D=1)$, the complier share, the mean
+and standard deviation of log income, and the mean propensity score.
+The used subsample retains the central compliance structure of the original income design, resulting point estimates nevertheless are more variable for the sake of the smaller sample size. 
+% ==============================================================================
+\section{Discussion}
+\label{sec:discussion}
+% ==============================================================================
+
+\subsection{Cross-Application Summary}
+\label{subsec:cross_application}
+
+% Placeholder for Table 5 (cross-application comparison)
+\begin{table}[H]
+  \centering
+  \caption{Cross-application comparison of outcome weight diagnostics}
+  \label{tab:cross_app}
+  \begin{threeparttable}
+    \begin{tabular}{llrrrr}
+      \toprule
+      Application & Estimator & $\sum_i\omega_i$ & ESS & \% neg. & Balance \\
+      \midrule
+      \multicolumn{6}{l}{\textit{Angrist (1990) — Vietnam (cubic spec.)}} \\
+      & DML Wald-AIPW & & & & \\
+      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
+      \multicolumn{6}{l}{\textit{Card (1995) — Card spec, somecol}} \\
+      & DML Wald-AIPW & & & & \\
+      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
+      \multicolumn{6}{l}{\textit{Card (1995) — Kitagawa spec, somecol}} \\
+      & DML Wald-AIPW & & & & \\
+      & $\hat\tau_u^{cb}$ & & & & \\[4pt]
+      \multicolumn{6}{l}{\textit{Angrist \& Evans (1998) — LFP}} \\
+      & $\hat\tau_u^{cb}$ & & & & \\
+      \bottomrule
+    \end{tabular}
+    \begin{tablenotes}
+      \small\item Balance = maximum absolute SMD from Love plot.
+      DML not reported for Angrist--Evans due to memory constraints
+      ($N \approx 254{,}000$; see Section~\ref{subsec:ae}).
+    \end{tablenotes}
+  \end{threeparttable}
+\end{table}
+
+\subsection{The Outcome-Weights Lens: What It Adds}
+\label{subsec:lens}
+
+% [WRITE HERE — what Love plots reveal beyond point estimates, ~0.5 page]
+
+\subsection{DML Learner Comparison and Implications}
+\label{subsec:dml_learners}
+
+% [WRITE HERE — learner convergence, XGBoost issue, ~0.5 page]
+
+\subsection{Practical Guidance}
+\label{subsec:practical}
+
+% [WRITE HERE — when to use which estimator, always check sum(omega), ~0.5 page]
+
+\subsection{Limitations}
+\label{subsec:limitations}
+
+% [WRITE HERE — DML memory ceiling for large N, Love plots descriptive not inferential, ~0.3 page]
+
+
+% ==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ==============================================================================
+
+% [WRITE HERE — summary of findings, recommendation (tau_u^cb), extensions, ~1.5 pages]
+
+
+% ==============================================================================
+% REFERENCES
+% ==============================================================================
+\newpage
+
+
+% ==============================================================================
+% APPENDICES
+% ==============================================================================
+\newpage
+\appendix
+\renewcommand{\thesection}{\Alph{section}}
+
+
+
+\section{Outcome Weights of \texorpdfstring{$\hat\tau_{a,1}$}{tau(a,1)}}
+\label{app:omega_a1}
+
+This section derives the outcome weights of $\hat\tau_{a,1}$ (also written $\hat\tau_t$
+in \citealt{sloczynski2025abadie}) in the PIVE framework of
+\citet{knaus2024treatment}, and establishes that it is untreated-unnormalized.
+
+\paragraph{Setup.}
+Define the raw instrument IPW contrast for observation $i$ as
+\begin{equation}
+  r_i = \frac{Z_i}{\hat{p}_i} - \frac{1-Z_i}{1-\hat{p}_i}
+      = \frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)}.
+  \label{eq:a1_ri}
+\end{equation}
+The two kappa components $\kappa_{i1}$ and $\kappa_{i0}$ decompose $r_i$ as follows:
+\begin{equation}
+  \kappa_{i1} = D_i \frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)} = D_i r_i,
+  \qquad
+  \kappa_{i0} = (1-D_i)\frac{(1-Z_i)-(1-\hat{p}_i)}{\hat{p}_i(1-\hat{p}_i)}
+              = -(1-D_i)r_i.
+  \label{eq:a1_kappa_decomp}
+\end{equation}
+Equation~\eqref{eq:a1_kappa_decomp} is the central identity: the treated part of $r_i$
+is $\kappa_{i1}$ and the untreated part is $-\kappa_{i0}$.
+
+\paragraph{PIVE representation.}
+Define the diagonal transformation matrix
+$\mathbf{T}^{a,1} = \mathrm{diag}(r_1, \ldots, r_N)$.
+Using \eqref{eq:a1_kappa_decomp}, the pseudo-treatment is
+$\mathbf{T}^{a,1}\mathbf{D} = \boldsymbol{\kappa}_1$,
+and the estimator can be written as
+\begin{equation}
+  \hat\tau_{a,1}
+  = \frac{N^{-1}\mathbf{1}_N'\mathbf{T}^{a,1}\mathbf{Y}}
+         {N^{-1}\mathbf{1}_N'\mathbf{T}^{a,1}\mathbf{D}}
+  = \frac{N^{-1}\sum_i r_i Y_i}{N^{-1}\sum_i \kappa_{i1}},
+  \label{eq:a1_wald}
+\end{equation}
+which is a PIVE with $\widetilde{\mathbf{Z}} = \mathbf{1}_N$,
+$\widetilde{\mathbf{D}} = \boldsymbol{\kappa}_1$,
+$\widetilde{\mathbf{Z}}'\widetilde{\mathbf{D}} = \sum_i\kappa_{i1}$.
+By Proposition~\ref{prop:pive_weights}, the outcome weights are
+\begin{equation}
+  \boldsymbol{\omega}^{a,1\prime}
+  = \left(\sum_i\kappa_{i1}\right)^{-1} \mathbf{1}_N' \mathbf{T}^{a,1},
+  \label{eq:a1_omega_vec}
+\end{equation}
+so that the weight of observation $i$ is
+\begin{equation}
+  \boxed{
+    \omega_i^{a,1} = \frac{r_i}{\sum_j \kappa_{j1}}
+    = \frac{1}{\sum_j \kappa_{j1}}
+      \cdot\frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)}.
+  }
+  \label{eq:a1_omega_scalar}
+\end{equation}
+
+\paragraph{Normalization properties.}
+
+\noindent\textit{(i) Total weight sum.}
+Let $s_1 = \sum_i Z_i/\hat{p}_i$ and $s_0 = \sum_i(1-Z_i)/(1-\hat{p}_i)$.
+Then $\sum_i r_i = s_1 - s_0$, so
+\begin{equation}
+  \sum_{i=1}^N \omega_i^{a,1}
+  = \frac{\sum_i r_i}{\sum_j\kappa_{j1}}
+  = \frac{s_1 - s_0}{\sum_j\kappa_{j1}},
+  \label{eq:a1_sum}
+\end{equation}
+which is zero only if $s_1 = s_0$, a coincidental data-dependent condition with no
+structural guarantee. Hence $\sum_i\omega_i^{a,1} \neq 0$ in general, and
+$\hat\tau_{a,1}$ is not translation invariant.
+
+\noindent\textit{(ii) Treated weight sum.}
+Using $D_i r_i = \kappa_{i1}$ from \eqref{eq:a1_kappa_decomp}:
+\begin{equation}
+  \sum_{i=1}^N \omega_i^{a,1} D_i
+  = \frac{\sum_i D_i r_i}{\sum_j\kappa_{j1}}
+  = \frac{\sum_i \kappa_{i1}}{\sum_j\kappa_{j1}}
+  = 1. \qquad\checkmark
+  \label{eq:a1_treated}
+\end{equation}
+The treated weights sum to one exactly, because the denominator of $\hat\tau_{a,1}$
+is $\sum_i\kappa_{i1}$ — precisely the treated-side kappa total.
+
+\noindent\textit{(iii) Untreated weight sum.}
+Using $(1-D_i)r_i = -\kappa_{i0}$ from \eqref{eq:a1_kappa_decomp}:
+\begin{equation}
+  \sum_{i=1}^N \omega_i^{a,1}(1-D_i)
+  = \frac{\sum_i (1-D_i) r_i}{\sum_j\kappa_{j1}}
+  = \frac{-\sum_i \kappa_{i0}}{\sum_j\kappa_{j1}},
+  \label{eq:a1_untreated}
+\end{equation}
+which equals $-1$ only if $\sum_i\kappa_{i0} = \sum_i\kappa_{i1}$. Since there is no
+structural reason for the complier shares from the treated and untreated sides to be
+equal in any given sample, $\sum_i\omega_i^{a,1}(1-D_i) \neq -1$ in general.
+
+\paragraph{Classification.}
+Collecting the three results:
+\begin{equation}
+  \sum_{i=1}^N \omega_i^{a,1} \neq 0,
+  \qquad
+  \sum_{i=1}^N \omega_i^{a,1} D_i = 1,
+  \qquad
+  \sum_{i=1}^N \omega_i^{a,1}(1-D_i) = -\frac{\sum_i\kappa_{i0}}{\sum_i\kappa_{i1}} \neq -1.
+  \label{eq:a1_classification}
+\end{equation}
+Therefore $\hat\tau_{a,1}$ is \emph{untreated-unnormalized} in the sense of
+\citet[Table~4]{knaus2024treatment}: the treated side is normalized by construction
+but the untreated side is not. The contrast with $\hat\tau_{a,10}$ is instructive:
+the normalized estimator uses separate denominators $\sum_i\kappa_{i1}$ and
+$\sum_i\kappa_{i0}$ for the two sides, forcing both to sum to their target values;
+$\hat\tau_{a,1}$ uses only the treated-side denominator, leaving the untreated side
+without its own rescaling.
+
+\newpage
+
+
+\section{R Code Overview}
+\label{app:code}
+
+The empirical analysis relies on a created set of purpose-built R functions that
+implement the outcome-weight framework derived in Section~\ref{sec:connection}.
+The functions are currently contained in \texttt{functions\_kappa.R}; the
+final replication package, whether as a standalone script, a collection of
+application-specific files, or an R package will be made available at the
+link at the end of this appendix.\\
+The central contribution of the code is the function
+\texttt{kappa\_outcome\_weights(Z, D, p)}, which takes the observed instrument
+$Z$, treatment $D$, and a fitted propensity score vector $\hat{p}$ and returns
+the five outcome weight vectors $\boldsymbol{\omega}^u$,
+$\boldsymbol{\omega}^{a,10}$, $\boldsymbol{\omega}^a$,
+$\boldsymbol{\omega}^{a,1}$, and $\boldsymbol{\omega}^{a,0}$ in closed form.
+The weights are computed directly from the expressions derived in
+Section~\ref{subsec:omega_u}, without numerical optimisation or outcome
+regression. For $\hat\tau_u$, the function applies the Hájek-normalized
+IPW contrast from \eqref{eq:u_omega_scalar}; for $\hat\tau_{a,10}$, it
+applies the separately normalised $\kappa_1$/$\kappa_0$ ratio; for the
+three unnormalized estimators, it uses the common IPW numerator with the
+three denominator choices from \citet{sloczynski2025abadie}.
+
+\begin{lstlisting}[caption={\texttt{kappa\_outcome\_weights()}: closed-form
+  outcome weights for all five kappa estimators},
+  label={lst:kappa_ow}]
+kappa_outcome_weights <- function(Z, D, p) {
+  kw  <- kappa_weights(Z, D, p)           # kappa, kappa1, kappa0
+
+  # tau_u: Hajek-normalized IPW contrast (eq. u_omega_scalar)
+  s1  <- sum(Z / p);  s0 <- sum((1 - Z) / (1 - p))
+  dD  <- sum(D * Z / p) / s1 - sum(D * (1 - Z) / (1 - p)) / s0
+  w_u <- (Z / p / s1 - (1 - Z) / (1 - p) / s0) / dD
+
+  # tau_a10: separately normalized kappa1 / kappa0
+  w_a10 <- kw$kappa1 / sum(kw$kappa1) - kw$kappa0 / sum(kw$kappa0)
+
+  # tau_a, tau_a1, tau_a0: common IPW numerator, three denominators
+  num_w <- (Z - p) / (p * (1 - p)) / length(Z)
+
+  list(w_u   = as.vector(w_u),
+       w_a10 = as.vector(w_a10),
+       w_a   = as.vector(num_w / mean(kw$kappa)),
+       w_a1  = as.vector(num_w / mean(kw$kappa1)),
+       w_a0  = as.vector(num_w / mean(kw$kappa0)))
+}
+\end{lstlisting}
+
+Two companion functions produce the diagnostics reported in every weight
+table throughout Chapters~\ref{sec:vietnam} and~\ref{sec:card_ae}.
+\texttt{weight\_diag(w)} returns the four quantities that appear in each
+row of Tables~\ref{tab:vietnam_weights} and~\ref{tab:card_weights}: the
+weight sum $\sum_i\omega_i$ (the translation-invariance criterion of
+\eqref{eq:ti_identity}), the effective sample size
+$\mathrm{ESS} = 1/\sum_i\omega_i^2$, the share of negative weights, and
+the maximum absolute weight.
+\texttt{check\_weight\_identity(w, Y, tau\_hat)} verifies the identity
+$\hat\tau = \sum_i\omega_i Y_i$ to machine precision for every point
+estimate reported; all checks pass across all specifications.
+The propensity score is estimated either by standard logit MLE via
+\texttt{logit\_mle()} or by a hand-coded CBPS solver,
+\texttt{fit\_cbps\_alpha()}, which implements Newton steps with
+backtracking line search to solve the covariate-balancing moment condition
+directly.
+Analytical standard errors follow from \texttt{kappa\_analytic\_se\_one()},
+which stacks the propensity-score and LATE moment conditions and computes
+the M-estimation sandwich via a numerical Jacobian.
+
+\bigskip
+\noindent All replication code is available at:
+\texttt{[GITHUB / CLOUD LINK]}
+
+\section{Instrument Propensity Scores}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{pics/i_pscore.png}
+\caption{The first Empirical Application : Distribution of the fitted propensity score
+  $\hat{p}(X_i) = \Pr(Z_i=1 \mid X_i)$ under three covariate
+  specifications.}
+\label{fig:vietnam_pscore}
+\end{figure}
+
+\newpage
+\section{SUW replication}
+\begin{table}[htbp]
+\centering
+\caption{Kappa estimators: log wages (Vietnam draft lottery)}
+\label{tab:vietnam_kappa}
+\small
+\begin{tabular}{l cc cc cc}
+\toprule
+ & \multicolumn{2}{c}{Linear age}
+ & \multicolumn{2}{c}{Cubic age}
+ & \multicolumn{2}{c}{Saturated age} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Estimator & Cents & Dollars & Cents & Dollars & Cents & Dollars \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{7}{l}{\textit{Panel A: 2SLS benchmark}} \\[2pt]
+2SLS
+  & 0.233      & 0.233
+  & 0.227      & 0.227
+  & 0.254      & 0.254      \\
+  & (0.212)    & (0.212)
+  & (0.229)    & (0.229)
+  & (0.227)    & (0.227)    \\[4pt]
+ 
+\multicolumn{7}{l}{\textit{Panel B: Normalised kappa estimators}} \\[2pt]
+$\hat{\tau}_{u}^{cb}$
+  & 0.229      & 0.229
+  & 0.210      & 0.210
+  & 0.241      & 0.241      \\
+  & (0.213)    & (0.213)
+  & (0.233)    & (0.233)
+  & (0.229)    & (0.229)    \\[4pt]
+$\hat{\tau}_{u}^{ml}$
+  & 0.234      & 0.234
+  & 0.202      & 0.202
+  & 0.241      & 0.241      \\
+  & (0.211)    & (0.211)
+  & (0.235)    & (0.235)
+  & (0.229)    & (0.229)    \\[4pt]
+$\hat{\tau}_{a,10}$
+  & 0.227      & 0.227
+  & 0.204      & 0.204
+  & 0.241      & 0.241      \\
+  & (0.204)    & (0.204)
+  & (0.239)    & (0.239)
+  & (0.229)    & (0.229)    \\[4pt]
+ 
+\multicolumn{7}{l}{\textit{Panel C: Unnormalised kappa estimators}} \\[2pt]
+$\hat{\tau}_{a}$
+  & $-0.429^{*}$  & 0.015
+  & $0.537^{*}$   & 0.314
+  & 0.241          & 0.241      \\
+  & (0.258)        & (0.207)
+  & (0.322)        & (0.252)
+  & (0.229)        & (0.229)    \\[4pt]
+$\hat{\tau}_{t}$
+  & $-0.455$       & 0.016
+  & $0.515^{*}$    & 0.302
+  & 0.241          & 0.241      \\
+  & (0.279)        & (0.219)
+  & (0.301)        & (0.240)
+  & (0.229)        & (0.229)    \\[4pt]
+$\hat{\tau}_{a,0}$
+  & $-0.413^{*}$   & 0.014
+  & $0.540^{*}$    & 0.317
+  & 0.241          & 0.241      \\
+  & (0.246)        & (0.199)
+  & (0.326)        & (0.255)
+  & (0.229)        & (0.229)    \\
+ 
+\bottomrule
+\addlinespace[4pt]
+\multicolumn{7}{p{0.92\textwidth}}{\footnotesize
+The two outcomes differ by $\log(100) \approx 4.605$.
+The cents/dollars comparison is a finite-sample test of translation invariance:
+an estimator is translation invariant if and only if $\sum_i \omega_i = 0$,
+which holds for all estimators in Panels~A and~B and fails for those in Panel~C.
+Covariate specifications: linear age (columns 1--2), cubic polynomial in age (columns 3--4),
+and age indicators (columns 5--6). The propensity score $\hat{p}(X_i) = \Pr(Z_i=1 \mid X_i)$
+is estimated by logistic MLE except for $\hat{\tau}_u^{cb}$, which uses CBPS moment conditions.
+Standard errors: HC1-robust for 2SLS; M-estimation sandwich for kappa estimators.
+$^{*}p{<}0.10$, $^{**}p{<}0.05$, $^{***}p{<}0.01$.
+Replicates Słoczyński, Uysal, \& Wooldridge (2025), Table~2.}
+\end{tabular}
+\end{table}
+
+
+\newpage
+\section{DML learner comparison}
+\begin{table}[htbp]
+\centering
+\caption{DoubleML learner comparison: Wald-AIPW (Vietnam, cubic age)}
+\label{tab:vietnam_dml_appendix}
+\small
+\begin{threeparttable}
+\begin{tabular}{l c c c c}
+\toprule
+Learner & Est. & SE & $\omega'\mathbf{Y} = \hat{\tau}$ & $\sum_i\omega_i$ \\
+\midrule
+\addlinespace[2pt]
+Linear + logistic          & 0.2178 & (0.233) & \checkmark  & $0.000$                  \\
+Ranger RF                  & 0.2461 & (0.234) & \checkmark  & $0.000$                  \\
+XGBoost$^{\dagger}$        & 0.2463 & (0.234) & $\times$    & $-3.7\!\times\!10^{-6}$  \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} All models use \texttt{DoubleMLIIVM} with
+five-fold cross-fitting \citep{bach2022doubleml}
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+
+
+\newpage
+
+
+% ==============================================================================
+\bibliographystyle{apalike}
+\bibliography{references}
+
+\end{document}
+% ==============================================================================
