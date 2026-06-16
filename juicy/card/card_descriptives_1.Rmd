@@ -1,0 +1,468 @@
+---
+title: "Card (1995) — Descriptive Diagnostics"
+subtitle: "Sample & Missingness · Z/D/Y Distributions · Compliance · First Stage / Reduced Form / Wald · Propensity Overlap · Unadjusted Balance"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+h3   { color: #444; margin-top: 20px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.key-box  { background:#fdeaea; border-left:4px solid #d7191c; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 11, fig.height = 5.5, dpi = 110)
+```
+
+```{r packages}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(AER)
+library(sandwich)
+library(lmtest)
+library(scales)
+library(cobalt)
+
+source("functions_all.R")
+
+# Consistent palette
+col_z1   <- "#2c7bb6"   # Z = 1 (near college)
+col_z0   <- "#d7191c"   # Z = 0 (far from college)
+col_grey <- "#4d4d4d"
+col_card <- "#2166ac"
+col_kit  <- "#984ea3"
+```
+
+```{r data}
+data_path <- "/Users/alexung/Desktop/master_thesis/code/"
+card_raw  <- read_dta(file.path(data_path, "card.dta"))   # full sample, for missingness
+card      <- card_raw[!is.na(card_raw$wage) & !is.na(card_raw$educ), ]
+
+# Treatments, instrument, outcome, covariates
+card$somecol <- as.integer(card$educ > 12)
+card$educ16  <- as.integer(card$educ >= 16)
+card$Z       <- as.integer(card$nearc4)
+card$lwage   <- log(card$wage)                 # outcome (log wage)
+if (!"expersq" %in% names(card)) card$expersq <- card$exper^2
+
+# Design matrices (with intercept) for the two specifications
+X_card <- model.matrix(~ exper + expersq + black + south + smsa + smsa66 +
+                          reg661+reg662+reg663+reg664+reg665+reg666+reg667+reg668, card)
+X_kit  <- model.matrix(~ black + south + smsa + smsa66 + south66, card)
+
+# Propensity scores p(X) = Pr(Z = 1 | X) under both specs  (engine: logit_mle)
+card$p_card <- logit_mle(card$Z, X_card)
+card$p_kit  <- logit_mle(card$Z, X_kit)
+
+cat(sprintf("N (analysis) = %d | Pr(Z=1) = %.3f | somecol = %.3f | educ16 = %.3f\n",
+            nrow(card), mean(card$Z), mean(card$somecol), mean(card$educ16)))
+```
+
+<div class="note-box">
+**Scope.** This notebook is purely descriptive: it characterises the sample, the instrument, the treatments, the outcome, and covariate overlap *before* any estimator is applied. Weight-level diagnostics (ESS, weight concentration, love plots) live in the main analysis notebook. Sections are self-contained, so more descriptives can be appended without disturbing what is here.
+</div>
+
+---
+
+# 1. Sample & Missingness
+
+<div class="note-box">
+**What we look at.** Raw sample size, how many rows the wage/education restriction drops, the type of every variable, and where missing values sit. The analysis sample keeps only rows with non-missing `wage` and `educ`.
+</div>
+
+```{r sample-size}
+data.frame(
+  Stage = c("Raw file", "Drop missing wage / educ", "Analysis sample"),
+  N     = c(nrow(card_raw),
+            nrow(card_raw) - nrow(card),
+            nrow(card)),
+  check.names = FALSE
+) %>%
+  kbl(caption = "Sample construction", align = c("l","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 14) %>%
+  row_spec(3, bold = TRUE)
+```
+
+```{r missingness}
+miss_tab <- data.frame(
+  Variable    = names(card_raw),
+  Class       = vapply(card_raw, function(x) class(x)[1], character(1)),
+  n_missing   = vapply(card_raw, function(x) sum(is.na(x)), integer(1)),
+  pct_missing = round(100 * vapply(card_raw, function(x) mean(is.na(x)), numeric(1)), 2),
+  n_unique    = vapply(card_raw, function(x) length(unique(x)), integer(1)),
+  row.names   = NULL
+)
+miss_tab <- miss_tab[order(-miss_tab$n_missing), ]
+
+miss_tab %>%
+  kbl(caption = "Variable inventory and missingness (raw file, sorted by missing count)",
+      col.names = c("Variable","Class","# missing","% missing","# unique"),
+      align = c("l","l","r","r","r"), row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  row_spec(which(miss_tab$n_missing > 0), background = "#fdeaea") %>%
+  scroll_box(height = "360px") %>%
+  footnote(general = "Highlighted rows have at least one missing value. After the wage/educ restriction the analysis sample is used everywhere below.")
+```
+
+---
+
+# 2. Distributions of Z, D, and Y
+
+<div class="note-box">
+**Z** = college proximity (instrument), **D** = treatment (`somecol` = educ > 12, or `educ16` = educ ≥ 16), **Y** = log wage. Z and D are binary (shown as proportions); Y is continuous (shown as a histogram, split by instrument status).
+</div>
+
+```{r dist-binary, fig.height=4.2}
+bin_df <- bind_rows(
+  data.frame(Variable = "Z (near college)", value = card$Z),
+  data.frame(Variable = "D: somecol (educ > 12)", value = card$somecol),
+  data.frame(Variable = "D: educ16 (educ ≥ 16)", value = card$educ16)
+) %>%
+  group_by(Variable) %>%
+  summarise(`= 1` = mean(value), `= 0` = 1 - mean(value), .groups = "drop") %>%
+  pivot_longer(c(`= 1`, `= 0`), names_to = "level", values_to = "share")
+
+ggplot(bin_df, aes(x = Variable, y = share, fill = level)) +
+  geom_col(width = 0.6, alpha = 0.9) +
+  geom_text(aes(label = sprintf("%.1f%%", 100 * share)),
+            position = position_stack(vjust = 0.5), size = 3.4, colour = "white") +
+  scale_fill_manual(values = c("= 1" = col_z1, "= 0" = "#bdbdbd")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  coord_flip() +
+  labs(title = "Binary variables: Z and the two treatments", x = NULL, y = NULL, fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.major.y = element_blank(),
+        plot.title = element_text(face = "bold"))
+```
+
+```{r dist-y, fig.height=4.6}
+card %>%
+  mutate(Zlab = factor(ifelse(Z == 1, "Z = 1 (near college)", "Z = 0 (far)"),
+                       levels = c("Z = 1 (near college)", "Z = 0 (far)"))) %>%
+  ggplot(aes(x = lwage, fill = Zlab)) +
+  geom_histogram(bins = 40, alpha = 0.65, colour = "white", position = "identity") +
+  geom_vline(xintercept = mean(card$lwage), linetype = "dashed", colour = col_grey) +
+  scale_fill_manual(values = c("Z = 1 (near college)" = col_z1, "Z = 0 (far)" = col_z0)) +
+  labs(title = "Outcome: log wage, by instrument status",
+       subtitle = "Dashed line = overall mean log wage.",
+       x = "log(wage)", y = "Count", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10))
+```
+
+```{r dist-y-summary}
+data.frame(
+  Group = c("All", "Z = 1 (near)", "Z = 0 (far)"),
+  N     = c(nrow(card), sum(card$Z == 1), sum(card$Z == 0)),
+  Mean  = c(mean(card$lwage), mean(card$lwage[card$Z==1]), mean(card$lwage[card$Z==0])),
+  SD    = c(sd(card$lwage),   sd(card$lwage[card$Z==1]),   sd(card$lwage[card$Z==0])),
+  Min   = c(min(card$lwage),  min(card$lwage[card$Z==1]),  min(card$lwage[card$Z==0])),
+  Max   = c(max(card$lwage),  max(card$lwage[card$Z==1]),  max(card$lwage[card$Z==0]))
+) %>%
+  mutate(across(c(Mean,SD,Min,Max), ~round(., 3))) %>%
+  kbl(caption = "Log wage summary by instrument status", align = c("l","r","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 13)
+```
+
+---
+
+# 3. Z × D Compliance Table
+
+<div class="note-box">
+**Reading it.** The 2×2 cross-tab of instrument against treatment. Under an IV design with monotonicity, the first-stage gap Pr(D=1|Z=1) − Pr(D=1|Z=0) is the **complier share**, Pr(D=1|Z=0) approximates the **always-taker share**, and 1 − Pr(D=1|Z=1) the **never-taker share**. A small gap means few compliers — the population the LATE actually speaks to.
+</div>
+
+```{r compliance}
+compliance_block <- function(D, treat_name) {
+  tab <- table(Z = card$Z, D = D)
+  p_d_z1 <- mean(D[card$Z == 1])
+  p_d_z0 <- mean(D[card$Z == 0])
+  data.frame(
+    Treatment       = treat_name,
+    `n(Z=0,D=0)`    = tab["0","0"], `n(Z=0,D=1)` = tab["0","1"],
+    `n(Z=1,D=0)`    = tab["1","0"], `n(Z=1,D=1)` = tab["1","1"],
+    `Pr(D=1|Z=1)`   = round(p_d_z1, 3),
+    `Pr(D=1|Z=0)`   = round(p_d_z0, 3),
+    `Compliers`     = round(p_d_z1 - p_d_z0, 3),
+    `Always-takers` = round(p_d_z0, 3),
+    `Never-takers`  = round(1 - p_d_z1, 3),
+    check.names = FALSE
+  )
+}
+
+rbind(
+  compliance_block(card$somecol, "somecol (educ > 12)"),
+  compliance_block(card$educ16,  "educ16 (educ ≥ 16)")
+) %>%
+  kbl(caption = "Z × D compliance — counts and implied principal-strata shares (monotonicity)",
+      align = c("l", rep("r", 9))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  add_header_above(c(" " = 1, "Cell counts" = 4, "Conditional treatment rates" = 2,
+                     "Implied strata" = 3)) %>%
+  column_spec(9, bold = TRUE, color = "#2c7bb6") %>%
+  footnote(general = "Complier share = Pr(D=1|Z=1) − Pr(D=1|Z=0). Small complier shares are the descriptive signature of a weak instrument.")
+```
+
+---
+
+# 4. First Stage, Reduced Form, and Wald
+
+<div class="note-box">
+**The three building blocks.** First stage = effect of Z on D; reduced form = effect of Z on Y; their ratio is the Wald / IV estimate. The HC1-robust first-stage F (squared t on a single instrument) is the weak-instrument check — compare against the rule-of-thumb 10.
+</div>
+
+```{r first-stage-table}
+# --- USER'S EXISTING FUNCTION (kept verbatim): HC1-robust first-stage F ---
+fs_F <- function(formula, data) {
+  fit <- lm(formula, data = data)
+  ct  <- coeftest(fit, vcov = vcovHC(fit, type = "HC1"))
+  c(coef = unname(ct["Z","Estimate"]),
+    se   = unname(ct["Z","Std. Error"]),
+    F    = unname((ct["Z","Estimate"]/ct["Z","Std. Error"])^2))
+}
+
+CARD_RHS <- "exper+expersq+black+south+smsa+smsa66+reg661+reg662+reg663+reg664+reg665+reg666+reg667+reg668"
+KIT_RHS  <- "black+south+smsa+smsa66+south66"
+
+fs_rows <- rbind(
+  data.frame(Treatment="somecol", Spec="Card",
+             t(fs_F(as.formula(paste("somecol ~ Z +", CARD_RHS)), card))),
+  data.frame(Treatment="somecol", Spec="Kitagawa",
+             t(fs_F(as.formula(paste("somecol ~ Z +", KIT_RHS)), card))),
+  data.frame(Treatment="educ16", Spec="Card",
+             t(fs_F(as.formula(paste("educ16 ~ Z +", CARD_RHS)), card))),
+  data.frame(Treatment="educ16", Spec="Kitagawa",
+             t(fs_F(as.formula(paste("educ16 ~ Z +", KIT_RHS)), card)))
+)
+fs_rows$coef <- round(fs_rows$coef, 4)
+fs_rows$se   <- round(fs_rows$se, 4)
+fs_rows$F    <- round(fs_rows$F, 1)
+fs_rows$Strength <- ifelse(fs_rows$F >= 10, "strong", "WEAK")
+
+fs_rows %>%
+  kbl(caption = "First-stage strength: effect of college proximity (Z) on each treatment",
+      col.names = c("Treatment","Spec","First stage δ̂","SE","F-stat","> 10?"),
+      align = c("l","l","r","r","r","c")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(which(fs_rows$F < 10), background = "#fdeaea", bold = TRUE) %>%
+  footnote(general = "HC1-robust first-stage F on the single instrument. F < 10 (highlighted) flags a weak first stage.")
+```
+
+```{r rf-wald-table}
+# Reduced form (Z on Y), covariate-adjusted Wald (= just-identified 2SLS),
+# and the raw (no-covariate) Wald from group means.
+rf_coef <- function(rhs) {
+  fit <- lm(as.formula(paste("lwage ~ Z +", rhs)), data = card)
+  ct  <- coeftest(fit, vcov = vcovHC(fit, type = "HC1"))
+  unname(ct["Z","Estimate"])
+}
+fs_coef <- function(D, rhs) {
+  v <- fs_F(as.formula(paste(D, "~ Z +", rhs)), card)
+  unname(v["coef"])
+}
+raw_wald <- function(D) {
+  num <- mean(card$lwage[card$Z==1]) - mean(card$lwage[card$Z==0])
+  den <- mean(D[card$Z==1]) - mean(D[card$Z==0])
+  num / den
+}
+
+wald_block <- function(D, Dname, treat, spec, rhs) {
+  fs  <- fs_coef(Dname, rhs)
+  rf  <- rf_coef(rhs)
+  data.frame(
+    Treatment = treat, Spec = spec,
+    `First stage δ̂` = round(fs, 4),
+    `Reduced form γ̂` = round(rf, 4),
+    `Wald = γ̂/δ̂ (adj.)` = round(rf / fs, 4),
+    `Raw Wald (no cov.)` = round(raw_wald(D), 4),
+    check.names = FALSE
+  )
+}
+
+rbind(
+  wald_block(card$somecol, "somecol", "somecol", "Card",     CARD_RHS),
+  wald_block(card$somecol, "somecol", "somecol", "Kitagawa", KIT_RHS),
+  wald_block(card$educ16,  "educ16",  "educ16",  "Card",     CARD_RHS),
+  wald_block(card$educ16,  "educ16",  "educ16",  "Kitagawa", KIT_RHS)
+) %>%
+  kbl(caption = "Reduced form, first stage, and Wald (Y = log wage)",
+      align = c("l","l","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  column_spec(5, bold = TRUE) %>%
+  footnote(general = "Covariate-adjusted Wald equals just-identified 2SLS. The raw Wald uses unconditional group means (no covariates) and is the simplest IV contrast.")
+```
+
+```{r first-stage-plot}
+# --- USER'S EXISTING PLOT (kept): treatment rates by Z ---
+fs_gap   <- card %>% summarise(z1 = mean(somecol[Z==1]), z0 = mean(somecol[Z==0]))
+fs_gap_e <- card %>% summarise(z1 = mean(educ16[Z==1]),  z0 = mean(educ16[Z==0]))
+gap_some <- fs_gap$z1   - fs_gap$z0
+gap_educ <- fs_gap_e$z1 - fs_gap_e$z0
+
+fs_plot_df <- data.frame(
+  Treatment = rep(c("somecol\n(educ > 12)", "educ16\n(educ ≥ 16)"), each = 2),
+  Z    = rep(c("Z = 1 (near college)", "Z = 0 (far)"), 2),
+  rate = c(fs_gap$z1, fs_gap$z0, fs_gap_e$z1, fs_gap_e$z0)
+)
+
+ggplot(fs_plot_df, aes(x = Treatment, y = rate, fill = Z)) +
+  geom_col(position = position_dodge(0.7), width = 0.6, alpha = 0.9) +
+  geom_text(aes(label = sprintf("%.1f%%", 100*rate)),
+            position = position_dodge(0.7), vjust = -0.4, size = 3.4) +
+  annotate("text", x = 1, y = 0.58, label = sprintf("gap = %.3f", gap_educ),
+           size = 3.5, colour = col_grey) +
+  annotate("text", x = 2, y = 0.58, label = sprintf("gap = %.3f", gap_some),
+           size = 3.5, colour = col_grey) +
+  scale_fill_manual(values = c("Z = 1 (near college)" = col_z1, "Z = 0 (far)" = col_z0)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, 0.62)) +
+  labs(title = "First stage: treatment rates by college proximity",
+       subtitle = "The gap between bars is the unconditional first stage. Small gaps = weak instrument.",
+       x = NULL, y = "Treatment rate", fill = NULL, caption = "Card (1995).") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.major.x = element_blank(),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10),
+        plot.caption = element_text(colour = "grey50", size = 9))
+```
+
+---
+
+# 5. Propensity Score: Concentration & Overlap
+
+<div class="note-box">
+The propensity score here is p(X) = Pr(Z = 1 | X) — the model for the *instrument*, fitted with the engine's `logit_mle`. The kappa weights contain 1/p and 1/(1−p) terms, so mass of p̂(X) near 0 or 1 is what later inflates weights. This section is descriptive only: it characterises where p̂ sits and whether the two instrument groups overlap.
+</div>
+
+## Summary Statistics
+
+```{r ps-summary}
+# --- USER'S EXISTING FUNCTION (kept verbatim) ---
+ps_summary <- function(p, name) {
+  data.frame(Specification = name,
+             Min = min(p), P05 = quantile(p,0.05), P25 = quantile(p,0.25),
+             Mean = mean(p), P75 = quantile(p,0.75), P95 = quantile(p,0.95),
+             Max = max(p), SD = sd(p),
+             `near 0/1` = mean(p < 0.05 | p > 0.95),
+             check.names = FALSE)
+}
+ps_tab <- bind_rows(ps_summary(card$p_card, "Card (14 covariates)"),
+                    ps_summary(card$p_kit,  "Kitagawa (5 covariates)"))
+ps_tab[,2:10] <- lapply(ps_tab[,2:10], function(x) round(x, 4))
+
+ps_tab %>%
+  kbl(caption = "Propensity score p̂(X) = Pr(Z=1|X): summary by specification",
+      align = c("l", rep("r", 9))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  column_spec(9, bold = TRUE) %>%
+  column_spec(10, bold = TRUE, color = "#d7191c") %>%
+  footnote(general = "SD and the 'near 0/1' share summarise dispersion. Mass near the boundaries is what destabilises 1/p and 1/(1-p) weight terms downstream.")
+```
+
+## Distribution by Instrument Status
+
+```{r ps-dist-plot, fig.height=6}
+# --- USER'S EXISTING PLOT (kept verbatim) ---
+ps_long <- card %>%
+  select(p_card, p_kit, Z) %>%
+  pivot_longer(c(p_card, p_kit), names_to = "spec", values_to = "p_hat") %>%
+  mutate(Specification = factor(spec, levels = c("p_card", "p_kit"),
+                                labels = c("Card spec", "Kitagawa spec")),
+         Zlab = factor(ifelse(Z == 1, "Z = 1 (near college)", "Z = 0 (far)"),
+                       levels = c("Z = 1 (near college)", "Z = 0 (far)")))
+
+ggplot(ps_long, aes(x = p_hat, fill = Zlab)) +
+  geom_histogram(bins = 40, alpha = 0.7, colour = "white", position = "identity") +
+  geom_vline(xintercept = mean(card$Z), linetype = "dashed", colour = col_grey) +
+  facet_wrap(~ Specification, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c("Z = 1 (near college)" = col_z1, "Z = 0 (far)" = col_z0)) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Propensity score distribution by instrument status",
+       subtitle = "Overlap requires both colours present at every p̂. Gaps at the tails = overlap violations.",
+       x = expression(hat(p)(X) == Pr(Z == 1 ~ "|" ~ X)), y = "Count", fill = NULL,
+       caption = "Dashed line = pooled Pr(Z=1).") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 9.5),
+        plot.caption = element_text(colour = "grey50", size = 9))
+```
+
+---
+
+# 6. Unadjusted Covariate Balance
+
+<div class="note-box">
+**Instrument balance.** Standardized mean differences of the covariates across the instrument (Z = 1 vs. Z = 0), with no weighting. This is the descriptive "as-good-as-random" check: covariates strongly related to Z signal that conditioning is needed for the exclusion/independence story. Binary and continuous covariates are put on the same standardized scale (`binary = "std"`), and KS statistics are added so the raw proportion difference for binary covariates is not lost.
+</div>
+
+```{r unadj-balance, fig.height=6}
+covs_card <- as.data.frame(X_card[, -1, drop = FALSE])
+
+# stats and binary must be declared in bal.tab() so cobalt computes KS
+# statistics at that stage — love.plot() cannot request stats that were
+# never computed upstream.
+bal <- bal.tab(covs_card, treat = card$Z,
+               binary = "std", s.d.denom = "pooled",
+               stats  = c("mean.diffs", "ks.statistics"))
+
+love.plot(bal,
+          stats      = c("mean.diffs", "ks.statistics"),
+          binary     = "std",
+          abs        = TRUE,
+          thresholds = c(m = 0.1),
+          var.order  = "unadjusted",
+          colors     = col_z1,
+          shapes     = "circle",
+          title      = "Unadjusted covariate balance across the instrument Z (Card spec)")
+```
+
+```{r unadj-balance-table}
+smd_tab <- bal$Balance
+smd_tab$Variable <- rownames(smd_tab)
+keep_cols <- intersect(c("Variable","Type","Diff.Un"), names(smd_tab))
+smd_tab[, keep_cols] %>%
+  arrange(desc(abs(Diff.Un))) %>%
+  mutate(Diff.Un = round(Diff.Un, 3)) %>%
+  kbl(caption = "Unadjusted standardized differences across Z (sorted by |SMD|)",
+      col.names = c("Variable","Type","SMD (unadjusted)"),
+      align = c("l","l","r"), row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 12.5) %>%
+  footnote(general = "SMD across the instrument. |SMD| > 0.1 (a common rule of thumb) flags covariates imbalanced with respect to Z.")
+```
+
+---
+
+<div class="note-box">
+**Extending this notebook.** Each section is independent and reads only from `card` (analysis sample) plus the engine functions. To add a descriptive, append a new `#`-level section; nothing above needs to change.
+</div>
