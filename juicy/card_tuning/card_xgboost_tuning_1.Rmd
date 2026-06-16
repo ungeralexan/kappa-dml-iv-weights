@@ -1,0 +1,742 @@
+---
+title: "Card (1995) — XGBoost Nuisance Tuning for Wald-AIPW"
+subtitle: "Nested nuisance tuning by predictive loss"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 11, fig.height = 5.5)
+```
+
+```{r packages}
+library(haven)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+source("functions_all.R")
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+
+SEED = 42 # I choose this see in order to be able to reproduce the results that I had in the card notebook
+N_CF = 5
+TUNE_EVALS = 8
+INNER_FOLDS = 3
+```
+
+<div class="note-box">
+**The problem.** The main Card results show that the default XGBoost Wald-AIPW estimate can be highly unstable. This notebook asks whether this instability is partly driven by poorly chosen nuisance learners.
+
+**What tuning can and cannot do.**  XGBoost is tuned through nuisance-prediction performance.
+For that RMSE is used the outcome regression and log-loss for the binary treatment and instrument models. 
+
+If tuning moves the Wald AIPW estimate while also improving nuisance prediction losses, it can be seen as evidence, that the default XGBoost specification was numerically fragile.
+</div>
+
+---
+
+# Setup
+
+```{r data}
+data_path = "/Users/alexung/Desktop/master_thesis/code/"
+card  = read_dta(file.path(data_path, "card.dta"))
+card  = card[!is.na(card$wage) & !is.na(card$educ), ]
+
+card$somecol = as.integer(card$educ > 12)
+card$educ16  = as.integer(card$educ >= 16)
+if (!"expersq" %in% names(card)) card$expersq <- card$exper^2
+
+card$lwage_cnt = log(card$wage)        # cents
+card$lwage_dol = log(card$wage / 100)  # dollars
+
+Y_cnt = card$lwage_cnt
+Y_dol = card$lwage_dol
+Z     = as.integer(card$nearc4)
+D1    = card$somecol
+D2    = card$educ16
+
+X_dml_card = make_X(~ 0 + exper + expersq + black + south + smsa + smsa66 +
+                       reg661+reg662+reg663+reg664+reg665+reg666+reg667+reg668, data = card)
+X_dml_kit  = make_X(~ 0 + black + south + smsa + smsa66 + south66, data = card)
+
+cat(sprintf("N=%d | Card %d cov | Kitagawa %d cov\n",
+            nrow(card), ncol(X_dml_card), ncol(X_dml_kit)))
+```
+
+```{r learners}
+
+make_dml_data = function(Y, D, Z, X) {
+  df = as.data.frame(X)
+  df$y = as.numeric(Y)
+  df$d = as.numeric(D)
+  df$z = as.numeric(Z)
+  
+  DoubleMLData$new(
+    data = df,
+    y_col = "y",
+    d_cols = "d",
+    z_cols = "z",
+    x_cols = colnames(X)
+  )
+}
+
+make_xgb_learners = function() {
+  list(
+    g = lrn(
+      "regr.xgboost",
+      alpha = 0,
+      subsample = 1,
+      max_delta_step = 0,
+      base_score = 0
+    ),
+    m = lrn(
+      "classif.xgboost",
+      predict_type = "prob"
+    ),
+    r = lrn(
+      "classif.xgboost",
+      predict_type = "prob"
+    )
+  )
+}
+
+
+
+
+
+ml_xgb_untuned = make_xgb_learners
+ml_xgb_base = make_xgb_learners
+
+
+
+xgb_ps = function() {
+  ps(
+    nrounds = p_int(50, 400),
+    max_depth = p_int(2, 5),
+    eta = p_dbl(0.02, 0.20),
+    min_child_weight = p_int(1, 8)
+  )
+}
+
+
+
+tune_param_set = function() {
+  list(
+    ml_g = xgb_ps(),
+    ml_m = xgb_ps(),
+    ml_r = xgb_ps()
+  )
+}
+
+
+
+
+tune_settings = function() {
+  list(
+    n_folds_tune = INNER_FOLDS,
+    rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
+    measure = list(
+      ml_g = "regr.rmse",
+      ml_m = "classif.logloss",
+      ml_r = "classif.logloss"
+    ),
+    terminator = trm("evals", n_evals = TUNE_EVALS),
+    algorithm = tnr("random_search")
+  )
+}
+
+
+get_prediction_vector = function(obj, learner_name) {
+  pred = tryCatch(
+    obj$predictions[[learner_name]],
+    error = function(e) NULL
+  )
+  
+  if (is.null(pred)) {
+    return(numeric(0))
+  }
+  
+  as.numeric(pred)
+}
+
+
+propensity_boundary_share = function(obj, threshold = 0.02) {
+  m_hat = get_prediction_vector(obj, "ml_m")
+  r_hat = get_prediction_vector(obj, "ml_r")
+  
+  p_hat = c(m_hat, r_hat)
+  p_hat = p_hat[is.finite(p_hat)]
+  
+  if (length(p_hat) == 0) {
+    return(NA_real_)
+  }
+  
+  mean(p_hat < threshold | p_hat > 1 - threshold)
+}
+
+fit_cell = function(dml_data, learners, label, tune = FALSE) {
+  tryCatch({
+    set.seed(SEED)
+    
+    obj = DoubleMLIIVM$new(
+      data = dml_data,
+      ml_g = learners$g,
+      ml_m = learners$m,
+      ml_r = learners$r,
+      n_folds = N_CF,
+      score = "LATE"
+    )
+    
+    if (tune) {
+      obj$tune(
+        param_set = tune_param_set(),
+        tune_settings = tune_settings()
+      )
+    }
+    
+    obj$fit(store_models = TRUE, store_predictions = TRUE)
+    
+    tuning_result = tryCatch(
+      obj$tuning_result,
+      error = function(e) NULL
+    )
+    
+    list(
+      label = label,
+      tuned = tune,
+      coef = get_dml_coef(obj),
+      se = get_dml_se(obj),
+      boundary_share = propensity_boundary_share(obj),
+      tuning_result = tuning_result,
+      obj = obj
+    )
+  }, error = function(e) {
+    message(sprintf("Fit failed for %s: %s", label, conditionMessage(e)))
+    NULL
+  })
+}
+
+cells = list(
+  "Card / somecol" = list(Y = Y_dol, D = D1, Z = Z, X = X_dml_card),
+  "Card / educ16" = list(Y = Y_dol, D = D2, Z = Z, X = X_dml_card),
+  "Kitagawa / somecol" = list(Y = Y_dol, D = D1, Z = Z, X = X_dml_kit),
+  "Kitagawa / educ16" = list(Y = Y_dol, D = D2, Z = Z, X = X_dml_kit)
+)
+
+
+```
+
+---
+
+# Fit: XGBoost untuned vs tuned
+
+<div class="warn-box">
+**Runtime.**  The tuned fits run inner cross-validation for three nuisance functions in each of the four Card cells.
+</div>
+
+```{r fit-all, cache=TRUE}
+
+results = list()
+
+for (cell_name in names(cells)) {
+  cell = cells[[cell_name]]
+  
+  dml_data = make_dml_data(
+    Y = cell$Y,
+    D = cell$D,
+    Z = cell$Z,
+    X = cell$X
+  )
+  
+  results[[cell_name]] = list(
+    untuned = fit_cell(
+      dml_data = dml_data,
+      learners = ml_xgb_untuned(),
+      label = paste(cell_name, "xgb-untuned"),
+      tune = FALSE
+    ),
+    tuned = fit_cell(
+      dml_data = dml_data,
+      learners = ml_xgb_base(),
+      label = paste(cell_name, "xgb-tuned"),
+      tune = TRUE
+    )
+  )
+  
+  cat(sprintf("Finished: %s\n", cell_name))
+}
+```
+
+
+---
+
+# Comparison
+
+```{r comparison-table}
+fmt_est = function(r) {
+  if (is.null(r)) {
+    return("—")
+  }
+  sprintf("%.3f (%.3f)", r$coef, r$se)
+}
+
+fmt_boundary = function(r, digits = 4) {
+  if (is.null(r) || is.null(r$boundary_share) || !is.finite(r$boundary_share)) {
+    return("—")
+  }
+  sprintf(paste0("%.", digits, "f"), r$boundary_share)
+}
+
+rows = do.call(
+  rbind,
+  lapply(names(results), function(cell_name) {
+    R = results[[cell_name]]
+    
+    data.frame(
+      Cell = cell_name,
+      Learner = c("XGB untuned", "XGB tuned"),
+      `Estimate (SE)` = c(
+        fmt_est(R$untuned),
+        fmt_est(R$tuned)
+      ),
+      `Propensity boundary share` = c(
+        fmt_boundary(R$untuned),
+        fmt_boundary(R$tuned)
+      ),
+      check.names = FALSE,
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+rows %>%
+  kbl(
+    align = c("l", "l", "c", "r"),
+    caption = "Wald-AIPW estimates: XGBoost untuned vs tuned"
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 12.5
+  ) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(rows$Learner == "XGB tuned"), background = "#eef6ff") %>%
+  footnote(
+    general = "The propensity boundary share is the fraction of fitted treatment or instrument propensities below 0.02 or above 0.98."
+  )
+```
+
+---
+
+
+```{r nuisance-loss-helpers}
+
+get_prediction_vector = function(obj, learner_name) {
+  pred = tryCatch(
+    obj$predictions[[learner_name]],
+    error = function(e) NULL
+  )
+  
+  if (is.null(pred)) {
+    return(numeric(0))
+  }
+  
+  as.numeric(drop(pred))
+}
+
+get_branch_prediction = function(obj, base_name, Z) {
+  pred0 = get_prediction_vector(obj, paste0(base_name, "0"))
+  pred1 = get_prediction_vector(obj, paste0(base_name, "1"))
+  
+  if (length(pred0) != length(Z) || length(pred1) != length(Z)) {
+    return(numeric(0))
+  }
+  
+  ifelse(as.numeric(Z) == 1, pred1, pred0)
+}
+
+rmse_loss = function(truth, pred) {
+  if (length(pred) != length(truth) || length(pred) == 0) {
+    return(NA_real_)
+  }
+  
+  truth = as.numeric(truth)
+  pred = as.numeric(pred)
+  
+  keep = is.finite(truth) & is.finite(pred)
+  
+  if (!any(keep)) {
+    return(NA_real_)
+  }
+  
+  sqrt(mean((truth[keep] - pred[keep])^2))
+}
+
+logloss_loss = function(truth, pred, eps = 1e-6) {
+  if (length(pred) != length(truth) || length(pred) == 0) {
+    return(NA_real_)
+  }
+  
+  truth = as.numeric(truth)
+  pred = as.numeric(pred)
+  
+  keep = is.finite(truth) & is.finite(pred)
+  
+  if (!any(keep)) {
+    return(NA_real_)
+  }
+  
+  truth = truth[keep]
+  pred = pred[keep]
+  pred = pmin(pmax(pred, eps), 1 - eps)
+  
+  -mean(truth * log(pred) + (1 - truth) * log(1 - pred))
+}
+
+calc_nuisance_losses = function(r, cell) {
+  if (is.null(r)) {
+    return(c(
+      outcome_rmse = NA_real_,
+      instrument_logloss = NA_real_,
+      treatment_logloss = NA_real_
+    ))
+  }
+  
+  g_hat = get_branch_prediction(r$obj, "ml_g", cell$Z)
+  m_hat = get_prediction_vector(r$obj, "ml_m")
+  r_hat = get_branch_prediction(r$obj, "ml_r", cell$Z)
+  
+  c(
+    outcome_rmse = rmse_loss(cell$Y, g_hat),
+    instrument_logloss = logloss_loss(cell$Z, m_hat),
+    treatment_logloss = logloss_loss(cell$D, r_hat)
+  )
+}
+```
+
+
+
+---
+
+## 2. Nuisance-loss  plot
+
+
+
+
+```{r nuisance-loss-plot, fig.width=9, fig.height=5}
+loss_rows = do.call(
+  rbind,
+  lapply(names(results), function(cell_name) {
+    R = results[[cell_name]]
+    cell = cells[[cell_name]]
+    
+    untuned_losses = calc_nuisance_losses(R$untuned, cell)
+    tuned_losses = calc_nuisance_losses(R$tuned, cell)
+    
+    data.frame(
+      Cell = cell_name,
+      Learner = c("XGB untuned", "XGB tuned"),
+      Outcome_RMSE = c(
+        untuned_losses["outcome_rmse"],
+        tuned_losses["outcome_rmse"]
+      ),
+      Instrument_logloss = c(
+        untuned_losses["instrument_logloss"],
+        tuned_losses["instrument_logloss"]
+      ),
+      Treatment_logloss = c(
+        untuned_losses["treatment_logloss"],
+        tuned_losses["treatment_logloss"]
+      ),
+      check.names = FALSE,
+      stringsAsFactors = FALSE
+    )
+  })
+)
+
+loss_long = rbind(
+  data.frame(
+    Cell = loss_rows$Cell,
+    Learner = loss_rows$Learner,
+    Metric = "Outcome RMSE",
+    Loss = loss_rows$Outcome_RMSE
+  ),
+  data.frame(
+    Cell = loss_rows$Cell,
+    Learner = loss_rows$Learner,
+    Metric = "Instrument log-loss",
+    Loss = loss_rows$Instrument_logloss
+  ),
+  data.frame(
+    Cell = loss_rows$Cell,
+    Learner = loss_rows$Learner,
+    Metric = "Treatment log-loss",
+    Loss = loss_rows$Treatment_logloss
+  )
+)
+
+loss_long = loss_long[is.finite(loss_long$Loss), ]
+
+ggplot(
+  loss_long,
+  aes(x = Loss, y = Cell, color = Learner, shape = Learner)
+) +
+  geom_line(aes(group = Cell), color = "grey75", linewidth = 0.4) +
+  geom_point(size = 2.8) +
+  facet_wrap(~ Metric, scales = "free_x") +
+  scale_color_manual(
+    values = c(
+      "XGB untuned" = "#7f7f7f",
+      "XGB tuned" = "#1f77b4"
+    )
+  ) +
+  labs(
+    title = "Nuisance prediction losses before and after tuning",
+    subtitle = "Lower values indicate better nuisance prediction",
+    x = "Prediction loss",
+    y = NULL,
+    color = NULL,
+    shape = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+
+
+
+---
+
+
+
+
+## 3. Hyperparameter summary
+
+```{r hyperparameter-summary}
+get_param_source = function(r) {
+  if (is.null(r)) {
+    return(NULL)
+  }
+  
+  sources = list(
+    tuning_result = tryCatch(r$tuning_result, error = function(e) NULL),
+    obj_params = tryCatch(r$obj$params, error = function(e) NULL)
+  )
+  
+  for (s in sources) {
+    if (!is.null(s)) {
+      u = unlist(s, recursive = TRUE)
+      if (any(grepl("nrounds|max_depth|eta|min_child_weight", names(u)))) {
+        return(s)
+      }
+    }
+  }
+  
+  NULL
+}
+
+extract_tuned_params = function(r, cell_name) {
+  param_source = get_param_source(r)
+  
+  if (is.null(param_source)) {
+    return(data.frame())
+  }
+  
+  u = unlist(param_source, recursive = TRUE)
+  u = u[grepl("nrounds|max_depth|eta|min_child_weight", names(u))]
+  
+  if (length(u) == 0) {
+    return(data.frame())
+  }
+  
+  hp = data.frame(
+    Cell = cell_name,
+    Raw_name = names(u),
+    Value = as.numeric(u),
+    stringsAsFactors = FALSE
+  )
+  
+  hp$Nuisance = ifelse(
+    grepl("ml_g", hp$Raw_name), "Outcome g",
+    ifelse(
+      grepl("ml_m", hp$Raw_name), "Instrument m",
+      ifelse(grepl("ml_r", hp$Raw_name), "Treatment r", "Unknown")
+    )
+  )
+  
+  hp$Branch = ifelse(
+    grepl("ml_g0|ml_r0", hp$Raw_name), "Z = 0",
+    ifelse(
+      grepl("ml_g1|ml_r1", hp$Raw_name), "Z = 1",
+      ""
+    )
+  )
+  
+  hp$Parameter = sub(".*(nrounds|max_depth|eta|min_child_weight).*", "\\1", hp$Raw_name)
+  
+  hp
+}
+
+hp_raw = do.call(
+  rbind,
+  lapply(names(results), function(cell_name) {
+    extract_tuned_params(results[[cell_name]]$tuned, cell_name)
+  })
+)
+
+if (nrow(hp_raw) > 0) {
+  hp_raw = hp_raw[hp_raw$Nuisance != "Unknown", ]
+  
+  # If DoubleML does not label the two branches explicitly, give repeated
+  # nuisance parameters a simple branch number.
+  missing_branch = hp_raw$Branch == ""
+  
+  hp_raw$Branch_id = ave(
+    hp_raw$Value,
+    hp_raw$Cell,
+    hp_raw$Nuisance,
+    hp_raw$Parameter,
+    FUN = seq_along
+  )
+  
+  hp_raw$Branch[missing_branch & hp_raw$Nuisance %in% c("Outcome g", "Treatment r")] =
+    paste0("Branch ", hp_raw$Branch_id[missing_branch & hp_raw$Nuisance %in% c("Outcome g", "Treatment r")])
+  
+  hp_table = hp_raw[, c("Cell", "Nuisance", "Branch", "Parameter", "Value")]
+  hp_table = hp_table[order(hp_table$Cell, hp_table$Nuisance, hp_table$Branch, hp_table$Parameter), ]
+  
+  hp_table$Value = ifelse(
+    hp_table$Parameter == "eta",
+    sprintf("%.3f", hp_table$Value),
+    sprintf("%.0f", hp_table$Value)
+  )
+  
+  rownames(hp_table) = NULL
+  
+  hp_table %>%
+    kbl(
+      align = c("l", "l", "l", "l", "r"),
+      caption = "Selected XGBoost hyperparameters after nuisance tuning"
+    ) %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = TRUE,
+      font_size = 12.5
+    ) %>%
+    collapse_rows(columns = c(1, 2, 3), valign = "middle") %>%
+    footnote(
+      general = "The selected values are chosen by inner cross-validation on nuisance prediction loss."
+    )
+} else {
+  cat("No hyperparameters could be extracted automatically.")
+}
+```
+
+
+
+# This is so I can safe my results
+```{r save-tuning-results}
+new_path = "/Users/alexung/Desktop/master_thesis/juicy/card_tuning"
+output_dir = file.path(new_path, "outputs")
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+make_estimate_export = function(cell_name, learner_name, r) {
+  if (is.null(r)) {
+    return(data.frame(
+      Cell = cell_name,
+      Learner = learner_name,
+      Estimate = NA_real_,
+      SE = NA_real_,
+      Boundary_share = NA_real_
+    ))
+  }
+  
+  data.frame(
+    Cell = cell_name,
+    Learner = learner_name,
+    Estimate = as.numeric(r$coef),
+    SE = as.numeric(r$se),
+    Boundary_share = as.numeric(r$boundary_share)
+  )
+}
+
+estimate_export = do.call(
+  rbind,
+  lapply(names(results), function(cell_name) {
+    R = results[[cell_name]]
+    
+    rbind(
+      make_estimate_export(cell_name, "XGB untuned", R$untuned),
+      make_estimate_export(cell_name, "XGB tuned", R$tuned)
+    )
+  })
+)
+
+tuning_export = list(
+  settings = list(
+    seed = SEED,
+    n_cf = N_CF,
+    tune_evals = TUNE_EVALS,
+    inner_folds = INNER_FOLDS,
+    outcome = "log(wage / 100)",
+    estimator = "DoubleMLIIVM Wald-AIPW",
+    learner = "xgboost",
+    tuning_target = "nuisance prediction loss"
+  ),
+  estimates = estimate_export,
+  estimates_print = if (exists("rows")) rows else NULL,
+  nuisance_losses = if (exists("loss_rows")) loss_rows else NULL,
+  hyperparameters = if (exists("hp_table")) hp_table else NULL,
+  hyperparameters_raw = if (exists("hp_raw")) hp_raw else NULL
+)
+
+saveRDS(
+  tuning_export,
+  file = file.path(output_dir, "card_xgb_tuning_summary.rds")
+)
+
+
+
+
+cat("Saved tuning files in:", output_dir, "\n")
+
+# In my presentation file I can then read it like : 
+# xgb_tuning = readRDS(file.path(data_path, "outputs", "card_xgb_tuning_summary.rds"))
+# and access:
+# xgb_tuning$estimates
+# xgb_tuning$hyperparameters
+# xgb_tuning$settings
+
+```
+
+
+
