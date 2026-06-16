@@ -1176,12 +1176,10 @@ These estimates are very close to the $\hat{\tau}^{ml}_{u}$ but more conservativ
 The parametric linear/logit Wald-AIPW estimator provides an intermediate benchmark. For \texttt{somecol}, it is close to the normalized kappa and forest-based Wald-AIPW estimates. For \texttt{educ16}, however, it is larger under the Card specification.
 This could be due to the fact that the parametric learner imposes stronger functional-form restrictions on the nuisance functions. 
 The XGBoost row is qualitatively different. Its estimates are not only larger or smaller than the other DML estimates, but they are outside the empirical range of all other estimators and even change sign.
-These values hence are not interpreted, rather treated as evidence of nuisance-estimation instability in this application.
-The Wald-AIPW score depends on several nuisance components, including instrument propensities and conditional outcome and treatment regressions. In weak-first-stage designs, the final ratio can be highly sensitive to small errors in these components.
-Sequential boosting can amplify this problem if the fitted nuisance functions are poorly calibrated in regions with limited overlap, especially in the upper tail of the instrument propensity score documented above.
-The XGBoost row can therefore be read as a diagnostic warning.
-It showcases that that the combination of weak first-stage variation, observational covariate adjustment, and a highly adaptive boosted nuisance learner produces unstable Wald-AIPW point estimates.
-Overall it can be seen how flexible nuisance estimation does not remove the empirical difficulty of this particular design. PLR-IV remains close to 2SLS, while Wald-AIPW with grf, ranger, and the parametric learner is closer to the normalized kappa estimates. The extreme XGBoost results show that learner choice can matter strongly once the design is less sharply identified than in the Vietnam application.
+This again showcases evidence that the Wald-AIPW score is highly sensitive to the nuisance learner in this application.
+The score depends on several estimated nuisance components, including instrument propensities and conditional outcome and treatment regressions. In a weak-first-stage design, small errors in these components can strongly affect the final Wald ratio.
+Sequential boosting can amplify this problem if the fitted nuisance functions are poorly calibrated in regions with limited overlap.
+
 
 \begin{table}[htbp]
 \centering
@@ -1218,6 +1216,36 @@ Wald-AIPW (XGBoost)
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsubsection{Nested XGBoost tuning as a Robustness check}
+The instability of the default XGBoost specification motivates a nested tuning robustness check. The purpose of this exercise is not to search for a treatment-effect estimate that looks plausible.
+Instead, the XGBoost hyperparameters are selected only by predictive nuisance performance inside the DML procedure.
+The final treatment-effect estimate is not used as a tuning criterion, as for the continuous outcome nuisance, tuning minimizes root mean squared error and for the binary treatment and instrument nuisances, tuning minimizes log-loss.
+Table~\ref{tab:xgboost_estimates} reports the resulting untuned and tuned XGBoost Wald-AIPW estimates. The untuned results reproduce the extreme XGBoost rows in Table~\ref{tab:xgboost_estimates}. After tuning, the estimates move back into the range of the other Wald-AIPW and normalized kappa estimates. For the Card specification, the somecol estimate changes from (-13.416) to (0.352), while the educ16 estimate changes from (-3.198) to (0.627). The same pattern appears under the Kitagawa specification, where the tuned estimates are (0.258) for somecol and (0.475) for educ16.
+The tuning results suggest that the extreme default XGBoost estimates are largely driven by nuisance calibration rather than by a stable causal signal. In the Card specification, the default XGBoost learner produces many boundary propensity predictions, while the tuned specification removes them under the chosen threshold. This supports the interpretation that the original XGBoost row is a diagnostic warning about learner instability. At the same time, the tuned XGBoost estimates should still be interpreted as a sensitivity check rather than as the preferred estimator.
+Overall, flexible nuisance estimation does not remove the empirical difficulty of this design. PLR-IV remains close to 2SLS, while Wald-AIPW with grf, ranger, and the parametric learner is closer to the normalized kappa estimates. The default XGBoost specification is the exception and is best interpreted as a learner-instability diagnostic. The nested tuning exercise shows that this instability is strongly reduced when XGBoost is selected by nuisance-prediction loss.
+
+\begin{table}[!htbp]
+\centering
+\begin{threeparttable}
+\caption{Nested XGBoost nuisance tuning: Wald-AIPW estimates}
+\label{tab:xgboost_estimates}
+\begin{tabular}{lccc}
+\toprule
+Cell & XGB untuned & XGB tuned & Propensity boundary share \\
+\midrule
+Card--somecol     & (-13.416) ((14.411))  & (0.352) ((0.228)) & ($0.2595 \rightarrow 0.0000$) \\
+Card--educ16      & (-3.198) ((4.054))    & (0.627) ((0.420)) & ($0.2595 \rightarrow 0.0000$) \\
+Kitagawa--somecol & (-0.113) ((0.627))    & (0.258) ((0.269)) & ($0.0017 \rightarrow 0.0000$) \\
+Kitagawa--educ16  & (-3.656) ((100.914))  & (0.475) ((0.492)) & ($0.0017 \rightarrow 0.0000$) \\
+\bottomrule
+\end{tabular}
+\end{threeparttable}
+\end{table}
+
+
+
+
 
 \subsection{Outcome Weight Diagnostics: Dispersion, Extrapolation, and Normalization}
 The previous sections compared point estimates. 
