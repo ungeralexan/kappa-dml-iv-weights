@@ -38,6 +38,9 @@ library(OutcomeWeights)
 library(DoubleML)
 library(mlr3verse)
 library(mlr3tuning)
+library(cobalt)
+library(gridExtra)
+library(viridis)
 
 source("functions_all.R")
 
@@ -663,7 +666,6 @@ if (nrow(hp_raw) > 0) {
 
 
 
-# This is so I can safe my results
 ```{r save-tuning-results}
 new_path = "/Users/alexung/Desktop/master_thesis/juicy/card_tuning"
 output_dir = file.path(new_path, "outputs")
@@ -719,15 +721,15 @@ tuning_export = list(
   hyperparameters_raw = if (exists("hp_raw")) hp_raw else NULL
 )
 
-saveRDS(
-  tuning_export,
-  file = file.path(output_dir, "card_xgb_tuning_summary.rds")
-)
+#saveRDS(
+#  tuning_export,
+#  file = file.path(output_dir, "card_xgb_tuning_summary.rds")
+#)
 
 
 
 
-cat("Saved tuning files in:", output_dir, "\n")
+#cat("Saved tuning files in:", output_dir, "\n")
 
 # In my presentation file I can then read it like : 
 # xgb_tuning = readRDS(file.path(data_path, "outputs", "card_xgb_tuning_summary.rds"))
@@ -737,6 +739,170 @@ cat("Saved tuning files in:", output_dir, "\n")
 # xgb_tuning$settings
 
 ```
+
+## 4. Diagnostics for untuned vs tuned
+```{r xgb-tuned-weight-table, cache=TRUE}
+# Compact tuned-vs-untuned outcome-weight diagnostics for XGBoost.
+# This chunk does NOT use make_dml_data(), to avoid conflicts with other notebooks.
+
+make_dml_data_xgb_diag = function(D, X) {
+  df = as.data.frame(X)
+  df$y = as.numeric(Y_dol)
+  df$d = as.numeric(D)
+  df$z = as.numeric(Z)
+  
+  DoubleMLData$new(
+    data = df,
+    y_col = "y",
+    d_cols = "d",
+    z_cols = "z",
+    x_cols = colnames(X)
+  )
+}
+
+omega_vec = function(om) {
+  w = om$omega
+  
+  if (is.null(dim(w))) {
+    return(as.vector(w))
+  }
+  
+  if (!is.null(rownames(w)) && "Wald-AIPW" %in% rownames(w)) {
+    return(as.vector(w["Wald-AIPW", ]))
+  }
+  
+  as.vector(w[1, ])
+}
+
+extract_xgb_w = function(r, cell) {
+  # If you later store w inside fit_cell(), this line reuses it immediately.
+  if (!is.null(r$w)) {
+    return(as.vector(r$w))
+  }
+  
+  dml_data = make_dml_data_xgb_diag(
+    D = cell$D,
+    X = cell$X
+  )
+  
+  om = get_outcome_weights(
+    object = r$obj,
+    dml_data = dml_data
+  )
+  
+  omega_vec(om)
+}
+
+one_xgb_diag_row = function(cell_name, learner_name, r, cell) {
+  w = extract_xgb_w(r, cell)
+  
+  wb = weight_bridge(w, cell$D, learner_name)
+  
+  ov = wb[wb$Scope == "Overall", ]
+  tr = wb[wb$Scope == "Treated", ]
+  co = wb[wb$Scope == "Control", ]
+  
+  data.frame(
+    Cell = cell_name,
+    Learner = learner_name,
+    Estimate = as.numeric(r$coef),
+    ESS = ov$ESS_kish,
+    ESS_mod = ov$ESS_mod,
+    `Sigma omega` = ov$Sum_w,
+    `Sigma abs omega` = ov$Sum_abs_w,
+    `Treated mass` = tr$Sum_w,
+    `Control mass` = co$Sum_w,
+    `max abs omega` = max(abs(w)),
+    check.names = FALSE
+  )
+}
+
+xgb_tuned_weight_table = do.call(
+  rbind,
+  lapply(names(cells), function(cell_name) {
+    cell = cells[[cell_name]]
+    R = results[[cell_name]]
+    
+    rbind(
+      one_xgb_diag_row(cell_name, "XGB untuned", R$untuned, cell),
+      one_xgb_diag_row(cell_name, "XGB tuned", R$tuned, cell)
+    )
+  })
+)
+
+xgb_tuned_weight_table_print = xgb_tuned_weight_table
+
+xgb_tuned_weight_table_print$Estimate = sprintf("%.3f", xgb_tuned_weight_table_print$Estimate)
+xgb_tuned_weight_table_print$ESS = sprintf("%.0f", xgb_tuned_weight_table_print$ESS)
+xgb_tuned_weight_table_print$ESS_mod = sprintf("%.0f", xgb_tuned_weight_table_print$ESS_mod)
+xgb_tuned_weight_table_print$`Sigma omega` = sprintf("%.4f", xgb_tuned_weight_table_print$`Sigma omega`)
+xgb_tuned_weight_table_print$`Sigma abs omega` = sprintf("%.3f", xgb_tuned_weight_table_print$`Sigma abs omega`)
+xgb_tuned_weight_table_print$`Treated mass` = sprintf("%.3f", xgb_tuned_weight_table_print$`Treated mass`)
+xgb_tuned_weight_table_print$`Control mass` = sprintf("%.3f", xgb_tuned_weight_table_print$`Control mass`)
+xgb_tuned_weight_table_print$`max abs omega` = sprintf("%.3f", xgb_tuned_weight_table_print$`max abs omega`)
+
+xgb_tuned_weight_table_print %>%
+  kbl(
+    caption = "XGBoost tuning and outcome-weight diagnostics",
+    align = c("l", "l", "r", "r", "r", "r", "r", "r", "r", "r")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 12
+  ) %>%
+  row_spec(
+    which(xgb_tuned_weight_table$Learner == "XGB tuned"),
+    background = "#eef6ff"
+  ) %>%
+  footnote(
+    general = "The control mass uses the sign-flipped convention from weight_bridge(), so treated mass and control mass should both be close to one for a normalized treated-control contrast. ESS_mod is the modified effective sample size for signed outcome weights."
+  )
+```
+
+
+
+## 5 Love plots 
+
+```{r xgb-tuned-love-card-educ16, fig.width=11, fig.height=5.5}
+w_xgb_card_educ16_untuned = extract_xgb_w(
+  results[["Card / educ16"]]$untuned,
+  cells[["Card / educ16"]]
+)
+
+w_xgb_card_educ16_tuned = extract_xgb_w(
+  results[["Card / educ16"]]$tuned,
+  cells[["Card / educ16"]]
+)
+
+grid.arrange(
+  make_love(
+    "XGBoost untuned\nCard specification, educ16",
+    w_xgb_card_educ16_untuned,
+    D2,
+    X_dml_card
+  ),
+  make_love(
+    "XGBoost tuned\nCard specification, educ16",
+    w_xgb_card_educ16_tuned,
+    D2,
+    X_dml_card
+  ),
+  nrow = 1,
+  top = "XGBoost Wald-AIPW covariate balance before and after tuning"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 
