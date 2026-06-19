@@ -344,3 +344,126 @@ Every single estimator can be written as a sum of the outcomes times the weighst
 We take the five estimator formulas you already know and algebraically collapse each one into its weight form. 
 The inputs are the Instrument, the treatment and he propensity score and as outcomes we get different weight vectors of length N.
 Which is the number of observations
+
+
+
+## 13 `num_jacobian()`
+
+---
+```r
+num_jacobian <- function(f, theta, eps = 1e-6) {
+  theta <- as.numeric(theta)
+  f0    <- f(theta)
+  m     <- length(f0)
+  k     <- length(theta)
+  J     <- matrix(NA_real_, nrow = m, ncol = k)
+
+  for (j in seq_len(k)) {
+    h       <- eps * (abs(theta[j]) + 1)
+    tp      <- theta;  tp[j] <- tp[j] + h
+    tm      <- theta;  tm[j] <- tm[j] - h
+    J[, j]  <- (f(tp) - f(tm)) / (2 * h)
+  }
+  J
+}
+```
+
+### What it does
+The function computes the Jacobian matrix of a vector values fucntion f at a point theta using central differences.
+The function does not hand code the Jacobian for each moment function analitcally but approximates its numerically using central differences. 
+This keeps the SE code modular and makes it possible to compute SE for any staked moment function without new derivatives. 
+As input it takes a function theta (stacked moment function), a numeric vector, a base setp size which is set by default.
+The output is the numerical mxk matrix of f at theta.
+
+
+
+## 14 `matrix_inverse_safe()`
+---
+
+```r
+matrix_inverse_safe <- function(A, tol = 1e-10) {
+  inv <- tryCatch(solve(A), error = function(e) NULL)
+  if (!is.null(inv) && all(is.finite(inv))) return(inv)
+
+  inv <- tryCatch(qr.solve(A), error = function(e) NULL)
+  if (!is.null(inv) && all(is.finite(inv))) return(inv)
+
+  for (ridge in c(1e-12, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2)) {
+    inv <- tryCatch(solve(A + ridge * diag(ncol(A))), error = function(e) NULL)
+    if (!is.null(inv) && all(is.finite(inv))) return(inv)
+  }
+
+  # Moore-Penrose via SVD
+  sv    <- svd(A)
+  d     <- sv$d
+  d_inv <- ifelse(d > tol * max(d), 1 / d, 0)
+  sv$v %*% diag(d_inv, nrow = length(d_inv)) %*% t(sv$u)
+}
+```
+
+### What it does
+The purpose mainly is to invert Matrix A without crashing when handling near singlar matrices. 
+A is the Jacobian of the stacked moment function with respect to all parameters. 
+it will be called inside the sandwhich function ton invert the Jacobian matrix A. R's standard
+`solve()` crashes when `A` is near-singular taking into account the richt covariate specifications I have in my design especially the number of dummy variables, rather then letting the script die this function degrades gracefully through four progressively more robust methods.
+
+#### The four fallback levels
+
+**Level 1 — `solve(A)`**
+Standard LU decomposition. Fastest and exact when `A` is well-conditioned.
+Used for the vast majority of specifications in my applications. If it
+returns `Inf` or `NaN`, or throws an error, the function moves to Level 2.
+
+**Level 2 — `qr.solve(A)`**
+QR decomposition. More numerically stable than LU for mildly ill-conditioned
+matrices, and better at handling slight asymmetries introduced by the
+numerical Jacobian. If this also fails, move to Level 3.
+
+**Level 3 — Ridge regularisation**
+Adds a small positive constant λ along the diagonal before inverting:
+
+A_λ = A + λI
+
+This shifts all eigenvalues of `A` up by λ, making the smallest eigenvalue
+safely positive and the matrix invertible. Six values of λ are tried in
+increasing order (1e-12, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2), stopping at the
+first that produces a finite result. This is equivalent to Tikhonov
+regularisation and introduces a small, controlled bias in exchange for
+a finite SE — far preferable to returning `NA`.
+
+**Level 4 — Moore-Penrose pseudoinverse via SVD**
+Decomposes A = U D V' via singular value decomposition. Singular values
+below `tol * max(d)` are set to zero rather than inverted — they represent
+directions where `A` is genuinely rank-deficient and carries no information.
+This always succeeds and returns the best possible approximation to A⁻¹
+for any matrix, including fully rank-deficient ones.
+
+
+
+## 15 `sandwich_se_mest()` 
+---
+```r
+sandwich_se_mest <- function(moment_matrix_fn, theta_hat, tau_index) {
+  theta_hat    <- as.numeric(theta_hat)
+  psi_hat      <- moment_matrix_fn(theta_hat)
+  n            <- nrow(psi_hat)
+
+  A            <- num_jacobian(function(th) colMeans(moment_matrix_fn(th)), theta_hat)
+  psi_centered <- scale(psi_hat, center = TRUE, scale = FALSE)
+  V            <- crossprod(psi_centered) / n
+
+  A_inv        <- matrix_inverse_safe(A)
+  vcov_theta   <- A_inv %*% V %*% t(A_inv) / n
+
+  se2 <- vcov_theta[tau_index, tau_index]
+  if (!is.finite(se2)) return(NA_real_)
+  sqrt(abs(se2))
+}
+
+```
+
+### WHat it does
+The function computes the M estimation sanwhich standard error for one paramter in a moment system.
+It takes a function that returns per-observation moment contributions, evaluates the bread (A, via
+`num_jacobian()`) and the meat (V, the variance of the moments), inverts A robustly (via `matrix_inverse_safe()`), and extracts the standard error for the parameter at position `tau_index`.
+
