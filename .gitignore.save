@@ -4,6 +4,7 @@
 .RDataTmp
 .Rproj.user/
 
+
 # LaTeX build files
 *.aux
 *.bbl
@@ -22,9 +23,4 @@
 *.snm
 *.vrb
 
-# LaTeX build folders
-build/
-latex_folder/build/
 
-# macOS
-.DS_Store
