@@ -1594,41 +1594,52 @@ Especially for the Card application, this depends on the estimator. CBPS-based n
 
 \newpage
 \section{Empirical Child Application}
+A third central question in empirical labor economics is how child birth or the birth of an additional child affect mothers' labor-market outcomes. 
+Families with more children often differ from families with fewer children in many observed and unobserved dimensions. Those can include preferences for work and family size, household resources and local labor-market conditions. 
+A simple comparison between women with two children and women with more than two children would therefore not isolate the causal effect of childbearing. It would combine the effect of an additional child with selection into larger families.
+The third design based on the application of \citet{angrist1996children} addresses this selection problem by using sibling sex composition as an instrument for fertility. 
+This application complements the two previous empirical settings. The Vietnam draft lottery provides a low-dimensional, near-random-assignment benchmark, while the Card application studies an observational instrument with a richer covariate structure. 
+The application based on \citet{angrist1996children} instead combines a very large parent sample with binary labor-supply and log-income outcomes. It is therefore especially useful for the translation-invariance analysis, because the outcome coding of both labor-force participation and income is directly relevant for the behavior of normalized and unnormalized estimators.
+The next subsection introduces the data, the treatment and instrument definitions, and the two outcome variables used in the analysis.
+
+\subsection{Data and Design}
+
+The analysis follows \citet{sloczynski2025abadie} in revisiting the \citet{angrist1996children} application based on the 1980 U.S. Census.
+The sample consists of women with at least two children. The empirical question is whether having an additional child affects mothers' labor-market outcomes. The treatment is therefore an indicator for whether a woman has more than two children,
+\[
+    D_i = \indic\!\left\{N_i^{\text{children}} > 2\right\}.
+\]
+The identifying variation comes from the sex composition of the first two children. Following \citet{angrist1996children}, the instrument is an indicator for whether the first two children are of the same sex,
+\[
+    Z_i = \indic\!\left\{\text{boy}_{1i} = \text{boy}_{2i}\right\},
+\]
+where $\text{boy}_{1i}$ and $\text{boy}_{2i}$ indicate whether the first and second child are boys. Equivalently, $Z_i=1$ if the first two children are either two boys or two girls, and $Z_i=0$ if the first two children are of mixed sex.
+The economic mechanism is that parents with two children of the same sex are more likely to have a third child, because some parents have a preference for a mixed-sex sibling composition. The instrument therefore shifts the probability of further childbearing but does not deterministically assign treatment. \\
+I consider two outcome variables. The first is labor-force participation, defined as an indicator for whether the woman worked for pay in the preceding year,
+\[
+    Y_i^{\text{LFP}} = \indic\!\left\{\text{worked}_i = 1\right\}.
+\]
+The second is log annual income,
+\[
+    Y_i^{\text{INC}} = \log\!\left(\text{income}_i\right),
+\]
+which is only defined for women with strictly positive reported income. These two outcomes are useful for different parts of the analysis.
 
 
-\subsection{Data}
-\subsubsection{Stratified Sampling}
-The log income analysis based on the income valid subsample with positive reported income used in \citet{sloczynski2025abadie}
-entails 220,502 observations. Since the present thesis focuses on outcome-weight diagnostics and, for DML estimators, on objects derived from smoother matrices, applying the full diagnostic pipeline to the complete income sample is not computationally feasible.
-I therefore construct a smaller diagnostic subsample for the Angrist-Evans application used in \citet{sloczynski2025abadie}.
-The subsample is not intended to reproduce the full-sample point estimates, rather to preserve the empirical IV structure while making the outcome-weight diagnostics feasible.
+
+\subsubsection{Subsampling for the Angrist--Evans Application}
+Following \citet{sloczynski2025abadie}, I use two corresponding parent samples from Farbmacher, Guber, and Vikstr{\"o}m's 1980 Census extract.
+I use two corresponding parent samples. The first is the labor-force participation sample, defined for all 394,840 women with at least two children. The second is the log-income sample, restricted to the 220,502 women with strictly positive reported income.
+The full parent samples are too large for the computationally intensive diagnostics used below, especially for the estimation of the Smoother matrices.
+I therefore construct smaller diagnostic subsamples. Their purpose is to preserve the central empirical structure of the corresponding parent samples, in particular the instrument and treatment shares, the first-stage structure, and the relevant outcome distributions.
+To this end, I use proportional stratified subsampling without replacement. 
+The procedure is applied separately to the labor-force participation and log-income parent samples, using a fixed seed. Each resulting diagnostic subsample contains 3,000 observations.
+The exact stratification variables and allocation rule are described in Appendix~\ref{app:subsampling}.
 
 
 
-\begin{table}[h]
-\centering
-\caption{Full income sample vs.\ stratified subsample ($n = 3{,}000$, seed = 202)}
-\label{tab:subsample}
-\begin{tabular}{lrr}
-\hline
-Statistic & Full sample & Subsample \\
-          & ($N = 220{,}502$) & ($n = 3{,}000$) \\
-\hline
-$\Pr(Z=1)$                        & 0.5018 & 0.5020 \\
-$\Pr(D=1)$                        & 0.3493 & 0.3493 \\
-Complier share                    & 0.0543 & 0.0545 \\
-Mean log income                   & 8.9394 & 8.9819 \\
-SD log income                     & 1.2410 & 1.2170 \\
-Mean $\hat{p}(X)$                 & 0.5018 & 0.5020 \\
-SD $\hat{p}(X)$                   & 0.0152 & 0.0306 \\
-\hline
-\end{tabular}
-\end{table}
-Hence for the subsample restrict the data to the same income-valid sample used for the log-income analysis, and from this sample draw (N=3{,}000) observations using proportional stratification over the four realized instrument-treatment cells ((Z,D)).
-As it can be seen in Table~\ref{tab:subsample} this sampling rule preserves instrument rate
-$\Pr(Z=1)$, the treatment rate $\Pr(D=1)$, the complier share, the mean
-and standard deviation of log income, and the mean propensity score.
-The used subsample retains the central compliance structure of the original income design, resulting point estimates nevertheless are more variable for the sake of the smaller sample size. 
+
+
 % ==============================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -1678,6 +1689,7 @@ The used subsample retains the central compliance structure of the original inco
 % APPENDICES
 % ==============================================================================
 \newpage
+\section{Appendix}
 \appendix
 \renewcommand{\thesection}{\Alph{section}}
 
@@ -1996,6 +2008,26 @@ five-fold cross-fitting \citep{bach2022doubleml}
 \end{threeparttable}
 \end{table}
 
+
+\section{Subsampling Procedure for the Card framework}
+\label{app:subsampling}
+The diagnostic subsamples used in the Angrist--Evans application are constructed by proportional stratified subsampling without replacement.
+Let $Z_i$ denote the same-sex instrument and $D_i$ the
+more-than-two-children treatment. For the labor-force participation sample, the
+strata are defined by $Z_i$, $D_i$, the binary labor-force outcome, positive-income
+status, race, and mother's age group. For the log-income sample, the strata are
+defined by $Z_i$, $D_i$, income decile, race, and mother's age group.
+For each parent sample, let $N_0$ denote the parent-sample size and let $n_s$ denote the size of stratum $s = 1,\ldots,S$. The target subsample size is set to $N = 3{,}000$. 
+The proportional target allocation for each stratum is
+\[
+n_s^{\ast} = N \frac{n_s}{N_0}.
+\]
+The preliminary allocation is obtained by taking the integer part, $\lfloor n_s^{\ast} \rfloor$. The remaining observations,
+\[
+N - \sum_{s=1}^S \lfloor n_s^{\ast} \rfloor,
+\]
+are then assigned one at a time to the strata with the largest fractional remainders, until the allocated total equals $N$ exactly. Within each stratum, the allocated number of observations is drawn randomly without replacement.
+The procedure is implemented separately for the labor-force participation and log-income parent samples, using a fixed seed. This yields two diagnostic subsamples of 3,000 observations each.
 
 
 
