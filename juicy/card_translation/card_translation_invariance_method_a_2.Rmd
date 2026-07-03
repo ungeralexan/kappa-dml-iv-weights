@@ -1,0 +1,434 @@
+---
+title: "Card (1995) — Translation Invariance: Rerun Check"
+subtitle: "Kappa estimators, DML smoother (PLR-IV / Wald-AIPW), and the 3-learner Wald-AIPW comparison"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+h3   { color: #444; margin-top: 20px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 12,
+  fig.height = 6,
+  autodep    = TRUE
+)
+```
+
+---
+
+# Purpose
+
+This notebook checks translation invariance by the rerun method: the whole estimation
+pipeline is fit once on the outcome measured in dollars and once on the same outcome
+measured in cents, using the same seed, and the two resulting point estimates are
+compared directly. This complements the frozen-weight check already used in the main
+Card notebook, where translation invariance is inferred from whether the outcome
+weights sum to zero without actually refitting anything.
+
+Recoding wages from dollars to cents multiplies the wage by 100 before taking logs,
+which is the same as adding a constant to the log wage. Since the choice between
+dollars and cents carries no real economic information, a translation-invariant
+estimator should return the same point estimate under both codings.
+
+# Setup
+
+```{r packages-and-source}
+library(haven)
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(OutcomeWeights)
+library(cobalt)
+library(viridis)
+library(gridExtra)
+library(ggplot2)
+library(DoubleML)
+library(mlr3verse)
+
+source("functions_all.R")
+cat("functions_all.R sourced.\n")
+```
+
+```{r data}
+data_path  <- "/Users/alexung/Desktop/master_thesis/code/"
+card       <- read_dta(file.path(data_path, "card.dta"))
+
+card_clean <- card[!is.na(card$wage) & !is.na(card$educ), ]
+
+card_clean$lwage_cnt <- log(card_clean$wage)         # cents
+card_clean$lwage     <- log(card_clean$wage / 100)   # dollars
+
+card_clean$somecol <- as.integer(card_clean$educ > 12)
+card_clean$educ16  <- as.integer(card_clean$educ >= 16)
+card_clean$Z_inst  <- as.integer(card_clean$nearc4)
+
+if (!"expersq" %in% names(card_clean)) {
+  card_clean$expersq <- card_clean$exper^2
+}
+
+cat(sprintf("N = %d (should be 3,010)\n", nrow(card_clean)))
+```
+
+```{r design-matrices}
+X_card_kappa <- model.matrix(
+  ~ exper + expersq + black + south + smsa + smsa66 +
+    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
+  data = card_clean
+)
+X_kit_kappa <- model.matrix(
+  ~ black + south + smsa + smsa66 + south66,
+  data = card_clean
+)
+
+X_dml_card <- make_X(
+  ~ 0 + exper + expersq + black + south + smsa + smsa66 +
+    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
+  data = card_clean
+)
+X_dml_kit <- make_X(
+  ~ 0 + black + south + smsa + smsa66 + south66,
+  data = card_clean
+)
+
+Y_dol <- card_clean$lwage        # dollars
+Y_cnt <- card_clean$lwage_cnt    # cents
+Z     <- card_clean$Z_inst
+D1    <- card_clean$somecol
+D2    <- card_clean$educ16
+
+k <- log(100)
+
+# the unit recoding should differ by exactly log(100); strip attributes from
+# the haven-labelled columns before comparing so the check is on values only
+diff_vec <- as.numeric(Y_cnt) - as.numeric(Y_dol)
+max_dev  <- max(abs(diff_vec - k))
+cat(sprintf("log(100) = %.12f, max deviation = %.3e\n", k, max_dev))
+stopifnot(max_dev < 1e-9)
+
+cells <- list(
+  list(label = "Card / somecol",     X_kappa = X_card_kappa, X_dml = X_dml_card, D = D1),
+  list(label = "Card / educ16",      X_kappa = X_card_kappa, X_dml = X_dml_card, D = D2),
+  list(label = "Kitagawa / somecol", X_kappa = X_kit_kappa,  X_dml = X_dml_kit,  D = D1),
+  list(label = "Kitagawa / educ16",  X_kappa = X_kit_kappa,  X_dml = X_dml_kit,  D = D2)
+)
+```
+
+---
+
+# 1. Kappa estimators
+
+Kappa outcome weights are built only from the instrument, the treatment, and the
+estimated propensity score, so they do not depend on the outcome at all. Refitting the
+kappa estimators on the cents-coded outcome should therefore give exactly the same
+weights as the dollar fit, and the rerun and frozen-weight checks should coincide.
+
+```{r kappa-name-bridge}
+# kappa_analytic_se_all() (functions_all.R) labels the tau_a,1 estimator "tau_ml_t",
+# while kappa_weights_bundle() labels the same estimator's weight vector "tau_ml_a1".
+# Bridge the two naming conventions explicitly so nothing silently mismatches.
+kappa_key_map <- c(
+  tau_cb_u   = "tau_cb_u",
+  tau_ml_u   = "tau_ml_u",
+  tau_ml_a10 = "tau_ml_a10",
+  tau_ml_a   = "tau_ml_a",
+  tau_ml_t   = "tau_ml_a1",
+  tau_ml_a0  = "tau_ml_a0"
+)
+```
+
+```{r kappa-ti-builder}
+build_kappa_ti_rows <- function(cell_label, Y_dollars, Y_cents, Z, D, X_kappa, k) {
+  est_d  <- kappa_analytic_se_all(Y_dollars, Z, D, X_kappa)$estimates
+  est_c  <- kappa_analytic_se_all(Y_cents,   Z, D, X_kappa)$estimates
+  w_list <- kappa_weights_bundle(Z, D, X_kappa)
+
+  rows <- lapply(names(kappa_key_map), function(est_name) {
+    w_name <- kappa_key_map[[est_name]]
+    row <- ti_unified_row(
+      name        = est_name,
+      w_dollars   = w_list[[w_name]],
+      tau_dollars = est_d[[est_name]],
+      tau_cents   = est_c[[est_name]],
+      k           = k
+    )
+    row$Cell <- cell_label
+    row
+  })
+  do.call(rbind, rows)
+}
+```
+
+```{r kappa-ti-run, cache=TRUE, dependson=c("data","design-matrices","kappa-name-bridge","kappa-ti-builder")}
+kappa_ti_all <- do.call(rbind, lapply(cells, function(cl) {
+  build_kappa_ti_rows(cl$label, Y_dol, Y_cnt, Z, cl$D, cl$X_kappa, k)
+}))
+```
+
+```{r kappa-ti-table}
+kappa_ti_all[, setdiff(names(kappa_ti_all), "gap_AB")] %>%
+  kbl(caption = "Kappa estimators — dollars vs. cents, all 4 Card cells",
+      digits = 6, row.names = FALSE,
+      align = c("l", rep("r", 5), "c", "c", "l")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(which(!kappa_ti_all$invariant_A), background = "#fffbf0")
+```
+
+---
+
+# 2. DML headline estimators (PLR-IV, Wald-AIPW)
+
+The smoother-based PLR-IV and Wald-AIPW estimators rely on nuisance models that are
+estimated from the data, so unlike the kappa weights, the implied outcome weights could
+in principle change when the outcome is recoded. Both the dollar and cents fits below
+use the same seed, the same number of cross-fitting folds, and the same tuning setting.
+
+```{r dml-headline-builder}
+build_dml_headline_ti_rows <- function(cell_label, Y_dollars, Y_cents, D, X_dml, Z, k,
+                                        n_cf_folds = 5) {
+  set.seed(42)
+  fit_d <- dml_with_smoother(Y_dollars, D, X_dml, Z, n_cf_folds = n_cf_folds,
+                              tune.parameters = "all")
+  set.seed(42)
+  fit_c <- dml_with_smoother(Y_cents, D, X_dml, Z, n_cf_folds = n_cf_folds,
+                              tune.parameters = "all")
+
+  res_d <- summary(fit_d)
+  res_c <- summary(fit_c)
+  om_d  <- get_outcome_weights(fit_d)
+  check_omega_rows(om_d)
+
+  rows <- lapply(c("PLR-IV", "Wald-AIPW"), function(est) {
+    w   <- as.vector(om_d$omega[est, ])
+    row <- ti_unified_row(
+      name        = est,
+      w_dollars   = w,
+      tau_dollars = get_estimate(res_d, est),
+      tau_cents   = get_estimate(res_c, est),
+      k           = k
+    )
+    row$Cell <- cell_label
+    row
+  })
+  do.call(rbind, rows)
+}
+```
+
+```{r dml-headline-run, cache=TRUE, dependson=c("data","design-matrices","dml-headline-builder")}
+dml_headline_ti_all <- do.call(rbind, lapply(cells, function(cl) {
+  build_dml_headline_ti_rows(cl$label, Y_dol, Y_cnt, cl$D, cl$X_dml, Z, k)
+}))
+```
+
+```{r dml-headline-table}
+dml_headline_ti_all[, setdiff(names(dml_headline_ti_all), "gap_AB")] %>%
+  kbl(caption = "DML smoother estimators — dollars vs. cents, all 4 Card cells",
+      digits = 6, row.names = FALSE,
+      align = c("l", rep("r", 5), "c", "c", "l")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(which(!dml_headline_ti_all$invariant_A), background = "#fffbf0")
+```
+
+---
+
+# 3. DML Wald-AIPW across learners (lm/logit, ranger, tuned XGBoost)
+
+For XGBoost, the default hyperparameters produced implausible point estimates in the
+main notebook (large negative LATEs, far from the lm/ranger/2SLS benchmarks). The
+hyperparameters used for XGBoost here were selected separately in
+`card_xgboost_tuning_1.Rmd` by inner cross-validation on nuisance prediction loss, and
+are plugged in below as fixed values, so the tuning search itself is not rerun here.
+
+```{r dml-learner-setup}
+make_dml_data <- function(D, X_dml, Y, Z) {
+  df <- as.data.frame(X_dml)
+  df$y <- as.numeric(Y)
+  df$d <- as.numeric(D)
+  df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                    x_cols = colnames(X_dml))
+}
+
+ml_lm <- function() list(g = lrn("regr.lm"),
+                         m = lrn("classif.log_reg"),
+                         r = lrn("classif.log_reg"))
+ml_rf <- function() list(g = lrn("regr.ranger",    keep.inbag = TRUE),
+                         m = lrn("classif.ranger", keep.inbag = TRUE),
+                         r = lrn("classif.ranger", keep.inbag = TRUE))
+
+fit_iivm <- function(dml_data, learners, Y) {
+  set.seed(42)
+  obj <- DoubleMLIIVM$new(data = dml_data,
+                          ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+                          n_folds = 5, score = "LATE")
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  om  <- get_outcome_weights(object = obj, dml_data = dml_data)
+  w   <- as.vector(om$omega)
+  ok  <- check_doubleml_identity(om, Y, obj$coef)
+  list(obj = obj, w = w, ok = ok)
+}
+
+build_dml_learner_ti_row <- function(cell_label, label, learners_fn,
+                                      Y_dollars, Y_cents, D, X_dml, Z, k) {
+  dat_d <- make_dml_data(D, X_dml, Y_dollars, Z)
+  dat_c <- make_dml_data(D, X_dml, Y_cents,   Z)
+
+  fit_d <- fit_iivm(dat_d, learners_fn(), Y_dollars)
+  fit_c <- fit_iivm(dat_c, learners_fn(), Y_cents)
+
+  row <- ti_unified_row(
+    name        = label,
+    w_dollars   = fit_d$w,
+    tau_dollars = get_dml_coef(fit_d$obj),
+    tau_cents   = get_dml_coef(fit_c$obj),
+    k           = k
+  )
+  row$Cell        <- cell_label
+  row$identity_ok <- fit_d$ok
+  row
+}
+
+learner_specs <- list(
+  list(label = "Wald-AIPW (lm + logit)", fn = ml_lm),
+  list(label = "Wald-AIPW (ranger)",     fn = ml_rf)
+)
+```
+
+```{r xgb-tuned-params}
+# Selected by inner cross-validation on nuisance prediction loss in
+# card_xgboost_tuning_1.Rmd (8-eval random search, 3-fold inner CV, seed 42).
+# g0/g1 = outcome model by instrument arm, m = instrument model,
+# r0/r1 = treatment model by instrument arm.
+# Card/educ16 values are read off the full-precision obj$params printout; the
+# other three cells use the rounded values from the hyperparameter table.
+xgb_tuned_params <- list(
+  "Card / educ16" = list(
+    g0 = list(nrounds = 227, max_depth = 3, eta = 0.04284429, min_child_weight = 5),
+    g1 = list(nrounds = 177, max_depth = 3, eta = 0.02897991, min_child_weight = 2),
+    m  = list(nrounds = 74,  max_depth = 2, eta = 0.08936620, min_child_weight = 7),
+    r0 = list(nrounds = 268, max_depth = 2, eta = 0.07932856, min_child_weight = 3),
+    r1 = list(nrounds = 255, max_depth = 3, eta = 0.03271248, min_child_weight = 1)
+  ),
+  "Card / somecol" = list(
+    g0 = list(nrounds = 227, max_depth = 3, eta = 0.04284429, min_child_weight = 5),
+    g1 = list(nrounds = 177, max_depth = 3, eta = 0.02897991, min_child_weight = 2),
+    m  = list(nrounds = 74,  max_depth = 2, eta = 0.08936620, min_child_weight = 7),
+    r0 = list(nrounds = 65,  max_depth = 4, eta = 0.065,      min_child_weight = 4),
+    r1 = list(nrounds = 255, max_depth = 3, eta = 0.03271248, min_child_weight = 1)
+  ),
+  "Kitagawa / educ16" = list(
+    g0 = list(nrounds = 320, max_depth = 3, eta = 0.051, min_child_weight = 7),
+    g1 = list(nrounds = 218, max_depth = 2, eta = 0.183, min_child_weight = 6),
+    m  = list(nrounds = 373, max_depth = 5, eta = 0.052, min_child_weight = 6),
+    r0 = list(nrounds = 282, max_depth = 3, eta = 0.133, min_child_weight = 1),
+    r1 = list(nrounds = 75,  max_depth = 4, eta = 0.073, min_child_weight = 3)
+  ),
+  "Kitagawa / somecol" = list(
+    g0 = list(nrounds = 320, max_depth = 3, eta = 0.051, min_child_weight = 7),
+    g1 = list(nrounds = 218, max_depth = 2, eta = 0.183, min_child_weight = 6),
+    m  = list(nrounds = 373, max_depth = 5, eta = 0.052, min_child_weight = 6),
+    r0 = list(nrounds = 142, max_depth = 5, eta = 0.162, min_child_weight = 2),
+    r1 = list(nrounds = 75,  max_depth = 4, eta = 0.073, min_child_weight = 3)
+  )
+)
+
+make_xgb_tuned_learners <- function() {
+  list(
+    g = lrn("regr.xgboost",    alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+    m = lrn("classif.xgboost", predict_type = "prob"),
+    r = lrn("classif.xgboost", predict_type = "prob")
+  )
+}
+
+# fixes the tuned hyperparameters via set_ml_nuisance_params() instead of
+# calling obj$tune(), so the tuning search is not repeated here
+fit_iivm_xgb_tuned <- function(dml_data, hp, Y) {
+  set.seed(42)
+  learners <- make_xgb_tuned_learners()
+  obj <- DoubleMLIIVM$new(data = dml_data,
+                          ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+                          n_folds = 5, score = "LATE")
+
+  obj$set_ml_nuisance_params(learner = "ml_g0", treat_var = "d", params = hp$g0)
+  obj$set_ml_nuisance_params(learner = "ml_g1", treat_var = "d", params = hp$g1)
+  obj$set_ml_nuisance_params(learner = "ml_m",  treat_var = "d", params = hp$m)
+  obj$set_ml_nuisance_params(learner = "ml_r0", treat_var = "d", params = hp$r0)
+  obj$set_ml_nuisance_params(learner = "ml_r1", treat_var = "d", params = hp$r1)
+
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  om  <- get_outcome_weights(object = obj, dml_data = dml_data)
+  w   <- as.vector(om$omega)
+  ok  <- check_doubleml_identity(om, Y, obj$coef)
+  list(obj = obj, w = w, ok = ok)
+}
+
+build_dml_learner_ti_row_xgb_tuned <- function(cell_label, hp, Y_dollars, Y_cents,
+                                                D, X_dml, Z, k) {
+  dat_d <- make_dml_data(D, X_dml, Y_dollars, Z)
+  dat_c <- make_dml_data(D, X_dml, Y_cents,   Z)
+
+  fit_d <- fit_iivm_xgb_tuned(dat_d, hp, Y_dollars)
+  fit_c <- fit_iivm_xgb_tuned(dat_c, hp, Y_cents)
+
+  row <- ti_unified_row(
+    name        = "Wald-AIPW (XGBoost, tuned)",
+    w_dollars   = fit_d$w,
+    tau_dollars = get_dml_coef(fit_d$obj),
+    tau_cents   = get_dml_coef(fit_c$obj),
+    k           = k
+  )
+  row$Cell        <- cell_label
+  row$identity_ok <- fit_d$ok
+  row
+}
+```
+
+```{r dml-learner-run, cache=TRUE, dependson=c("data","design-matrices","dml-learner-setup","xgb-tuned-params")}
+dml_learner_ti_lm_rf <- do.call(rbind, lapply(cells, function(cl) {
+  do.call(rbind, lapply(learner_specs, function(ls) {
+    build_dml_learner_ti_row(cl$label, ls$label, ls$fn, Y_dol, Y_cnt, cl$D, cl$X_dml, Z, k)
+  }))
+}))
+
+dml_learner_ti_xgb <- do.call(rbind, lapply(cells, function(cl) {
+  build_dml_learner_ti_row_xgb_tuned(cl$label, xgb_tuned_params[[cl$label]],
+                                      Y_dol, Y_cnt, cl$D, cl$X_dml, Z, k)
+}))
+
+dml_learner_ti_all <- rbind(dml_learner_ti_lm_rf, dml_learner_ti_xgb)
+```
+
+```{r dml-learner-table}
+drop_cols <- c("gap_AB", "identity_ok")
+dml_learner_ti_all[, setdiff(names(dml_learner_ti_all), drop_cols)] %>%
+  kbl(caption = "DML Wald-AIPW by learner — dollars vs. cents, all 4 Card cells",
+      digits = 6, row.names = FALSE,
+      align = c("l", rep("r", 5), "c", "c", "l")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(which(!dml_learner_ti_all$invariant_A), background = "#fffbf0")
+```

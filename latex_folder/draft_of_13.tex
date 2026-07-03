@@ -1624,7 +1624,27 @@ The second is log annual income,
     Y_i^{\text{INC}} = \log\!\left(\text{income}_i\right),
 \]
 which is only defined for women with strictly positive reported income. These two outcomes are useful for different parts of the analysis.
+For the analysis, I use the following covariates, following the specification in \citet{sloczynski2025abadie}, common to both outcome samples and all estimators. Table~\ref{tab:ae_covariates} lists them.
 
+\begin{table}[htbp]
+\centering
+\caption{Covariates used in the Angrist--Evans application}
+\label{tab:ae_child_covariates}
+\small
+\begin{tabular}{ll}
+\toprule
+Covariate & Definition \\
+\midrule
+$\text{age}_i$        & Mother's age at census observation \\
+$\text{agefirst}_i$   & Mother's age at first birth \\
+$\text{boy}_{1i}$     & Indicator that the first child is a boy \\
+$\text{boy}_{2i}$     & Indicator that the second child is a boy \\
+$\text{Black}_i$      & Race indicator: Black \\
+$\text{Hispanic}_i$   & Ethnicity indicator: Hispanic \\
+$\text{OtherRace}_i$  & Race indicator: other race \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 
 \subsubsection{Subsampling for the Angrist--Evans Application}
