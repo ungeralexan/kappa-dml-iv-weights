@@ -1,0 +1,623 @@
+---
+title: "Angrist & Evans (1998) — Outcome Weights & Kappa Estimators"
+subtitle: "Childbearing & Labour Supply: SUW Replication, DML & Learner Comparison (N = 3,000 subsample)"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body   { font-size: 15px; color: #2c2c2c; }
+h1     { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2     { color: #2c7bb6; margin-top: 28px; }
+h3     { color: #444; margin-top: 20px; }
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 12,
+  fig.height = 6
+)
+```
+
+---
+
+# Setup
+
+## Packages & Functions
+
+```{r packages-and-source}
+# Core
+library(haven)
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+# DML smoother + balance plots
+library(OutcomeWeights)
+library(cobalt)
+library(viridis)
+library(gridExtra)
+library(ggplot2)
+# DoubleML learners
+library(DoubleML)
+library(mlr3verse)
+
+source("functions_all.R")
+cat("functions_all.R sourced.\n")
+```
+
+## Data & Design
+
+<div class="note-box">
+**Setting.** Angrist & Evans (1998), 1980 Census PUMS — married women aged 21–35 with two or more children. Instrument Z = `samesex` (first two children same sex); treatment D = `morekids` (more than two children); outcome Y = log family income. Controls follow the canonical AE specification: mother's age (`agem`), age at first birth (`agefstm`), first-child-boy (`sexk`), second-child-boy (`sex2nd`), and race indicators (`blackm`, `hispm`, `othracem`). Estimation runs on the saved N = 3,000 stratified subsample (`ae98_sub.rds`); the design structure (Z/D rates, complier share, propensity surface) is preserved but point estimates are imprecise by construction and are **not** compared to the full-sample reproduction.
+</div>
+
+```{r data}
+data_path <- "/Users/alexung/Desktop/master_thesis/code/"
+obj       <- readRDS(file.path(data_path, "ae98_sub.rds"))
+ae98_sub  <- obj$ae98_sub
+
+# Income sample: positive income only (subsample already income-restricted upstream,
+# but re-filter to be safe and consistent with the reproduction)
+ae98 <- ae98_sub[!is.na(ae98_sub$incomem) & ae98_sub$incomem > 0, ]
+
+# Outcomes in four unit shifts (translation-invariance display, analogous to
+# Card's cents/dollars). Y_dol is the working outcome everywhere else.
+ae98$lincomem      <- log(ae98$incomem)              # dollars
+ae98$lincomem_cnt  <- log(100    * ae98$incomem)     # cents
+ae98$lincomem_ths  <- log(ae98$incomem / 1000)       # thousands
+ae98$lincomem_hths <- log(ae98$incomem / 100000)     # hundred-thousands
+
+Y_dol  <- ae98$lincomem
+Y_cnt  <- ae98$lincomem_cnt
+Y_ths  <- ae98$lincomem_ths
+Y_hths <- ae98$lincomem_hths
+
+Z <- as.integer(ae98$samesex)
+D <- as.integer(ae98$morekids)
+
+cat(sprintf("N (income subsample) = %d\n", nrow(ae98)))
+cat(sprintf("mean(Z)=%.4f | mean(D)=%.4f | complier share=%.4f\n",
+            mean(Z), mean(D),
+            mean(D[Z==1]) - mean(D[Z==0])))
+```
+
+```{r design-matrices}
+RHS <- "agem + agefstm + sexk + sex2nd + blackm + hispm + othracem"
+
+# Kappa design matrix — WITH intercept (for logit / CBPS)
+X_kappa <- model.matrix(as.formula(paste("~", RHS)), data = ae98)
+
+# X_df for 2SLS (no intercept column)
+X_df <- ae98[, c("agem","agefstm","sexk","sex2nd","blackm","hispm","othracem")]
+
+# DML design matrix — no intercept, attributes stripped for grf (make_X)
+X_dml <- make_X(as.formula(paste("~ 0 +", RHS)), data = ae98)
+
+cat(sprintf("Kappa: %d covariates | DML: %dx%d\n",
+            ncol(X_kappa) - 1, nrow(X_dml), ncol(X_dml)))
+```
+
+---
+
+# 1. Reproduction — SUW Table
+
+<div class="note-box">
+**Layout.** One treatment (more than two children), one covariate specification, four outcome-unit shifts (dollars / cents / thousands / hundred-thousands). Columns are the unit shifts. Normalized estimators (τ_cb_u, τ_ml_u, τ_ml_a10) are translation invariant — all four unit columns match; unnormalized ones (τ_ml_a, τ_ml_t, τ_ml_a0) shift with the units. With the reduced sample these reproduce the *structure* of the original table, not its point estimates.
+</div>
+
+```{r build-columns, cache=TRUE}
+run_ae_column <- function(Y) {
+  list(
+    tsls  = run_2sls(Y, D, Z, X_df, endog_name = "morekids"),
+    kappa = kappa_analytic_se_all(Y, Z, D, X_kappa)
+  )
+}
+
+col_dol  <- run_ae_column(Y_dol)
+col_cnt  <- run_ae_column(Y_cnt)
+col_ths  <- run_ae_column(Y_ths)
+col_hths <- run_ae_column(Y_hths)
+
+cat("All 4 unit columns computed.\n")
+```
+
+```{r table-builder, echo=FALSE}
+cell_fmt <- function(est, se, digits = 3) {
+  if (is.na(est)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0)
+    return(sprintf("%.3f<br><span style='color:#888'>(NA)</span>", est))
+  pval  <- 2 * pnorm(-abs(est / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s<br><span style='color:#888'>(%.3f)</span>", est, stars, se)
+}
+
+build_unit_table <- function(c_dol, c_cnt, c_ths, c_hths) {
+  ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+  labels <- c("τ_cb_u","τ_ml_u","τ_ml_a10","τ_ml_a","τ_ml_t","τ_ml_a0")
+
+  rows <- list(data.frame(
+    Estimator = "2SLS",
+    `dollars`     = cell_fmt(c_dol$tsls$coef,  c_dol$tsls$se),
+    `cents`       = cell_fmt(c_cnt$tsls$coef,  c_cnt$tsls$se),
+    `thousands`   = cell_fmt(c_ths$tsls$coef,  c_ths$tsls$se),
+    `100k`        = cell_fmt(c_hths$tsls$coef, c_hths$tsls$se),
+    check.names = FALSE, stringsAsFactors = FALSE
+  ))
+
+  for (i in seq_along(ests)) {
+    e <- ests[i]
+    rows[[length(rows) + 1]] <- data.frame(
+      Estimator = labels[i],
+      `dollars`   = cell_fmt(c_dol$kappa$estimates[e],  c_dol$kappa$se[e]),
+      `cents`     = cell_fmt(c_cnt$kappa$estimates[e],  c_cnt$kappa$se[e]),
+      `thousands` = cell_fmt(c_ths$kappa$estimates[e],  c_ths$kappa$se[e]),
+      `100k`      = cell_fmt(c_hths$kappa$estimates[e], c_hths$kappa$se[e]),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }
+  do.call(rbind, rows)
+}
+```
+
+## Results
+
+```{r table-reproduction}
+build_unit_table(col_dol, col_cnt, col_ths, col_hths) %>%
+  kbl(escape = FALSE, align = c("l","c","c","c","c"),
+      caption = "SUW reproduction — Treatment: morekids. Effect of childbearing on log family income, across four income-unit shifts.") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  add_header_above(c(" " = 1, "Income unit shift" = 4)) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",            1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",  2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators",5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant: all four unit columns match). Orange = unnormalized (shift with units). Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 2. Double ML — PLR-IV & Wald-AIPW
+
+```{r dml-fit-all, cache=TRUE}
+set.seed(42); dml_ae <- dml_with_smoother(Y_dol, D, X_dml, Z, n_cf_folds = 5, tune.parameters = "all")
+
+res_ae <- summary(dml_ae)
+
+extract_w <- function(dml_obj) {
+  om <- get_outcome_weights(dml_obj)
+  check_omega_rows(om)
+  list(plriv    = as.vector(om$omega["PLR-IV",    ]),
+       waldaipw = as.vector(om$omega["Wald-AIPW", ]))
+}
+w_ae <- extract_w(dml_ae)
+
+cat("DML fit complete.\n")
+```
+
+## Estimates
+
+```{r dml-cell-display, echo=FALSE}
+show_dml_cell <- function(res, wlist, Y, cap) {
+  ids <- c(
+    check_weight_identity(wlist$plriv,    Y, get_estimate(res, "PLR-IV")),
+    check_weight_identity(wlist$waldaipw, Y, get_estimate(res, "Wald-AIPW"))
+  )
+  df <- as.data.frame(res[c("PLR-IV", "Wald-AIPW"), , drop = FALSE])
+  df$Estimator  <- rownames(df)
+  df$`ΣωY = τ̂` <- as.character(ids)
+  df <- df[, c("Estimator", setdiff(names(df), c("Estimator","ΣωY = τ̂")), "ΣωY = τ̂")]
+  df %>%
+    kbl(caption = cap, digits = 4, row.names = FALSE,
+        align = c("l", rep("r", ncol(df) - 2), "c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "ΣωY = τ̂: algebraic identity check (must be TRUE).")
+}
+
+show_dml_cell(res_ae, w_ae, Y_dol, "DML — morekids, Y = log family income (dollars)")
+```
+
+## DML vs. Kappa — Point Estimates
+
+```{r dml-summary-table}
+kappa_ae <- kappa_analytic_se_all(Y_dol, Z, D, X_kappa)
+
+cell <- function(coef, se) {
+  if (is.na(coef)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
+  pval  <- 2 * pnorm(-abs(coef / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s (%.3f)", coef, stars, se)
+}
+
+dml_cell <- function(res, est) {
+  coef_val <- get_estimate(res, est)
+  se_val   <- if ("SE" %in% colnames(res)) as.numeric(res[est, "SE"])
+              else if ("Std. Error" %in% colnames(res)) as.numeric(res[est, "Std. Error"])
+              else NA_real_
+  cell(coef_val, se_val)
+}
+
+dml_rows <- rbind(
+  data.frame(Estimator = "PLR-IV (DML)",
+             `morekids` = dml_cell(res_ae, "PLR-IV"),
+             check.names = FALSE, stringsAsFactors = FALSE),
+  data.frame(Estimator = "Wald-AIPW (DML)",
+             `morekids` = dml_cell(res_ae, "Wald-AIPW"),
+             check.names = FALSE, stringsAsFactors = FALSE)
+)
+
+ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+labels <- c("τ_cb_u","τ_ml_u","τ_ml_a10","τ_ml_a","τ_ml_t","τ_ml_a0")
+kappa_rows <- do.call(rbind, lapply(seq_along(ests), function(i) {
+  e <- ests[i]
+  data.frame(
+    Estimator = labels[i],
+    `morekids` = cell(kappa_ae$estimates[e], kappa_ae$se[e]),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}))
+
+rbind(dml_rows, kappa_rows) %>%
+  kbl(align = c("l","c"),
+      caption = "DML vs. Kappa — Point Estimates (SE), Y = log family income (dollars)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Double ML", 1, 2) %>%
+  pack_rows("Kappa — normalized", 3, 5) %>%
+  pack_rows("Kappa — unnormalized", 6, 8) %>%
+  row_spec(1:2, background = "#eef6ff") %>%
+  row_spec(6:8, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE). Blue = DML. Orange = unnormalized kappa. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 3. Learner Comparison — Linear / Ranger / XGBoost
+
+```{r ext-setup}
+make_dml_data <- function(D, X_dml) {
+  df <- as.data.frame(X_dml)
+  df$y <- as.numeric(Y_dol)
+  df$d <- as.numeric(D)
+  df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                   x_cols = colnames(X_dml))
+}
+
+dat_ae <- make_dml_data(D, X_dml)
+
+cat("DoubleML data object built.\n")
+```
+
+```{r ext-fit-helpers, echo=FALSE}
+ml_lm  <- function() list(g = lrn("regr.lm"),
+                          m = lrn("classif.log_reg"),
+                          r = lrn("classif.log_reg"))
+ml_rf  <- function() list(g = lrn("regr.ranger",    keep.inbag = TRUE),
+                          m = lrn("classif.ranger", keep.inbag = TRUE),
+                          r = lrn("classif.ranger", keep.inbag = TRUE))
+ml_xgb <- function() list(
+  g = lrn("regr.xgboost",    alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+  m = lrn("classif.xgboost", alpha = 0, subsample = 1, max_delta_step = 0),
+  r = lrn("classif.xgboost", alpha = 0, subsample = 1, max_delta_step = 0))
+
+fit_iivm <- function(dml_data, learners, Y) {
+  tryCatch({
+    set.seed(42)
+    obj <- DoubleMLIIVM$new(data = dml_data,
+                            ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+                            n_folds = 5, score = "LATE")
+    obj$fit(store_models = TRUE, store_predictions = TRUE)
+    om  <- get_outcome_weights(object = obj, dml_data = dml_data)
+    w   <- as.vector(om$omega)
+    ok  <- check_doubleml_identity(om, Y, obj$coef)
+    list(obj = obj, w = w, ok = ok)
+  }, error = function(e) {
+    message("fit_iivm failed: ", conditionMessage(e))
+    list(obj = NULL, w = rep(NA_real_, length(Y)), ok = NA)
+  })
+}
+
+safe_coef <- function(f) if (is.null(f$obj)) NA_real_ else get_dml_coef(f$obj)
+safe_se   <- function(f) if (is.null(f$obj)) NA_real_ else get_dml_se(f$obj)
+
+learner_estimate_table <- function(f, cap) {
+  data.frame(
+    Cell      = "morekids",
+    Estimate  = round(safe_coef(f), 4),
+    SE        = round(safe_se(f),   4),
+    `ΣωY = τ̂` = f$ok,
+    check.names = FALSE
+  ) %>%
+    kbl(caption = cap, align = c("l","r","r","c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "ΣωY = τ̂: algebraic identity check (must be TRUE).")
+}
+```
+
+## Estimates {.tabset}
+
+### Linear + Logistic
+
+```{r ext-fit-lm, cache=TRUE}
+lm_ae <- fit_iivm(dat_ae, ml_lm(), Y_dol)
+learner_estimate_table(lm_ae, "Wald-AIPW — Linear + Logistic")
+```
+
+### Ranger
+
+```{r ext-fit-rf, cache=TRUE}
+rf_ae <- fit_iivm(dat_ae, ml_rf(), Y_dol)
+learner_estimate_table(rf_ae, "Wald-AIPW — Ranger")
+```
+
+### XGBoost
+
+```{r ext-fit-xgb, cache=TRUE}
+xgb_ae <- fit_iivm(dat_ae, ml_xgb(), Y_dol)
+learner_estimate_table(xgb_ae, "Wald-AIPW — XGBoost")
+```
+
+## Comparison Table
+
+```{r ext-comparison}
+ext_cell <- function(coef, se) {
+  if (is.na(coef) || !is.finite(coef)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
+  pval  <- 2 * pnorm(-abs(coef / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s (%.3f)", coef, stars, se)
+}
+
+learner_row <- function(label, f) {
+  data.frame(
+    Estimator  = label,
+    `morekids` = ext_cell(safe_coef(f), safe_se(f)),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+kappa_ref_row <- function(label, key) {
+  data.frame(
+    Estimator  = label,
+    `morekids` = ext_cell(kappa_ae$estimates[key], kappa_ae$se[key]),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+rbind(
+  learner_row("Wald-AIPW (linear+logit)", lm_ae),
+  learner_row("Wald-AIPW (ranger)",       rf_ae),
+  learner_row("Wald-AIPW (XGBoost)",      xgb_ae),
+  kappa_ref_row("τ_cb_u (kappa, ref)",  "tau_cb_u"),
+  kappa_ref_row("τ_ml_u (kappa, ref)",  "tau_ml_u")
+) %>%
+  kbl(align = c("l","c"),
+      caption = "Wald-AIPW Learner Comparison — DoubleML vs. Kappa (Y = log family income, dollars)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("DoubleML learners", 1, 3) %>%
+  pack_rows("Kappa reference",   4, 5) %>%
+  row_spec(1:3, background = "#eef6ff") %>%
+  footnote(general = "Each cell: estimate (SE). Blue = DoubleML. All score='LATE', n_folds=5. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 4. Weight Diagnostics
+
+<div class="note-box">
+**Reading the tables.** `Sum_w ≈ 0` confirms translation invariance. **`ESS_mod`** = modified effective sample size `(Σ|ωᵢ|)²/Σωᵢ²` (Chattopadhyay & Zubizarreta 2023) — the headline number, valid under negative weights and bounded in `[1, n]`. The old Kish `ESS = 1/Σωᵢ²` is shown alongside for reference but is unreliable for signed weights. With a complier share near 5%, this design produces concentrated weights and a low effective sample size — the modified ESS is the honest measure of usable mass.
+</div>
+
+```{r diag-builders, echo=FALSE}
+kw_ae <- kappa_weights_bundle(Z, D, X_kappa)
+
+DIAG_ALIGN <- c("l","r","r","r","r","r")
+
+dml_diag_cell <- function(wlist, kw) {
+  rbind(
+    weight_diag(wlist$plriv,    "PLR-IV     (DML)"),
+    weight_diag(wlist$waldaipw, "Wald-AIPW  (DML)"),
+    weight_diag(kw$tau_cb_u,    "τ_cb_u     (kappa)"),
+    weight_diag(kw$tau_ml_u,    "τ_ml_u     (kappa)"),
+    weight_diag(kw$tau_ml_a10,  "τ_ml_a10   (kappa)"),
+    weight_diag(kw$tau_ml_a,    "τ_ml_a     (kappa)"),
+    weight_diag(kw$tau_ml_a1,   "τ_ml_t/a1  (kappa)"),
+    weight_diag(kw$tau_ml_a0,   "τ_ml_a0    (kappa)")
+  )
+}
+style_dml_diag <- function(df, cap) {
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(1:2, background = "#eef6ff") %>%
+    footnote(general = "Blue = DML. Sum_w ≈ 0 ⟺ translation invariant. ESS_mod = (Σ|ω|)²/Σω² (report this); ESS = 1/Σω² (reference only).")
+}
+
+ext_diag_block <- function(kw, w_lm, w_rf, w_xgb) {
+  rbind(
+    weight_diag(w_lm,          "Wald-AIPW (linear+logit)"),
+    weight_diag(w_rf,          "Wald-AIPW (ranger)"),
+    weight_diag(w_xgb,         "Wald-AIPW (XGBoost)"),
+    weight_diag(kw$tau_cb_u,   "τ_cb_u    (kappa, CBPS)"),
+    weight_diag(kw$tau_ml_u,   "τ_ml_u    (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a10, "τ_ml_a10  (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a,   "τ_ml_a    (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a1,  "τ_ml_t    (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a0,  "τ_ml_a0   (kappa, unnorm)")
+  )
+}
+style_ext_diag <- function(df, cap) {
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(1:3, background = "#eef6ff") %>%
+    footnote(general = "Blue = DoubleML learners. ESS_mod = (Σ|ω|)²/Σω² (report this); ESS = 1/Σω² (reference only). NA rows = learner produced no weights.")
+}
+```
+
+## DML vs. Kappa
+
+```{r dml-diag-ae}
+style_dml_diag(dml_diag_cell(w_ae, kw_ae), "Weight Diagnostics — DML vs. Kappa | morekids")
+```
+
+## Learners vs. Kappa
+
+```{r ext-diag-ae}
+style_ext_diag(ext_diag_block(kw_ae, lm_ae$w, rf_ae$w, xgb_ae$w),
+               "Weight Diagnostics — Learners | morekids")
+```
+
+## Weight-Statistics Bridge — RQ1
+
+<div class="note-box">
+**What this is.** For every estimator, `weight_bridge()` reports the outcome weights **Overall / Treated / Control** (control sign-flipped, matching Knaus's convention), putting the two diagnostic vocabularies side by side: his six `summary()` statistics (Min, Max, %Neg, Σ of the largest 10%, Σω, Σ|ω|) next to the two effective-sample-size measures (Kish vs. modified). The headline is **ESS mod**. The Knaus block is computed in plain R, so the kappa estimators get his statistics too, which his package never produces for them.
+</div>
+
+```{r bridge-helpers, echo=FALSE}
+cell_weight_list <- function(wdml, lm_w, rf_w, xgb_w, kw) {
+  lst <- list(
+    "PLR-IV (DML)"     = wdml$plriv,
+    "Wald-AIPW (DML)"  = wdml$waldaipw,
+    "Linear+Logit"     = lm_w,
+    "Ranger"           = rf_w,
+    "XGBoost"          = xgb_w,
+    "τ_cb_u (kappa)"   = kw$tau_cb_u,
+    "τ_ml_u (kappa)"   = kw$tau_ml_u,
+    "τ_ml_t (kappa)"   = kw$tau_ml_a1
+  )
+  Filter(function(w) !all(is.na(w)), lst)
+}
+
+bridge_w <- cell_weight_list(w_ae, lm_ae$w, rf_ae$w, xgb_ae$w, kw_ae)
+
+bridge_table <- function(wlist, D, cap) {
+  ests <- names(wlist)
+  df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
+  disp <- df[, c("Scope","Min","Max","Pct_neg","Sum_top10","Sum_w","Sum_abs_w","ESS_kish","ESS_mod")]
+
+  kk <- disp %>%
+    kbl(caption = cap, row.names = FALSE,
+        col.names = c("Scope","Min","Max","%Neg","ΣTop10%","Σω","Σ|ω|","ESS Kish","ESS mod"),
+        align = c("l", rep("r", 8))) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 12) %>%
+    add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
+                       "Effective sample size" = 2)) %>%
+    column_spec(9, bold = TRUE, background = "#eef6ff")
+  for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
+  kk %>% footnote(general = "Control rows use Knaus's sign-flipped −ω convention. ESS mod = (Σ|ω|)²/Σω² is the number to report; ESS Kish = 1/Σω² is reference only.")
+}
+
+ess_overview_df <- do.call(rbind, lapply(names(bridge_w), function(nm) {
+  ov <- weight_bridge(bridge_w[[nm]], D, nm)
+  ov <- ov[ov$Scope == "Overall", ]
+  data.frame(Estimator = nm, ESS_kish = ov$ESS_kish, ESS_mod = ov$ESS_mod,
+             check.names = FALSE, stringsAsFactors = FALSE)
+}))
+```
+
+### ESS overview (Kish vs. modified)
+
+```{r bridge-ess-overview}
+ess_overview_df %>%
+  kbl(caption = "Effective sample size, Overall scope — Kish (1/Σω²) vs. modified ((Σ|ω|)²/Σω²)",
+      col.names = c("Estimator","ESS Kish","ESS mod"),
+      align = c("l","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  column_spec(3, bold = TRUE, background = "#eef6ff") %>%
+  footnote(general = "Where Kish collapses toward 1, the modified ESS recovers the genuine usable weight mass. Report the modified column.")
+```
+
+```{r bridge-ess-dumbbell, fig.height=4.5, fig.width=11}
+ggplot(ess_overview_df, aes(y = Estimator)) +
+  geom_segment(aes(x = ESS_kish, xend = ESS_mod, yend = Estimator),
+               colour = "#bdbdbd", linewidth = 1.1) +
+  geom_point(aes(x = ESS_kish, colour = "Kish"),     size = 2.6) +
+  geom_point(aes(x = ESS_mod,  colour = "Modified"), size = 2.6) +
+  scale_colour_manual(values = c("Kish" = "#9e9e9e", "Modified" = "#2c7bb6"), name = NULL) +
+  labs(title = "Effective sample size: Kish → modified",
+       x = "Effective sample size", y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top", panel.grid.minor = element_blank())
+```
+
+### Full bridge table
+
+```{r bridge-ae}
+bridge_table(bridge_w, D, "Weight-statistics bridge — morekids")
+```
+
+---
+
+# 5. Love Plots
+
+```{r love-helpers, echo=FALSE}
+maybe_love <- function(title, w, D, X) if (all(is.na(w))) NULL else make_love(title, w, D, X)
+```
+
+## DML vs. Kappa (all 8 estimators)
+
+```{r love-ae, fig.height=9, fig.width=13}
+grobs <- Filter(Negate(is.null), list(
+  maybe_love("PLR-IV (DML)",     w_ae$plriv,       D, X_dml),
+  maybe_love("Wald-AIPW (DML)",  w_ae$waldaipw,    D, X_dml),
+  maybe_love("τ_cb_u (CBPS)",    kw_ae$tau_cb_u,   D, X_dml),
+  maybe_love("τ_ml_u",           kw_ae$tau_ml_u,   D, X_dml),
+  maybe_love("τ_ml_a10",         kw_ae$tau_ml_a10, D, X_dml),
+  maybe_love("τ_ml_a (unnorm)",  kw_ae$tau_ml_a,   D, X_dml),
+  maybe_love("τ_ml_t (unnorm)",  kw_ae$tau_ml_a1,  D, X_dml),
+  maybe_love("τ_ml_a0 (unnorm)", kw_ae$tau_ml_a0,  D, X_dml)
+))
+grid.arrange(grobs = grobs, nrow = 2, top = "Love Plots — morekids: DML vs. Kappa")
+```
+
+## Learners vs. Kappa (3 learners + 2 kappa)
+
+```{r ext-love-ae, fig.height=5.5, fig.width=14}
+grobs <- Filter(Negate(is.null), list(
+  maybe_love("Linear+Logit", lm_ae$w,        D, X_dml),
+  maybe_love("Ranger",       rf_ae$w,        D, X_dml),
+  maybe_love("XGBoost",      xgb_ae$w,       D, X_dml),
+  maybe_love("τ_cb_u",       kw_ae$tau_cb_u, D, X_dml),
+  maybe_love("τ_ml_u",       kw_ae$tau_ml_u, D, X_dml)
+))
+grid.arrange(grobs = grobs, nrow = 1, top = "Love Plots — DoubleML learners vs. kappa | morekids")
+```

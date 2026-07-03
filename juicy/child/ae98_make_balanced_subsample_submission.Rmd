@@ -1,0 +1,377 @@
+---
+title: "Angrist & Evans (1998) - Stratified 3,000-Row Subsamples"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(AER)
+library(sandwich)
+library(lmtest)
+
+source("functions_all.R")
+
+N_sub <- 3000L
+final_seed <- 202L
+diagnostic_seeds <- 202L:251L
+
+paths <- c("ae98.dta", "/Users/alexung/Desktop/master_thesis/code/ae98.dta")
+data_file <- paths[file.exists(paths)][1]
+if (is.na(data_file)) stop("Could not find ae98.dta.")
+```
+
+# 1. Analysis Samples
+
+The Angrist-Evans application uses two analysis samples. Labor-force
+participation is defined on the full sample, while log income is defined only for
+strictly positive reported income. I therefore construct one stratified 3,000-row
+subsample for each outcome family.
+
+```{r samples}
+ae98_raw <- read_dta(data_file)
+
+base_vars <- c("workedm", "morekids", "samesex", "agem", "agefstm",
+               "sexk", "sex2nd", "blackm", "hispm", "othracem")
+
+ae98_labor <- ae98_raw %>%
+  filter(if_all(all_of(base_vars), ~ !is.na(.x))) %>%
+  mutate(
+    row_id = row_number(),
+    workedm = as.integer(workedm),
+    morekids = as.integer(morekids),
+    samesex = as.integer(samesex),
+    incomepos = as.integer(!is.na(incomem) & incomem > 0),
+    race = case_when(
+      blackm == 1 ~ "black",
+      hispm == 1 ~ "hispanic",
+      othracem == 1 ~ "other",
+      TRUE ~ "white"
+    ),
+    age_bin = cut(agem, breaks = c(20, 25, 30, 35), include.lowest = TRUE)
+  )
+
+ae98_income <- ae98_labor %>%
+  filter(incomepos == 1) %>%
+  mutate(
+    lincomem = log(incomem),
+    inc_decile = ntile(incomem, 10)
+  )
+
+data.frame(
+  Sample = c("Labor-force participation", "Log income"),
+  `Parent N` = c(nrow(ae98_labor), nrow(ae98_income)),
+  `Subsample N` = N_sub,
+  check.names = FALSE
+) %>%
+  kbl(caption = "Parent samples and target subsample sizes",
+      align = c("l", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE)
+```
+
+# 2. Stratified Draw
+
+The final sample is a single proportional stratified draw with one fixed seed. No
+optimization over alternative seeds is used for the final thesis sample.
+
+```{r sampler}
+largest_remainder_n <- function(n_full, n_target) {
+  raw <- n_target * n_full / sum(n_full)
+  n <- floor(raw)
+  left <- n_target - sum(n)
+  if (left > 0) {
+    idx <- order(raw - n, decreasing = TRUE)[seq_len(left)]
+    n[idx] <- n[idx] + 1L
+  }
+  pmin(n, n_full)
+}
+
+make_sampler <- function(df, strata, n_target) {
+  key <- interaction(df[, strata, drop = FALSE], drop = TRUE, lex.order = TRUE)
+  split_idx <- split(seq_len(nrow(df)), key)
+  n_take <- largest_remainder_n(lengths(split_idx), n_target)
+
+  function(seed) {
+    set.seed(seed)
+    idx <- unlist(Map(function(ii, nn) sample(ii, nn), split_idx, n_take),
+                  use.names = FALSE)
+    df[idx, , drop = FALSE]
+  }
+}
+
+labor_sampler <- make_sampler(
+  ae98_labor,
+  c("samesex", "morekids", "workedm", "incomepos", "race", "age_bin"),
+  N_sub
+)
+
+income_sampler <- make_sampler(
+  ae98_income,
+  c("samesex", "morekids", "inc_decile", "race", "age_bin"),
+  N_sub
+)
+
+ae98_labor_sub <- labor_sampler(final_seed)
+ae98_income_sub <- income_sampler(final_seed)
+
+data.frame(
+  Sample = c("Labor-force participation", "Log income"),
+  Seed = final_seed,
+  N = c(nrow(ae98_labor_sub), nrow(ae98_income_sub)),
+  check.names = FALSE
+) %>%
+  kbl(caption = "Final honest stratified subsamples",
+      align = c("l", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE)
+```
+
+# 3. Design Diagnostics
+
+```{r design-diagnostics}
+first_stage <- function(df) {
+  mean(df$morekids[df$samesex == 1]) - mean(df$morekids[df$samesex == 0])
+}
+
+reduced_form <- function(df, y) {
+  mean(y[df$samesex == 1]) - mean(y[df$samesex == 0])
+}
+
+fit_p <- function(df) {
+  rhs <- "agem + agefstm + sexk + sex2nd + blackm + hispm + othracem"
+  fit <- glm(as.formula(paste("samesex ~", rhs)), data = df, family = binomial())
+  as.numeric(fitted(fit))
+}
+
+moment_labor <- function(df) {
+  p_hat <- fit_p(df)
+  c(
+    pZ = mean(df$samesex),
+    pD = mean(df$morekids),
+    first_stage = first_stage(df),
+    pWorked = mean(df$workedm),
+    reduced_work = reduced_form(df, df$workedm),
+    pIncomePos = mean(df$incomepos),
+    age = mean(df$agem),
+    age_sd = sd(df$agem),
+    age_first = mean(df$agefstm),
+    pBoy1 = mean(df$sexk),
+    pBoy2 = mean(df$sex2nd),
+    pBlack = mean(df$blackm),
+    pHisp = mean(df$hispm),
+    pOther = mean(df$othracem),
+    pscore_mean = mean(p_hat),
+    pscore_sd = sd(p_hat)
+  )
+}
+
+moment_income <- function(df) {
+  p_hat <- fit_p(df)
+  qs <- quantile(df$lincomem, probs = c(.10, .25, .50, .75, .90), names = FALSE)
+  c(
+    pZ = mean(df$samesex),
+    pD = mean(df$morekids),
+    first_stage = first_stage(df),
+    reduced_log_income = reduced_form(df, df$lincomem),
+    log_income = mean(df$lincomem),
+    log_income_sd = sd(df$lincomem),
+    log_income_q10 = qs[1],
+    log_income_q25 = qs[2],
+    log_income_q50 = qs[3],
+    log_income_q75 = qs[4],
+    log_income_q90 = qs[5],
+    age = mean(df$agem),
+    age_sd = sd(df$agem),
+    age_first = mean(df$agefstm),
+    pBoy1 = mean(df$sexk),
+    pBoy2 = mean(df$sex2nd),
+    pBlack = mean(df$blackm),
+    pHisp = mean(df$hispm),
+    pOther = mean(df$othracem),
+    pscore_mean = mean(p_hat),
+    pscore_sd = sd(p_hat)
+  )
+}
+
+diagnostic_table <- function(parent, sub, label, moment_fn) {
+  target <- moment_fn(parent)
+  selected <- moment_fn(sub)
+  data.frame(
+    Sample = label,
+    Moment = names(target),
+    Parent = as.numeric(target),
+    Subsample = as.numeric(selected),
+    Difference = as.numeric(selected - target),
+    check.names = FALSE
+  )
+}
+
+diag_design <- bind_rows(
+  diagnostic_table(ae98_labor, ae98_labor_sub, "Labor / workedm", moment_labor),
+  diagnostic_table(ae98_income, ae98_income_sub, "Income / lincomem", moment_income)
+)
+
+diag_design %>%
+  mutate(across(where(is.numeric), ~ round(.x, 5))) %>%
+  kbl(caption = "Design diagnostics: parent samples vs. final subsamples",
+      align = c("l", "l", "r", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE)
+```
+
+# 4. Estimator Variability Across Honest Draws
+
+The table and figure below do not choose the final sample. They repeat the same
+stratified design over 50 pre-specified seeds to show the sampling variability one
+should expect when reducing the sample size to 3,000 observations.
+
+```{r estimator-functions}
+RHS <- "agem + agefstm + sexk + sex2nd + blackm + hispm + othracem"
+
+estimate_methods <- function(df, y, sample_label, seed = NA_integer_) {
+  X <- model.matrix(as.formula(paste("~", RHS)), data = df)
+  X_df <- df[, c("agem", "agefstm", "sexk", "sex2nd",
+                 "blackm", "hispm", "othracem")]
+  tsls <- run_2sls(y, df$morekids, df$samesex, X_df, "morekids")
+  k <- kappa_analytic_se_all(y, df$samesex, df$morekids, X)
+
+  data.frame(
+    Sample = sample_label,
+    Seed = seed,
+    Method = c("2SLS", "tau_cb_u", "tau_ml_u", "tau_ml_a10",
+               "tau_ml_a", "tau_ml_t", "tau_ml_a0"),
+    Estimate = unname(c(tsls$coef,
+                 k$estimates["tau_cb_u"], k$estimates["tau_ml_u"],
+                 k$estimates["tau_ml_a10"], k$estimates["tau_ml_a"],
+                 k$estimates["tau_ml_t"], k$estimates["tau_ml_a0"])),
+    SE = unname(c(tsls$se,
+           k$se["tau_cb_u"], k$se["tau_ml_u"], k$se["tau_ml_a10"],
+           k$se["tau_ml_a"], k$se["tau_ml_t"], k$se["tau_ml_a0"])),
+    check.names = FALSE
+  )
+}
+
+full_estimates <- bind_rows(
+  estimate_methods(ae98_labor, ae98_labor$workedm, "Labor / workedm"),
+  estimate_methods(ae98_income, ae98_income$lincomem, "Income / lincomem")
+) %>%
+  mutate(Type = "Full sample")
+
+final_estimates <- bind_rows(
+  estimate_methods(ae98_labor_sub, ae98_labor_sub$workedm,
+                   "Labor / workedm", final_seed),
+  estimate_methods(ae98_income_sub, ae98_income_sub$lincomem,
+                   "Income / lincomem", final_seed)
+) %>%
+  mutate(Type = "Final subsample")
+```
+
+```{r estimator-table}
+estimator_table <- bind_rows(full_estimates, final_estimates) %>%
+  mutate(
+    `Estimate (SE)` = sprintf("%.3f (%.3f)", Estimate, SE)
+  ) %>%
+  select(Type, Sample, Seed, Method, `Estimate (SE)`)
+
+estimator_table %>%
+  kbl(caption = "Full-sample and final-subsample estimates with standard errors",
+      align = c("l", "l", "r", "l", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE)
+```
+
+```{r diagnostic-draws}
+diagnostic_estimates <- bind_rows(lapply(diagnostic_seeds, function(s) {
+  labor_s <- labor_sampler(s)
+  income_s <- income_sampler(s)
+  bind_rows(
+    estimate_methods(labor_s, labor_s$workedm, "Labor / workedm", s),
+    estimate_methods(income_s, income_s$lincomem, "Income / lincomem", s)
+  )
+}))
+
+diagnostic_summary <- diagnostic_estimates %>%
+  group_by(Sample, Method) %>%
+  summarise(
+    Mean = mean(Estimate),
+    SD_across_draws = sd(Estimate),
+    Mean_SE = mean(SE),
+    P05 = quantile(Estimate, .05),
+    P95 = quantile(Estimate, .95),
+    .groups = "drop"
+  )
+
+diagnostic_summary %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4))) %>%
+  kbl(caption = "Distribution of estimates across 50 honest stratified draws",
+      align = c("l", "l", "r", "r", "r", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE)
+```
+
+```{r diagnostic-plot, fig.width=12, fig.height=7}
+plot_methods <- c("2SLS", "tau_cb_u", "tau_ml_a")
+
+plot_df <- diagnostic_estimates %>%
+  filter(Method %in% plot_methods) %>%
+  mutate(
+    lower = Estimate - 1.96 * SE,
+    upper = Estimate + 1.96 * SE,
+    Method = factor(Method, levels = plot_methods)
+  )
+
+full_lines <- full_estimates %>%
+  filter(Method %in% plot_methods) %>%
+  mutate(Method = factor(Method, levels = plot_methods))
+
+ggplot(plot_df, aes(x = Seed, y = Estimate)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), alpha = .25, width = .15) +
+  geom_point(size = 1.7, alpha = .8) +
+  geom_hline(data = full_lines, aes(yintercept = Estimate),
+             colour = "#d7191c", linewidth = .7) +
+  facet_grid(Sample ~ Method, scales = "free_y") +
+  labs(title = "Subsample estimator variability across 50 honest stratified draws",
+       subtitle = "Points are estimates; vertical intervals are +/- 1.96 SE. Red lines mark full-sample estimates.",
+       x = "Seed", y = "Estimate") +
+  theme_minimal(base_size = 12) +
+  theme(strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40"))
+```
+
+# 5. Save Output
+
+```{r save}
+save_obj <- list(
+  method = "single honest proportional stratified draw",
+  N_sub = N_sub,
+  final_seed = final_seed,
+  diagnostic_seeds = diagnostic_seeds,
+  source_file = data_file,
+  labor_parent_N = nrow(ae98_labor),
+  income_parent_N = nrow(ae98_income),
+  ae98_labor_sub = ae98_labor_sub,
+  ae98_income_sub = ae98_income_sub,
+  ae98_sub = ae98_labor_sub,
+  diagnostics = list(
+    design = diag_design,
+    full_estimates = full_estimates,
+    final_estimates = final_estimates,
+    diagnostic_summary = diagnostic_summary
+  )
+)
+
+saveRDS(save_obj, "ae98_sub.rds")
+```

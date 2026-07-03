@@ -1,0 +1,161 @@
+---
+title: "Angrist & Evans (1998) — Income Subsample Selection"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r packages}
+library(haven)
+library(dplyr)
+library(purrr)
+library(knitr)
+library(kableExtra)
+
+source("functions_all.R")
+```
+
+---
+
+# 1. Load Data & Build Income Sample
+
+```{r data}
+data_path  <- "/Users/alexung/Desktop/master_thesis/code/"
+ae98_raw   <- read_dta(file.path(data_path, "ae98.dta"))
+
+# Base restriction (mirrors child_repl_30.Rmd exactly)
+ae98 <- ae98_raw[!is.na(ae98_raw$workedm) &
+                 !is.na(ae98_raw$morekids) &
+                 !is.na(ae98_raw$samesex), ]
+
+# Income variables (same as draft)
+ae98$lincomem      <- log(ae98$incomem)
+ae98$lincomem_cnt  <- log(100  * ae98$incomem)
+ae98$lincomem_ths  <- log(ae98$incomem / 1000)
+ae98$lincomem_hths <- log(ae98$incomem / 100000)
+
+# Income sample: positive income only (same restriction as draft)
+ae98_income <- ae98[!is.na(ae98$incomem) & ae98$incomem > 0, ]
+
+cat(sprintf("Full income sample: N = %d\n", nrow(ae98_income)))
+cat(sprintf("Pr(Z=1) samesex:   %.4f\n", mean(ae98_income$samesex)))
+cat(sprintf("Pr(D=1) morekids:  %.4f\n", mean(ae98_income$morekids)))
+```
+
+---
+
+# 2. Stratified Subsample (N = 3,000)
+
+```{r sampling}
+# Stratify on Z × D: 4 cells.
+# Each cell keeps the same share as in the full income sample,
+# so the compliance structure is preserved in the subsample.
+N_sub <- 3000
+set.seed(202)   # <-- record this; goes into the presentation notebook
+
+# Step 1: compute how many to take from each cell
+cell_targets <- ae98_income %>%
+  mutate(cell = paste0("Z", samesex, "D", morekids)) %>%
+  count(cell, name = "n_full") %>%
+  mutate(n_take = pmax(1L, round(N_sub * n_full / nrow(ae98_income))))
+
+cat("Cell targets:\n"); print(cell_targets)
+
+# Step 2: sample each cell separately, then bind
+ae98_sub <- ae98_income %>%
+  mutate(cell = paste0("Z", samesex, "D", morekids)) %>%
+  group_by(cell) %>%
+  group_split() %>%
+  map2(
+    cell_targets$n_take[match(
+      sapply(., function(g) g$cell[1]),
+      cell_targets$cell)],
+    ~ slice_sample(.x, n = min(.y, nrow(.x)))
+  ) %>%
+  bind_rows() %>%
+  select(-cell) %>%
+  as.data.frame()
+
+cat(sprintf("\nSubsample N = %d\n", nrow(ae98_sub)))
+```
+
+---
+
+# 3. Comparison: Original vs. Subsample
+
+<div style="background:#eaf4ff;border-left:4px solid #2c7bb6;padding:10px 14px;margin:12px 0;font-size:14px;">
+The table below is the key check: do the subsample statistics stay close to the full income sample? If yes, results from the subsample will be representative and you can justify the choice in the thesis.
+</div>
+
+```{r comparison}
+make_X_ae <- function(df) {
+  model.matrix(~ agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+               data = df)
+}
+
+compare_stats <- function(df, label) {
+  X <- make_X_ae(df)
+  p <- logit_mle(df$samesex, X)
+  kw <- kappa_weights(df$samesex, df$morekids, p)
+  res <- tryCatch(
+    kappa_analytic_se_all(df$lincomem, df$samesex, df$morekids, X),
+    error = function(e) NULL)
+  data.frame(
+    Sample          = label,
+    N               = nrow(df),
+    `Pr(Z=1)`       = round(mean(df$samesex), 4),
+    `Pr(D=1)`       = round(mean(df$morekids), 4),
+    `Complier share`= round(mean(df$morekids[df$samesex==1]) -
+                            mean(df$morekids[df$samesex==0]), 4),
+    `mean(lincomem)`= round(mean(df$lincomem, na.rm=TRUE), 4),
+    `SD(lincomem)`  = round(sd(df$lincomem,   na.rm=TRUE), 4),
+    `p̂ mean`        = round(mean(p), 4),
+    `p̂ SD`          = round(sd(p),   5),
+    `kappa mean`    = round(mean(kw$kappa), 4),
+    `tau_ml_u`      = if (!is.null(res)) round(unname(res$estimates["tau_ml_u"]), 4) else NA,
+    `SE(tau_ml_u)`  = if (!is.null(res)) round(unname(res$se["tau_ml_u"]), 4) else NA,
+    check.names     = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+rbind(
+  compare_stats(ae98_income, "Full income sample"),
+  compare_stats(ae98_sub,    "Subsample (N=3,000)")
+) %>%
+  kbl(caption = "Full income sample vs. stratified subsample",
+      align = c("l", rep("r", 11))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(1, bold = TRUE) %>%
+  footnote(general = paste(
+    "Stratification on Z×D preserves the compliance structure."
+  ))
+```
+
+---
+
+# 4. Save Subsample
+
+```{r save}
+# Save as .rds — load in the presentation notebook with one line:
+#   obj        <- readRDS(file.path(data_path, "ae98_sub.rds"))
+#   ae98_sub   <- obj$ae98_sub
+#   seed used  <- obj$seed
+
+saveRDS(
+  list(seed = 202, N = nrow(ae98_sub), ae98_sub = ae98_sub),
+  file = file.path(data_path, "ae98_sub.rds")
+)
+
+cat(sprintf("Saved: ae98_sub.rds  (N=%d, seed=202)\n", nrow(ae98_sub)))
+cat(sprintf("Reload: obj <- readRDS(file.path(data_path, 'ae98_sub.rds'))\n"))
+```
