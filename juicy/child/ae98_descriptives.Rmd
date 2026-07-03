@@ -51,6 +51,7 @@ library(ggplot2)
 library(knitr)
 library(kableExtra)
 library(scales)
+library(sandwich)
 
 col_z1 <- "#2c7bb6"
 col_z0 <- "#d7191c"
@@ -90,6 +91,8 @@ Following Słoczyński, Uysal, and Wooldridge, the Angrist-Evans application use
 # 1. Child Dataset: Instrument, Treatment, and Outcomes
 
 ```{r descriptive-helpers}
+RHS <- "agem + agefstm + sexk + sex2nd + blackm + hispm + othracem"
+
 first_stage <- function(df) {
   mean(df$morekids[df$samesex == 1]) - mean(df$morekids[df$samesex == 0])
 }
@@ -102,6 +105,12 @@ fmt_num <- function(x) {
   ifelse(is.na(x), "--",
          ifelse(abs(x) >= 1000, format(round(x), big.mark = ",", scientific = FALSE),
                 sprintf("%.4f", x)))
+}
+
+coef_hc1 <- function(model, term) {
+  se <- sqrt(diag(vcovHC(model, type = "HC1")))[term]
+  est <- coef(model)[term]
+  c(estimate = unname(est), se = unname(se), f_stat = unname((est / se)^2))
 }
 ```
 
@@ -171,8 +180,12 @@ iv_summary <- function(df, y, label, outcome_label) {
   d_z0 <- mean(df$morekids[df$samesex == 0])
   y_z1 <- mean(y[df$samesex == 1])
   y_z0 <- mean(y[df$samesex == 0])
-  fs <- d_z1 - d_z0
-  rf <- y_z1 - y_z0
+  raw_fs <- d_z1 - d_z0
+  raw_rf <- y_z1 - y_z0
+
+  df$.y <- y
+  fs_adj <- coef_hc1(lm(as.formula(paste("morekids ~ samesex +", RHS)), data = df), "samesex")
+  rf_adj <- coef_hc1(lm(as.formula(paste(".y ~ samesex +", RHS)), data = df), "samesex")
 
   data.frame(
     Sample = label,
@@ -180,13 +193,15 @@ iv_summary <- function(df, y, label, outcome_label) {
     N = nrow(df),
     `Pr(Z = 1)` = mean(df$samesex),
     `Pr(D = 1)` = mean(df$morekids),
-    `D | Z = 0` = d_z0,
-    `D | Z = 1` = d_z1,
-    `First stage` = fs,
-    `Y | Z = 0` = y_z0,
-    `Y | Z = 1` = y_z1,
-    `Reduced form` = rf,
-    `Wald ratio` = rf / fs,
+    `Raw first stage` = raw_fs,
+    `Adj. first stage` = fs_adj["estimate"],
+    `Adj. first-stage SE` = fs_adj["se"],
+    `Adj. first-stage F` = fs_adj["f_stat"],
+    `Raw reduced form` = raw_rf,
+    `Adj. reduced form` = rf_adj["estimate"],
+    `Adj. reduced-form SE` = rf_adj["se"],
+    `Raw Wald` = raw_rf / raw_fs,
+    `Adj. Wald` = rf_adj["estimate"] / fs_adj["estimate"],
     check.names = FALSE
   )
 }
@@ -198,13 +213,30 @@ iv_summary_tab <- bind_rows(
              "Income sub", "log income")
 )
 
-iv_summary_tab %>%
+raw_iv_tab <- iv_summary_tab %>%
+  select(Sample, Outcome, N, `Pr(Z = 1)`, `Pr(D = 1)`,
+         `Raw first stage`, `Raw reduced form`, `Raw Wald`)
+
+adj_iv_tab <- iv_summary_tab %>%
+  select(Sample, Outcome, `Adj. first stage`, `Adj. first-stage SE`,
+         `Adj. first-stage F`, `Adj. reduced form`,
+         `Adj. reduced-form SE`, `Adj. Wald`)
+
+raw_iv_tab %>%
   mutate(across(where(is.numeric), fmt_num)) %>%
-  kbl(caption = "Key IV descriptives in the selected subsamples",
-      align = c("l", "l", rep("r", 10))) %>%
+  kbl(caption = "Raw IV descriptives in the selected subsamples",
+      align = c("l", "l", rep("r", 6))) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
-                full_width = TRUE, font_size = 12.5) %>%
-  footnote(general = "The first stage is E[D|Z=1] - E[D|Z=0]. The reduced form is E[Y|Z=1] - E[Y|Z=0]. The Wald ratio is the raw reduced form divided by the raw first stage.")
+                full_width = FALSE, font_size = 13) %>%
+  footnote(general = "Raw first stage and reduced form use unconditional group means. Raw Wald is the raw reduced form divided by the raw first stage.")
+
+adj_iv_tab %>%
+  mutate(across(where(is.numeric), fmt_num)) %>%
+  kbl(caption = "Covariate-adjusted IV descriptives in the selected subsamples",
+      align = c("l", "l", rep("r", 6))) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE, font_size = 13) %>%
+  footnote(general = "Adjusted first stage and reduced form are OLS coefficients on Z from regressions controlling for mother's age, age at first birth, first- and second-child sex, and race indicators. Standard errors are HC1 robust. The adjusted Wald equals the just-identified covariate-adjusted IV coefficient.")
 ```
 
 ```{r first-stage-plot}
@@ -281,45 +313,34 @@ outcome_by_z %>%
   footnote(general = "The mean differences across Z are the raw reduced forms summarized above.")
 ```
 
-```{r worked-outcome-plot}
-worked_plot <- ae98_labor_sub %>%
-  group_by(samesex) %>%
-  summarise(Rate = mean(workedm), .groups = "drop") %>%
-  mutate(`Z group` = ifelse(samesex == 1, "Z = 1 (same sex)", "Z = 0 (different sex)"))
+```{r outcome-mean-plot}
+outcome_mean_plot <- outcome_by_z %>%
+  mutate(
+    `Z group` = factor(`Z group`,
+                       levels = c("Z = 1 (same sex)", "Z = 0 (different sex)")),
+    Outcome = recode(Outcome,
+                     workedm = "Worked last year",
+                     `log income` = "Log income")
+  )
 
-ggplot(worked_plot, aes(x = `Z group`, y = Rate, fill = `Z group`)) +
+ggplot(outcome_mean_plot, aes(x = `Z group`, y = Mean, fill = `Z group`)) +
   geom_col(width = 0.58, alpha = 0.92) +
-  geom_text(aes(label = percent(Rate, accuracy = 0.1)),
+  geom_text(aes(label = ifelse(Outcome == "Worked last year",
+                               percent(Mean, accuracy = 0.1),
+                               sprintf("%.3f", Mean))),
             vjust = -0.35, size = 3.4) +
+  facet_wrap(~ Sample + Outcome, scales = "free_y") +
   scale_fill_manual(values = c("Z = 1 (same sex)" = col_z1,
                                "Z = 0 (different sex)" = col_z0)) +
-  scale_y_continuous(labels = percent_format(accuracy = 1),
-                     limits = c(0, .65)) +
-  labs(title = "Labor outcome: worked last year, by instrument status",
-       subtitle = "The small difference is the raw reduced form for the binary outcome.",
-       x = NULL, y = "Pr(worked = 1)", fill = NULL) +
+  scale_y_continuous(expand = expansion(mult = c(0, .12))) +
+  labs(title = "Outcome means by instrument status",
+       subtitle = "The gap between bars is the raw reduced form.",
+       x = NULL, y = "Mean outcome", fill = NULL) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "none",
         panel.grid.major.x = element_blank(),
-        plot.title = element_text(face = "bold"),
-        plot.subtitle = element_text(colour = "grey40", size = 10))
-```
-
-```{r income-outcome-plot}
-ae98_income_sub %>%
-  mutate(`Z group` = factor(ifelse(samesex == 1, "Z = 1 (same sex)", "Z = 0 (different sex)"),
-                            levels = c("Z = 1 (same sex)", "Z = 0 (different sex)"))) %>%
-  ggplot(aes(x = lincomem, fill = `Z group`)) +
-  geom_density(alpha = 0.45, colour = "white", adjust = 1.05) +
-  geom_vline(xintercept = mean(ae98_income_sub$lincomem),
-             linetype = "dashed", colour = col_grey) +
-  scale_fill_manual(values = c("Z = 1 (same sex)" = col_z1,
-                               "Z = 0 (different sex)" = col_z0)) +
-  labs(title = "Income outcome: log income, by instrument status",
-       subtitle = "Dashed line = mean log income in the selected income subsample.",
-       x = "log(income)", y = "Density", fill = NULL) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom",
+        axis.text.x = element_blank(),
+        strip.text = element_text(face = "bold"),
         plot.title = element_text(face = "bold"),
         plot.subtitle = element_text(colour = "grey40", size = 10))
 ```
@@ -327,8 +348,6 @@ ae98_income_sub %>%
 # 2. Overlap and Balance Checks
 
 ```{r propensity-overlap}
-RHS <- "agem + agefstm + sexk + sex2nd + blackm + hispm + othracem"
-
 fit_pscore <- function(df) {
   fit <- glm(as.formula(paste("samesex ~", RHS)), data = df, family = binomial())
   as.numeric(fitted(fit))
