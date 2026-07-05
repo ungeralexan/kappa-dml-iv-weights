@@ -318,9 +318,9 @@ outcome_mean_plot <- outcome_by_z %>%
   mutate(
     `Z group` = factor(`Z group`,
                        levels = c("Z = 1 (same sex)", "Z = 0 (different sex)")),
-    Outcome = recode(Outcome,
-                     workedm = "Worked last year",
-                     `log income` = "Log income")
+    Outcome = dplyr::recode(Outcome,
+                            workedm = "Worked last year",
+                            `log income` = "Log income")
   )
 
 ggplot(outcome_mean_plot, aes(x = `Z group`, y = Mean, fill = `Z group`)) +
@@ -432,7 +432,10 @@ balance_tab <- bind_rows(
   balance_table(ae98_labor_sub, "Labor sub"),
   balance_table(ae98_income_sub, "Income sub")
 ) %>%
-  mutate(`|SMD|` = abs(SMD)) %>%
+  mutate(
+    Sample = factor(Sample, levels = c("Labor sub", "Income sub")),
+    `|SMD|` = abs(SMD)
+  ) %>%
   arrange(Sample, desc(`|SMD|`))
 
 balance_tab %>%
