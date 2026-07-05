@@ -1,13 +1,4 @@
-% MASTER'S THESIS — EBERHARD KARLS UNIVERSITÄT TÜBINGEN
-% Faculty of Economics and Social Sciences
-% Chair of Econometrics (Prof. Dr. Michael Knaus)
-%
-% Title: Outcome Weights, Kappa Estimators, and Covariate Balance
-%        in LATE Estimation
-%
-% Compile with: pdflatex → biber → pdflatex → pdflatex
-%   or in Overleaf: set compiler to pdfLaTeX, bibliography tool to Biber
-% ==============================================================================
+
 
 \documentclass[12pt, a4paper, oneside]{article}
 
@@ -1648,7 +1639,7 @@ $\text{OtherRace}_i$  & Race indicator: other race \\
 
 
 \subsubsection{Subsampling for the Angrist--Evans Application}
-Following \citet{sloczynski2025abadie}, I use two corresponding parent samples from Farbmacher, Guber, and Vikstr{\"o}m's 1980 Census extract.
+Following \citet{sloczynski2025abadie}, I use two corresponding parent samples from \citet{farbmacher2018increasing} 1980 Census extract.
 I use two corresponding parent samples. The first is the labor-force participation sample, defined for all 394,840 women with at least two children. The second is the log-income sample, restricted to the 220,502 women with strictly positive reported income.
 The full parent samples are too large for the computationally intensive diagnostics used below, especially for the estimation of the Smoother matrices.
 I therefore construct smaller diagnostic subsamples. Their purpose is to preserve the central empirical structure of the corresponding parent samples, in particular the instrument and treatment shares, the first-stage structure, and the relevant outcome distributions.
@@ -1656,10 +1647,71 @@ To this end, I use proportional stratified subsampling without replacement.
 The procedure is applied separately to the labor-force participation and log-income parent samples, using a fixed seed. Each resulting diagnostic subsample contains 3,000 observations.
 The exact stratification variables and allocation rule are described in Appendix~\ref{app:subsampling}.
 
+\subsection{Descriptive Diagnostics}
 
-
-
-
+Before estimating the weighted LATE estimators, I first inspect the basic empirical structure of the two created subsamples. Figure~\ref{fig:ae_instr_treat_shares} reports the marginal shares of the instrument and the treatment separately for the labor-force participation and log-income samples. \\
+Both subsamples, display instrument shares of 50.5 percent in the labor-force sample and 50.3 percent in the log-income sample. This near equal split is consistent with the random nature of child sex composition.
+The treatment shares differ more clearly across samples. In the labor-force participation sample, 40.2 percent of women have more than two children. In the positive-income sample, the corresponding share is only 34.8 percent. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{pics/ae_instrument_treatment_shares.png}
+    \caption{Instrument and treatment shares in the Angrist--Evans diagnostic subsamples}
+    \label{fig:ae_instr_treat_shares}
+\end{figure}
+These marginal shares describe the composition of the two subsamples. They do not yet show whether the instrument shifts fertility behavior. The relevant first-stage question is whether women with same-sex first two children are more likely to have more than two children than women with mixed-sex first two children. 
+Hence, Table~\ref{tab:ae_raw_iv_diagnostics} reports the raw first-stage, reduced-form, and Wald contrasts. 
+In both subsamples, women whose first two children have the same sex are more likely to have more than two children. 
+In the labor-force participation sample, the treatment rate increases from 37.1 percent among mixed-sex families to 43.2 percent among same-sex families. This implies a raw first stage of 6.1 percentage points. 
+Similar in the log-income sample, a raw first stage of 5.4 percentage points is visible. 
+The positive first stage supports the relevance of the same-sex instrument. The magnitude is economically meaningful but not large. 
+The reduced forms are negative in both samples. In the labor-force participation sample, same-sex families have a labor-force participation rate that is 0.7 percentage points lower than mixed-sex families. In the log-income sample, the reduced form is also negative, with a difference of about 0.012 log points. Since the first stage is positive in both samples, these negative reduced forms imply negative raw Wald ratios. 
+This underlines as well the exclusion restriction.
+\begin{table}[H]
+\centering
+\caption{Raw first-stage, reduced-form, and Wald contrasts}
+\label{tab:ae_raw_iv_diagnostics}
+\begin{tabular}{lcc}
+\toprule
+ & Labor-force sample & Log-income sample \\
+\midrule
+\(\Pr(D_i=1 \mid Z_i=0)\) & 0.371 & 0.321 \\
+\(\Pr(D_i=1 \mid Z_i=1)\) & 0.432 & 0.374 \\
+First stage & 0.061 & 0.053 \\
+Reduced form & -0.007 & -0.012 \\
+Raw Wald ratio & -0.121 & -0.230 \\
+\bottomrule
+\end{tabular}
+\end{table}
+The raw IV diagnostics show that the same-sex instrument shifts fertility behavior in both diagnostic subsamples. Since the kappa-based estimators use the instrument propensity score, I next examine the distribution of the instrument propensity score.
+Compared to the prior frameworks in this design, severe propensity-score overlap problems are not expected. The instrument is based on sibling sex composition and should therefore be close to randomly assigned. Figure~\ref{fig:ae_pscore_overlap} reflects this. In both subsamples, the fitted propensity scores are tightly concentrated around one half. The labor-force sample ranges from approximately 0.45 to 0.56, while the log-income sample ranges from approximately 0.46 to 0.58. There are no observations close to zero or one.
+This differs pretty much to the prior college proximity application
+In the prior application college proximity is an observational instrument and the estimated propensity score is more dispersed. In the present design, the instrument propensity score behaves much more like in a randomized setting. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{pics/ae_pscore_overlap.png}
+    \caption{Estimated instrument propensity-score distributions in the Angrist--Evans diagnostic subsamples}
+    \label{fig:ae_pscore_overlap}
+\end{figure}
+As both sets are subsamples of a bigger dataset a short examination of the covariate balance by instrument status is conducted. Since the same-sex instrument is based on the sex composition of the first two children, large systematic differences in predetermined maternal characteristics would be unexpected. The balance diagnostics reported in Appendix~\ref{app:ae_balance} are consistent with this interpretation. Standardized mean differences are small in both diagnostic subsamples, suggesting that women with same-sex and mixed-sex first two children are similar along the observed covariates used in the propensity-score model. This supports the plausibility of the conditional independence assumption, although it cannot test the exclusion restriction directly.
+Finally, one technical feature of this design is important for the later nuisance estimation. The instrument is constructed from the sex indicators of the first and second child. Therefore, these two covariates are almost uncorrelated in the pooled sample, but become mechanically related once one conditions on the instrument. Among same-sex families, the two indicators are identical. Among mixed-sex families, they are exact opposites. Hence, within the \(Z=1\) arm their correlation is one, while within the \(Z=0\) arm their correlation is minus one.
+\begin{table}[H]
+\centering
+\caption{Structural relation between first- and second-child sex indicators}
+\label{tab:ae_child_sex_correlation}
+\begin{tabular}{llc}
+\toprule
+Sample & Panel & \(\operatorname{cor}(\text{sexk},\text{sex2nd})\) \\
+\midrule
+Labor-force sample & Pooled & 0.010 \\
+Labor-force sample & \(Z=0\) & -1.000 \\
+Labor-force sample & \(Z=1\) & 1.000 \\
+Log-income sample & Pooled & 0.005 \\
+Log-income sample & \(Z=0\) & -1.000 \\
+Log-income sample & \(Z=1\) & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+This relationship is not an empirical imbalance. It follows directly from the definition of the instrument. However, it matters for later parametric nuisance models. In pooled propensity-score models, both child-sex indicators can be included as separate main effects. In arm-specific outcome or treatment models, however, including both indicators together with an intercept would create perfect collinearity. For this reason, the arm-specific parametric nuisance specifications used below omit one of the two child-sex indicators.
 % ==============================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -1676,7 +1728,7 @@ The exact stratification variables and allocation rule are described in Appendix
 % [WRITE HERE — what Love plots reveal beyond point estimates, ~0.5 page]
 
 \subsection{DML Learner Comparison and Implications}
-\label{subsec:dml_learners}
+
 
 % [WRITE HERE — learner convergence, XGBoost issue, ~0.5 page]
 
@@ -2050,6 +2102,14 @@ are then assigned one at a time to the strata with the largest fractional remain
 The procedure is implemented separately for the labor-force participation and log-income parent samples, using a fixed seed. This yields two diagnostic subsamples of 3,000 observations each.
 
 
+\section{Covariate Balance and Child-Sex Indicators}
+\label{app:ae_balance}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{pics/ae_raw_covariate_dist.png}
+    \caption{Covariate Balance by instrument status of having sam sex or not }
+    \label{fig:ae_instrument_covariate_balance_raw}
+\end{figure}
 
 \newpage
 
