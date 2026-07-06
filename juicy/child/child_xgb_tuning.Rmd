@@ -1,0 +1,547 @@
+---
+title: "AE98 (Angrist & Evans 1998) — XGBoost Nuisance Tuning for Wald-AIPW"
+subtitle: "Nested nuisance tuning by predictive loss, tuned inside each outer cross-fitting fold"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 11, fig.height = 5.5)
+```
+
+```{r packages}
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+source("functions_all.R")
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+SEED        = 42
+N_CF        = 5
+TUNE_EVALS  = 15   # started conservative given tune_on_folds=TRUE multiplies cost
+                   # (retunes inside every outer fold) and we now have 2 samples,
+                   # not Card's 1. Raise to 20-30 only after confirming runtime on
+                   # ONE sample first (see warning below).
+INNER_FOLDS = 3
+```
+
+<div class="note-box">
+**What changed vs. the Card tuning script, and why.** Per the discussion with
+Alexander's advisor: the Card tuning notebook tuned XGBoost hyperparameters
+**once, globally**, on the whole sample (`tune_on_folds` left at its default,
+`FALSE`), then reused that single recipe across all 5 outer cross-fitting
+folds. This is a defensible sensitivity check but leaves a mild,
+avoidable leakage: an observation that later serves as an outer-fold test
+row may have influenced the hyperparameter choice used to predict it. This
+notebook uses `tune_on_folds = TRUE` instead: hyperparameters are re-selected
+**separately inside each outer training fold**, using only that fold's own
+data, before that fold's nuisance models are fit and used to predict the
+held-out rows. This removes that source of leakage; it does **not** guarantee
+unbiasedness in finite samples, fix weak overlap, or fix XGBoost's
+non-affine-smoother problem for the outcome-weight identity — those are
+separate issues, addressed in the diagnostics below.
+
+**Scope, per instruction:** one binary outcome (`workedm`, labor sample) and
+one continuous outcome (`lincomem`, income sample) — not every recoding.
+Running `tune_on_folds = TRUE` across every recoding of both outcome
+families would multiply runtime far beyond what's useful here.
+</div>
+
+<div class="warn-box">
+**Runtime warning.** `tune_on_folds = TRUE` reruns the inner 3-fold random
+search **separately for each of the 5 outer folds**, for each of the
+(likely 5) nuisance sub-models DoubleMLIIVM fits internally (`ml_g0`,
+`ml_g1`, `ml_m`, `ml_r0`, `ml_r1`). That is roughly 5x the tuning cost of
+the Card script's global-tuning version, per sample. **Recommendation:**
+first knit with only the Labor cell active (comment out Income in the
+`cells` list below), confirm the runtime is acceptable, then add Income
+back in and/or raise `TUNE_EVALS`.
+</div>
+
+---
+
+# Setup
+
+```{r data}
+obj_data <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj_data))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub.")
+}
+
+ae98_labor_sub  <- obj_data$ae98_labor_sub
+ae98_income_sub <- obj_data$ae98_income_sub
+
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(workedm = as.integer(workedm),
+         morekids = as.integer(morekids),
+         samesex  = as.integer(samesex))
+
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(morekids  = as.integer(morekids),
+         samesex   = as.integer(samesex),
+         lincomem  = log(incomem))
+
+RHS_FORMULA <- ~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem
+X_dml_labor  <- make_X(RHS_FORMULA, data = ae98_labor_sub)
+X_dml_income <- make_X(RHS_FORMULA, data = ae98_income_sub)
+
+D_labor  <- ae98_labor_sub$morekids;  Z_labor  <- ae98_labor_sub$samesex
+D_income <- ae98_income_sub$morekids; Z_income <- ae98_income_sub$samesex
+
+cat(sprintf("Labor:  N=%d, %d covariates | Income: N=%d, %d covariates\n",
+            nrow(ae98_labor_sub), ncol(X_dml_labor),
+            nrow(ae98_income_sub), ncol(X_dml_income)))
+```
+
+```{r learners-and-tuning-setup}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y); df$d <- as.numeric(D); df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                    x_cols = colnames(X))
+}
+
+make_xgb_learners <- function() {
+  list(
+    g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+    m = lrn("classif.xgboost", predict_type = "prob"),
+    r = lrn("classif.xgboost", predict_type = "prob")
+  )
+}
+
+xgb_ps <- function() {
+  ps(nrounds = p_int(50, 400), max_depth = p_int(2, 5),
+     eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8))
+}
+
+tune_param_set <- function() list(ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+
+tune_settings <- function() {
+  list(
+    n_folds_tune = INNER_FOLDS,
+    rsmp_tune    = rsmp("cv", folds = INNER_FOLDS),
+    measure      = list(ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss"),
+    terminator   = trm("evals", n_evals = TUNE_EVALS),
+    algorithm    = tnr("random_search")
+  )
+}
+
+get_prediction_vector <- function(obj, learner_name) {
+  pred <- tryCatch(obj$predictions[[learner_name]], error = function(e) NULL)
+  if (is.null(pred)) return(numeric(0))
+  as.numeric(drop(pred))
+}
+
+get_branch_prediction <- function(obj, base_name, Z) {
+  pred0 <- get_prediction_vector(obj, paste0(base_name, "0"))
+  pred1 <- get_prediction_vector(obj, paste0(base_name, "1"))
+  if (length(pred0) != length(Z) || length(pred1) != length(Z)) return(numeric(0))
+  ifelse(as.numeric(Z) == 1, pred1, pred0)
+}
+
+# FIX vs. the Card script: DoubleMLIIVM stores the treatment nuisance by branch
+# (ml_r0 / ml_r1), not as a flat "ml_r". The Card script's boundary-share
+# function looked for "ml_r" directly, which silently returns numeric(0) for
+# r_hat. Fixed here to use get_branch_prediction(), matching what the loss
+# function already did correctly.
+propensity_boundary_share <- function(obj, Z, threshold = 0.02) {
+  m_hat <- get_prediction_vector(obj, "ml_m")
+  r_hat <- get_branch_prediction(obj, "ml_r", Z)
+  p_hat <- c(m_hat, r_hat)
+  p_hat <- p_hat[is.finite(p_hat)]
+  if (length(p_hat) == 0) return(NA_real_)
+  mean(p_hat < threshold | p_hat > 1 - threshold)
+}
+
+rmse_loss <- function(truth, pred) {
+  if (length(pred) != length(truth) || length(pred) == 0) return(NA_real_)
+  truth <- as.numeric(truth); pred <- as.numeric(pred)
+  keep <- is.finite(truth) & is.finite(pred)
+  if (!any(keep)) return(NA_real_)
+  sqrt(mean((truth[keep] - pred[keep])^2))
+}
+
+logloss_loss <- function(truth, pred, eps = 1e-6) {
+  if (length(pred) != length(truth) || length(pred) == 0) return(NA_real_)
+  truth <- as.numeric(truth); pred <- as.numeric(pred)
+  keep <- is.finite(truth) & is.finite(pred)
+  if (!any(keep)) return(NA_real_)
+  truth <- truth[keep]; pred <- pmin(pmax(pred[keep], eps), 1 - eps)
+  -mean(truth * log(pred) + (1 - truth) * log(1 - pred))
+}
+
+calc_nuisance_losses <- function(r, cell) {
+  if (is.null(r)) return(c(outcome_rmse = NA_real_, instrument_logloss = NA_real_, treatment_logloss = NA_real_))
+  g_hat <- get_branch_prediction(r$obj, "ml_g", cell$Z)
+  m_hat <- get_prediction_vector(r$obj, "ml_m")
+  r_hat <- get_branch_prediction(r$obj, "ml_r", cell$Z)
+  c(outcome_rmse        = rmse_loss(cell$Y, g_hat),
+    instrument_logloss   = logloss_loss(cell$Z, m_hat),
+    treatment_logloss    = logloss_loss(cell$D, r_hat))
+}
+
+fit_cell <- function(dml_data, learners, label, Z, tune = FALSE, tune_on_folds = FALSE) {
+  tryCatch({
+    set.seed(SEED)
+    obj <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
+                             ml_r = learners$r, n_folds = N_CF, score = "LATE")
+    if (tune) {
+      obj$tune(param_set = tune_param_set(), tune_settings = tune_settings(),
+               tune_on_folds = tune_on_folds)
+    }
+    obj$fit(store_models = TRUE, store_predictions = TRUE)
+
+    list(label = label, tuned = tune,
+         coef = get_dml_coef(obj), se = get_dml_se(obj),
+         boundary_share = propensity_boundary_share(obj, Z),
+         tuning_result = tryCatch(obj$tuning_result, error = function(e) NULL),
+         params        = tryCatch(obj$params,        error = function(e) NULL),
+         obj = obj)
+  }, error = function(e) {
+    message(sprintf("Fit failed for %s: %s", label, conditionMessage(e)))
+    NULL
+  })
+}
+
+# Only 2 cells: one binary outcome (labor), one continuous outcome (income) —
+# not every recoding of each family.
+cells <- list(
+  "Labor (workedm)"   = list(Y = ae98_labor_sub$workedm,  D = D_labor,  Z = Z_labor,  X = X_dml_labor),
+  "Income (lincomem)" = list(Y = ae98_income_sub$lincomem, D = D_income, Z = Z_income, X = X_dml_income)
+)
+# To test runtime on one cell first, uncomment:
+# cells <- cells["Labor (workedm)"]
+```
+
+---
+
+# Fit: XGBoost untuned vs. tuned (tune_on_folds = TRUE)
+
+```{r fit-all, cache=TRUE}
+results <- list()
+for (cell_name in names(cells)) {
+  cell <- cells[[cell_name]]
+  dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+
+  results[[cell_name]] <- list(
+    untuned = fit_cell(dml_data, make_xgb_learners(), paste(cell_name, "xgb-untuned"),
+                        Z = cell$Z, tune = FALSE),
+    tuned   = fit_cell(dml_data, make_xgb_learners(), paste(cell_name, "xgb-tuned"),
+                        Z = cell$Z, tune = TRUE, tune_on_folds = TRUE)
+  )
+  cat(sprintf("Finished: %s\n", cell_name))
+}
+```
+
+## 1. Estimate comparison
+
+```{r comparison-table}
+fmt_est <- function(r) if (is.null(r)) "\u2014" else sprintf("%.3f (%.3f)", r$coef, r$se)
+fmt_boundary <- function(r) if (is.null(r) || !is.finite(r$boundary_share)) "\u2014" else sprintf("%.4f", r$boundary_share)
+
+rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+  R <- results[[cell_name]]
+  data.frame(Cell = cell_name, Learner = c("XGB untuned", "XGB tuned (tune_on_folds=TRUE)"),
+             `Estimate (SE)` = c(fmt_est(R$untuned), fmt_est(R$tuned)),
+             `Propensity boundary share` = c(fmt_boundary(R$untuned), fmt_boundary(R$tuned)),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}))
+
+rows %>%
+  kbl(align = c("l","l","c","r"), caption = "AE98 Wald-AIPW: XGBoost untuned vs. tuned inside each outer fold") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(rows$Learner == "XGB tuned (tune_on_folds=TRUE)"), background = "#eef6ff") %>%
+  footnote(general = "Propensity boundary share = fraction of fitted instrument/treatment propensities below 0.02 or above 0.98. Hyperparameters for the tuned row were selected by 3-fold random-search CV on nuisance prediction loss, run separately inside each outer cross-fitting fold.")
+```
+
+## 2. Nuisance-prediction losses (untuned vs. tuned)
+
+<div class="note-box">
+This table is unaffected by the `tune_on_folds` change — `obj$predictions`
+stores the out-of-fold cross-fitted predictions regardless of how the
+hyperparameters were selected, so the loss numbers here are genuine
+out-of-sample RMSE/log-loss either way. Presented as a table rather than a
+bar chart, since with only 2 cells a plot would not add clarity over the
+numbers directly.
+</div>
+
+```{r nuisance-loss-table}
+loss_rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+  R <- results[[cell_name]]; cell <- cells[[cell_name]]
+  ul <- calc_nuisance_losses(R$untuned, cell); tl <- calc_nuisance_losses(R$tuned, cell)
+  data.frame(Cell = cell_name, Learner = c("XGB untuned", "XGB tuned"),
+             `Outcome RMSE` = c(ul["outcome_rmse"], tl["outcome_rmse"]),
+             `Instrument log-loss` = c(ul["instrument_logloss"], tl["instrument_logloss"]),
+             `Treatment log-loss` = c(ul["treatment_logloss"], tl["treatment_logloss"]),
+             check.names = FALSE, row.names = NULL)
+}))
+
+loss_rows %>%
+  kbl(digits = 4, caption = "Nuisance-prediction loss: untuned vs. tuned (lower is better)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(loss_rows$Learner == "XGB tuned"), background = "#eef6ff") %>%
+  footnote(general = "If tuned losses are lower AND the Section 1 estimate/boundary-share is more stable, that is evidence the untuned XGBoost's behavior was a bad-default artifact rather than a genuine design problem.")
+```
+
+## 3. Selected hyperparameters
+
+<div class="warn-box">
+**Please verify this section locally before trusting it.** With
+`tune_on_folds = TRUE`, hyperparameters are chosen **separately for each of
+the 5 outer folds**, so there is no longer one single "best" set — there
+are up to 5 per nuisance sub-model. I have not been able to execute this
+against your installed `DoubleML` package version, so the exact field name
+and structure of `obj$params` / `obj$tuning_result` may not match what this
+extraction code assumes. If this chunk errors or returns nothing useful,
+run `str(results[["Labor (workedm)"]]$tuned$obj$params)` yourself first and
+tell me what it looks like — I'll fix the extraction to match.
+</div>
+
+```{r hyperparameter-summary}
+extract_tuned_params <- function(r, cell_name) {
+  if (is.null(r) || !r$tuned) return(data.frame())
+  src <- if (!is.null(r$params)) r$params else r$tuning_result
+  if (is.null(src)) return(data.frame())
+
+  u <- unlist(src, recursive = TRUE)
+  u <- u[grepl("nrounds|max_depth|eta|min_child_weight", names(u))]
+  if (length(u) == 0) return(data.frame())
+
+  hp <- data.frame(Cell = cell_name, Raw_name = names(u), Value = as.numeric(u), stringsAsFactors = FALSE)
+  hp$Nuisance <- ifelse(grepl("ml_g", hp$Raw_name), "Outcome g",
+                  ifelse(grepl("ml_m", hp$Raw_name), "Instrument m",
+                  ifelse(grepl("ml_r", hp$Raw_name), "Treatment r", "Unknown")))
+  hp$Branch <- ifelse(grepl("ml_g0|ml_r0", hp$Raw_name), "Z=0",
+                ifelse(grepl("ml_g1|ml_r1", hp$Raw_name), "Z=1", ""))
+  hp$Parameter <- sub(".*(nrounds|max_depth|eta|min_child_weight).*", "\\1", hp$Raw_name)
+  hp
+}
+
+hp_raw <- do.call(rbind, lapply(names(results), function(cn) extract_tuned_params(results[[cn]]$tuned, cn)))
+
+if (nrow(hp_raw) > 0) {
+  hp_raw <- hp_raw[hp_raw$Nuisance != "Unknown", ]
+  # Since tune_on_folds=TRUE gives up to 5 values per (Cell, Nuisance, Branch,
+  # Parameter) -- one per outer fold -- we summarize with the median across
+  # folds, and report how many distinct fold-level values contributed, so
+  # this is honestly labeled as a summary, not "the" single best set.
+  hp_summary <- hp_raw %>%
+    group_by(Cell, Nuisance, Branch, Parameter) %>%
+    summarise(Median_across_folds = median(Value), N_folds_seen = n(), .groups = "drop") %>%
+    arrange(Cell, Nuisance, Branch, Parameter)
+
+  hp_summary %>%
+    kbl(digits = 3, caption = "Selected XGBoost hyperparameters: median value across the 5 outer folds (tune_on_folds = TRUE)") %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+    collapse_rows(columns = c(1,2,3), valign = "middle") %>%
+    footnote(general = "Each outer fold selects its own hyperparameters via 3-fold inner CV on nuisance prediction loss; there is no single global 'best' set under tune_on_folds=TRUE. N_folds_seen should be <=5; if it is much less, some folds' parameters were not extracted -- verify obj$params structure manually.")
+} else {
+  cat("No hyperparameters could be extracted automatically -- run str(results[[...]]$tuned$obj$params) and share the structure so the extraction can be fixed.\n")
+}
+```
+
+## 4. Diagnostics for untuned vs. tuned (outcome-weight / ESS comparison)
+
+<div class="note-box">
+This part does not depend on how tuning was done — `get_outcome_weights()`
+reads off the final fitted object, which has the same structure whether
+tuning was global, per-fold, or skipped entirely. Fully recuperated from the
+Card tuning script's Section 4, adapted to 2 cells instead of 4, with the
+DML outcome-weight identity check added explicitly (per the advisor's point
+that XGBoost is not guaranteed to satisfy it).
+</div>
+
+```{r xgb-tuned-weight-table}
+omega_vec <- function(om) {
+  w <- om$omega
+  if (is.null(dim(w))) return(as.vector(w))
+  if (!is.null(rownames(w)) && "Wald-AIPW" %in% rownames(w)) return(as.vector(w["Wald-AIPW", ]))
+  as.vector(w[1, ])
+}
+
+extract_xgb_w <- function(r, cell) {
+  dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+  om <- get_outcome_weights(object = r$obj, dml_data = dml_data)
+  omega_vec(om)
+}
+
+one_xgb_diag_row <- function(cell_name, learner_name, r, cell) {
+  w  <- extract_xgb_w(r, cell)
+  wb <- weight_bridge(w, cell$D, learner_name)
+  ov <- wb[wb$Scope == "Overall", ]; tr <- wb[wb$Scope == "Treated", ]; co <- wb[wb$Scope == "Control", ]
+
+  identity_ok <- tryCatch(
+    check_weight_identity(w, cell$Y, r$coef),
+    error = function(e) NA
+  )
+
+  data.frame(Cell = cell_name, Learner = learner_name, Estimate = as.numeric(r$coef),
+             ESS = ov$ESS_kish, ESS_mod = ov$ESS_mod,
+             `Sigma omega` = ov$Sum_w, `Sigma abs omega` = ov$Sum_abs_w,
+             `Treated mass` = tr$Sum_w, `Control mass (-sum control weights)` = co$Sum_w,
+             `max abs omega` = max(abs(w)),
+             `Identity ok` = identity_ok,
+             check.names = FALSE)
+}
+
+xgb_tuned_weight_table <- do.call(rbind, lapply(names(cells), function(cell_name) {
+  cell <- cells[[cell_name]]; R <- results[[cell_name]]
+  rbind(one_xgb_diag_row(cell_name, "XGB untuned", R$untuned, cell),
+        one_xgb_diag_row(cell_name, "XGB tuned",   R$tuned,   cell))
+}))
+
+print_tbl <- xgb_tuned_weight_table
+for (col in c("Estimate","Sigma omega","Sigma abs omega","Treated mass","Control mass (-sum control weights)","max abs omega"))
+  print_tbl[[col]] <- sprintf("%.4f", print_tbl[[col]])
+print_tbl$ESS     <- sprintf("%.0f", print_tbl$ESS)
+print_tbl$ESS_mod <- sprintf("%.0f", print_tbl$ESS_mod)
+
+print_tbl %>%
+  kbl(caption = "AE98: XGBoost outcome-weight diagnostics, untuned vs. tuned") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12) %>%
+  row_spec(which(xgb_tuned_weight_table$Learner == "XGB tuned"), background = "#eef6ff") %>%
+  footnote(general = "Identity ok = TRUE means sum(omega*Y) reproduces the DML coefficient to machine precision (Knaus's affine-smoother condition). If FALSE for XGBoost, treat XGBoost here as a learner-sensitivity stress test rather than a clean benchmark -- the normalized kappa estimators remain the algebraically exact reference. Control mass is reported after weight_bridge()'s sign flip (Knaus convention: it computes weight_stats_block(-w[D==0])), so full normalization corresponds to treated mass approx. 1 AND control mass approx. 1 -- the untransformed control weights themselves sum to approximately -1, not +1.")
+```
+
+<div class="note-box">
+**Not built in this file, on purpose (kept out of scope per instruction):**
+Love plots for XGBoost untuned vs. tuned. The mechanics are identical to the
+Card tuning script's Section 5 (`make_love()` on the extracted weight
+vectors) and can be added in one small chunk once the above is checked and
+confirmed to run correctly.
+</div>
+
+---
+
+## 5. Export for child_test.Rmd
+
+<div class="warn-box">
+**Do not plug the Section 3 median hyperparameters into `child_test.Rmd` as
+a fixed recipe.** `tune_on_folds = TRUE` produces fold-specific
+hyperparameters (up to 5 per nuisance sub-model, one per outer fold) — there
+is no single global recipe to hand off. Feeding the median values into a
+fresh `DoubleMLIIVM` fit in `child_test.Rmd` would estimate a *different*
+object (a single-recipe-everywhere XGBoost, closer to the old Card-style
+`tune_on_folds = FALSE` logic), not a reproduction of what this notebook
+actually fit. Instead, this chunk exports the fitted results, weight
+vectors, and diagnostic tables themselves, so `child_test.Rmd` can read and
+display them without re-running (expensive) tuning and without silently
+changing what was estimated.
+</div>
+
+```{r xgb-omega-vectors}
+# Store the extracted outcome-weight vector for every (cell, tuned/untuned)
+# combination, so downstream files can rebuild Love plots or rerun
+# translation-invariance checks against the exact same fitted weights.
+xgb_omega_vectors <- lapply(names(cells), function(cell_name) {
+  list(
+    untuned = extract_xgb_w(results[[cell_name]]$untuned, cells[[cell_name]]),
+    tuned   = extract_xgb_w(results[[cell_name]]$tuned,   cells[[cell_name]])
+  )
+})
+names(xgb_omega_vectors) <- names(cells)
+```
+
+```{r xgb-identity-checks}
+# Explicit identity check per (cell, tuned/untuned), stored separately from
+# the printed table so downstream files can branch on it programmatically
+# (e.g. "only Love-plot XGBoost if TRUE") without re-parsing xgb_tuned_weight_table.
+xgb_identity_checks <- lapply(names(cells), function(cell_name) {
+  cell <- cells[[cell_name]]
+  list(
+    untuned = tryCatch(
+      check_weight_identity(xgb_omega_vectors[[cell_name]]$untuned, cell$Y, results[[cell_name]]$untuned$coef),
+      error = function(e) NA
+    ),
+    tuned = tryCatch(
+      check_weight_identity(xgb_omega_vectors[[cell_name]]$tuned, cell$Y, results[[cell_name]]$tuned$coef),
+      error = function(e) NA
+    )
+  )
+})
+names(xgb_identity_checks) <- names(cells)
+
+cat("Identity checks (sum(omega*Y) = tau_hat):\n")
+for (cn in names(xgb_identity_checks)) {
+  cat(sprintf("  %-20s untuned=%s | tuned=%s\n", cn,
+              xgb_identity_checks[[cn]]$untuned, xgb_identity_checks[[cn]]$tuned))
+}
+```
+
+```{r xgb-export, cache=FALSE}
+xgb_export <- list(
+  estimate_comparison = rows,
+  nuisance_losses     = loss_rows,
+  hyperparameters     = if (exists("hp_summary")) hp_summary else NULL,
+  weight_diagnostics  = xgb_tuned_weight_table,
+  omega_vectors       = xgb_omega_vectors,
+  identity_checks     = xgb_identity_checks,
+  settings = list(
+    seed          = SEED,
+    n_cf          = N_CF,
+    tune_evals    = TUNE_EVALS,
+    inner_folds   = INNER_FOLDS,
+    tune_on_folds = TRUE,
+    learner       = "xgboost",
+    dml_class     = "DoubleMLIIVM",
+    score         = "LATE"
+  ),
+  sample_info = list(
+    labor_n       = nrow(ae98_labor_sub),
+    income_n      = nrow(ae98_income_sub),
+    labor_mean_Z  = mean(Z_labor),
+    labor_mean_D  = mean(D_labor),
+    income_mean_Z = mean(Z_income),
+    income_mean_D = mean(D_income)
+  )
+)
+
+saveRDS(xgb_export, "ae98_xgb_tuning_export.rds")
+cat("Saved: ae98_xgb_tuning_export.rds\n")
+cat("Contents: estimate_comparison, nuisance_losses, hyperparameters (descriptive only, do not re-plug),\n")
+cat("          weight_diagnostics, omega_vectors, identity_checks, settings, sample_info.\n")
+```
+
+<div class="note-box">
+**In `child_test.Rmd` later (not done yet, per instruction):**
+```r
+xgb_export <- readRDS("ae98_xgb_tuning_export.rds")
+xgb_export$estimate_comparison   # untuned vs. tuned point estimates/SE table
+xgb_export$weight_diagnostics    # ESS / Sigma-omega / identity-check table
+xgb_export$omega_vectors[["Labor (workedm)"]]$tuned   # raw weight vector, for Love plots etc.
+xgb_export$identity_checks[["Income (lincomem)"]]$tuned  # TRUE/FALSE gate before trusting XGBoost weights
+```
+This keeps `child_test.Rmd` fast (no re-tuning on every knit) and keeps the
+tuned-on-folds estimator intact (no hyperparameter re-plugging that would
+silently estimate a different object).
+</div>
+
