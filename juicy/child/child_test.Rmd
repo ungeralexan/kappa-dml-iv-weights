@@ -1,0 +1,395 @@
+---
+title: "Angrist & Evans (1998) — Reproduction Tables (Step 1)"
+subtitle: "Two outcome-specific diagnostic subsamples: labor-force participation & log income"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body   { font-size: 15px; color: #2c2c2c; }
+h1     { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2     { color: #2c7bb6; margin-top: 28px; }
+h3     { color: #444; margin-top: 20px; }
+
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 12,
+  fig.height = 6
+)
+```
+
+---
+
+# Setup
+
+## Packages & Functions
+
+```{r packages-and-source}
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(OutcomeWeights)   # dml_with_smoother(), get_outcome_weights()
+
+source("functions_all.R")   # run_2sls, kappa_analytic_se_all, weight_diag, etc.
+cat("functions_all.R sourced.\n")
+```
+
+## Data & Design
+
+<div class="note-box">
+**Setting.** Angrist & Evans (1998) childbearing application. Instrument Z =
+`samesex` (sex of first two children matches). Treatment D = `morekids` (more
+than two children). Two outcome-specific analysis samples, each a 3,000-row
+stratified diagnostic subsample (built in
+`ae98_make_balanced_subsample_submission.Rmd`): **labor-force sample**
+(`ae98_labor_sub`, outcome family = `workedm`) and **log-income sample**
+(`ae98_income_sub`, outcome family = `lincomem`, restricted upstream to
+positive reported income). Covariates: `agem, agefstm, sexk, sex2nd, blackm,
+hispm, othracem` (7 covariates, one spec — AE98 has no Card/Kitagawa-style
+second spec). This step only builds the reproduction tables (SUW Table 4
+analogue); DML, learner comparison, and weight diagnostics come later.
+</div>
+
+```{r data}
+obj <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub. Run ae98_make_balanced_subsample_submission.Rmd first.")
+}
+
+ae98_labor_sub  <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
+
+# --- Labor-force sample: 3 outcome recodings (SUW Table 4, cols 1-3) ---
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(
+    workedm    = as.integer(workedm),
+    morekids   = as.integer(morekids),
+    samesex    = as.integer(samesex),
+    workedm_21 = workedm + 1L,        # 2 if worked, 1 otherwise
+    workedm_01 = 1L - workedm         # 1 if did not work, 0 otherwise
+  )
+
+# --- Log-income sample: 4 unit recodings (SUW Table 4, cols 4-7) ---
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(
+    morekids      = as.integer(morekids),
+    samesex       = as.integer(samesex),
+    lincomem      = log(incomem),             # dollars   -> col (5)
+    lincomem_cnt  = log(100   * incomem),     # cents     -> col (4)
+    lincomem_ths  = log(incomem / 1000),       # $1000s    -> col (6)
+    lincomem_hths = log(incomem / 100000)      # $100,000s -> col (7)
+  )
+
+cat(sprintf("Labor subsample:  N = %d | mean(workedm) = %.4f | mean(samesex) = %.4f | mean(morekids) = %.4f\n",
+            nrow(ae98_labor_sub), mean(ae98_labor_sub$workedm),
+            mean(ae98_labor_sub$samesex), mean(ae98_labor_sub$morekids)))
+cat(sprintf("Income subsample: N = %d | mean(lincomem) = %.4f | mean(samesex) = %.4f | mean(morekids) = %.4f\n",
+            nrow(ae98_income_sub), mean(ae98_income_sub$lincomem),
+            mean(ae98_income_sub$samesex), mean(ae98_income_sub$morekids)))
+```
+
+```{r design-matrices}
+RHS_FORMULA <- ~ agem + agefstm + sexk + sex2nd + blackm + hispm + othracem
+
+# Kappa design matrices — WITH intercept (for logit / CBPS)
+X_labor_kappa <- model.matrix(RHS_FORMULA, data = ae98_labor_sub)
+X_labor_df    <- as.data.frame(X_labor_kappa[, -1, drop = FALSE])
+
+X_income_kappa <- model.matrix(RHS_FORMULA, data = ae98_income_sub)
+X_income_df    <- as.data.frame(X_income_kappa[, -1, drop = FALSE])
+
+# Core vectors
+Z_labor <- ae98_labor_sub$samesex
+D_labor <- ae98_labor_sub$morekids
+
+Z_income <- ae98_income_sub$samesex
+D_income <- ae98_income_sub$morekids
+
+cat(sprintf("Kappa design: labor %d covariates (+intercept) | income %d covariates (+intercept)\n",
+            ncol(X_labor_kappa) - 1, ncol(X_income_kappa) - 1))
+
+# DML design matrices — no intercept, attributes stripped for grf (make_X)
+X_dml_labor  <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_labor_sub)
+X_dml_income <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_income_sub)
+
+cat(sprintf("DML design: labor %dx%d | income %dx%d\n",
+            nrow(X_dml_labor), ncol(X_dml_labor), nrow(X_dml_income), ncol(X_dml_income)))
+```
+
+---
+
+# 1. Reproduction — SUW Table 4 (split by outcome family)
+
+<div class="note-box">
+**Layout.** SUW Table 4 has 7 columns on the full samples (N = 394,840 labor /
+220,502 income): 3 labor-force recodings + 4 log-income unit recodings. We
+cannot reproduce those observation counts — everything below runs on the two
+3,000-row diagnostic subsamples only. Reproduced here is the **structure**:
+normalized estimators (τ_cb_u, τ_ml_u, τ_ml_a10) should stay translation
+invariant across recodings within a panel; unnormalized ones (τ_ml_a, τ_ml_t,
+τ_ml_a0) should not.
+</div>
+
+```{r build-columns, cache=TRUE}
+# One column = 2SLS + all six kappa estimators with analytical SEs.
+run_child_column <- function(Y, D, Z, X_kappa, X_df) {
+  list(
+    tsls  = run_2sls(Y, D, Z, X_df, endog_name = "D"),
+    kappa = kappa_analytic_se_all(Y, Z, D, X_kappa)
+  )
+}
+
+# --- Labor-force columns (cols 1-3 analogue) ---
+labor_cols <- list(
+  "1 if worked, 0 else"    = run_child_column(ae98_labor_sub$workedm,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df),
+  "2 if worked, 1 else"    = run_child_column(ae98_labor_sub$workedm_21,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df),
+  "1 if did not work, 0 else" = run_child_column(ae98_labor_sub$workedm_01,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df)
+)
+
+# --- Log-income columns (cols 4-7 analogue, same order as Table 4) ---
+income_cols <- list(
+  "Cents"        = run_child_column(ae98_income_sub$lincomem_cnt,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "Dollars"      = run_child_column(ae98_income_sub$lincomem,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "$1000s"       = run_child_column(ae98_income_sub$lincomem_ths,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "$100,000s"    = run_child_column(ae98_income_sub$lincomem_hths,
+                                     D_income, Z_income, X_income_kappa, X_income_df)
+)
+
+cat("Labor columns (3) and income columns (4) computed.\n")
+```
+
+```{r table-builder, echo=FALSE}
+cell_fmt <- function(est, se, digits = 3) {
+  if (is.na(est)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0)
+    return(sprintf("%.3f<br><span style='color:#888'>(NA)</span>", est))
+  pval  <- 2 * pnorm(-abs(est / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s<br><span style='color:#888'>(%.3f)</span>", est, stars, se)
+}
+
+# Generic table builder — works for any number of columns (3 for labor, 4 for income)
+build_child_table <- function(col_list) {
+  ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+  labels <- c("\u03c4_cb_u","\u03c4_ml_u","\u03c4_ml_a10","\u03c4_ml_a","\u03c4_ml_t","\u03c4_ml_a0")
+
+  row_2sls <- c(Estimator = "2SLS",
+                vapply(col_list, function(cc) cell_fmt(cc$tsls$coef, cc$tsls$se),
+                       character(1)))
+
+  kappa_rows <- lapply(seq_along(ests), function(i) {
+    e <- ests[i]
+    c(Estimator = labels[i],
+      vapply(col_list, function(cc) cell_fmt(cc$kappa$estimates[e], cc$kappa$se[e]),
+             character(1)))
+  })
+
+  df <- as.data.frame(do.call(rbind, c(list(row_2sls), kappa_rows)),
+                       stringsAsFactors = FALSE)
+  names(df) <- c("Estimator", names(col_list))
+  rownames(df) <- NULL
+  df
+}
+```
+
+## Results {.tabset}
+
+### Work Status 
+
+```{r table-labor}
+build_child_table(labor_cols) %>%
+  kbl(escape = FALSE,
+      align = c("l", rep("c", length(labor_cols))),
+      caption = sprintf("AE98 reproduction — Labor-force participation (diagnostic subsample, N = %d; SUW Table 4 uses N = 394,840)",
+                         nrow(ae98_labor_sub))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",            1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",   2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators", 5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant across recodings). Orange = unnormalized. Covariates: agem, agefstm, sexk, sex2nd, blackm, hispm, othracem. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+### Log Family Income
+
+```{r table-income}
+build_child_table(income_cols) %>%
+  kbl(escape = FALSE,
+      align = c("l", rep("c", length(income_cols))),
+      caption = sprintf("AE98 reproduction — Log family income (diagnostic subsample, N = %d; SUW Table 4 uses N = 220,502)",
+                         nrow(ae98_income_sub))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",            1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",   2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators", 5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant across unit recodings). Orange = unnormalized — expect these rows to change across Cents/Dollars/$1000s/$100,000s. Covariates: agem, agefstm, sexk, sex2nd, blackm, hispm, othracem. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+<div class="note-box">
+**Next steps (not yet in this file):** Section 3 — learner comparison
+(linear/logit with `sex2nd` dropped, Ranger, XGBoost untuned + tuned
+appendix) on both samples. Section 4 — weight diagnostics and Love plots on
+both samples. See `ae98_analysis_plan.txt` for the full build plan.
+</div>
+
+---
+
+# 2. Double ML — PLR-IV & Wald-AIPW (honest forest, tuned vs. untuned)
+
+<div class="note-box">
+**Setting.** One `dml_with_smoother()` fit per sample, on that sample's
+natural outcome (`workedm` for labor, `lincomem` for income) — this is not
+a "log vs. binary" choice, it is the same two-sample split carried over from
+Section 1. `tune.parameters` is grf's own native tuning switch (passed
+through `...` to `grf::regression_forest`/`instrumental_forest`): `"none"` is
+grf's default (no internal tuning), `"all"` triggers grf's automatic,
+out-of-bag-loss-based tuning of the honest forest. We run **both** for each
+sample — 4 fits total — to see whether tuning changes anything before
+deciding what to carry forward. `set.seed(42)` is reset immediately before
+every call, since R has one global RNG stream and grf's own internal
+tuning search consumes draws the untuned run never does (small residual
+divergence between tuned/untuned runs is therefore expected even from the
+same seed — see `ae98_analysis_plan.txt` Section 4).
+</div>
+
+```{r dml-fit-all, cache=TRUE}
+# Labor sample: outcome = workedm (binary)
+set.seed(42); dml_labor_untuned  <- dml_with_smoother(
+  ae98_labor_sub$workedm, D_labor, X_dml_labor, Z_labor,
+  n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_labor_tuned    <- dml_with_smoother(
+  ae98_labor_sub$workedm, D_labor, X_dml_labor, Z_labor,
+  n_cf_folds = 5, tune.parameters = "all")
+
+# Income sample: outcome = lincomem (continuous, log dollars)
+set.seed(42); dml_income_untuned <- dml_with_smoother(
+  ae98_income_sub$lincomem, D_income, X_dml_income, Z_income,
+  n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_income_tuned   <- dml_with_smoother(
+  ae98_income_sub$lincomem, D_income, X_dml_income, Z_income,
+  n_cf_folds = 5, tune.parameters = "all")
+
+res_labor_untuned  <- summary(dml_labor_untuned)
+res_labor_tuned    <- summary(dml_labor_tuned)
+res_income_untuned <- summary(dml_income_untuned)
+res_income_tuned   <- summary(dml_income_tuned)
+
+# Extract PLR-IV and Wald-AIPW outcome weights for every fit.
+extract_w <- function(dml_obj) {
+  om <- get_outcome_weights(dml_obj)
+  check_omega_rows(om)
+  list(plriv    = as.vector(om$omega["PLR-IV",    ]),
+       waldaipw = as.vector(om$omega["Wald-AIPW", ]))
+}
+w_labor_untuned  <- extract_w(dml_labor_untuned)
+w_labor_tuned    <- extract_w(dml_labor_tuned)
+w_income_untuned <- extract_w(dml_income_untuned)
+w_income_tuned   <- extract_w(dml_income_tuned)
+
+cat("All 4 DML fits (2 samples x untuned/tuned) complete.\n")
+```
+
+```{r dml-cell-display, echo=FALSE}
+# PLR-IV + Wald-AIPW rows for one fit, with the algebraic identity check inline.
+show_dml_cell <- function(res, wlist, Y, cap) {
+  ids <- c(
+    check_weight_identity(wlist$plriv,    Y, get_estimate(res, "PLR-IV")),
+    check_weight_identity(wlist$waldaipw, Y, get_estimate(res, "Wald-AIPW"))
+  )
+  id_col <- "Identity: sum(w*Y)=tau"
+  df <- as.data.frame(res[c("PLR-IV", "Wald-AIPW"), , drop = FALSE])
+  df$Estimator <- rownames(df)
+  df[[id_col]] <- as.character(ids)
+  df <- df[, c("Estimator", setdiff(names(df), c("Estimator", id_col)), id_col)]
+  df %>%
+    kbl(caption = cap, digits = 4, row.names = FALSE,
+        align = c("l", rep("r", ncol(df) - 2), "c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "Identity column: TRUE means sum(omega * Y) reproduces the estimate to machine precision.")
+}
+```
+
+## Estimates {.tabset}
+
+### Labor sample (workedm)
+
+```{r dml-labor-untuned}
+show_dml_cell(res_labor_untuned, w_labor_untuned, ae98_labor_sub$workedm,
+              "Labor sample — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-labor-tuned}
+show_dml_cell(res_labor_tuned, w_labor_tuned, ae98_labor_sub$workedm,
+              "Labor sample — tuned honest forest (tune.parameters = \"all\")")
+```
+
+### Income sample (lincomem)
+
+```{r dml-income-untuned}
+show_dml_cell(res_income_untuned, w_income_untuned, ae98_income_sub$lincomem,
+              "Income sample — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-income-tuned}
+show_dml_cell(res_income_tuned, w_income_tuned, ae98_income_sub$lincomem,
+              "Income sample — tuned honest forest (tune.parameters = \"all\")")
+```
+
+<div class="note-box">
+**What to look at.** Compare untuned vs. tuned within each sample: does the
+point estimate move, does the SE shrink or grow, does the identity check
+still hold (it must — that's an algebra check on the package's own weight
+extraction, not a property that tuning could break)? A stable estimate
+across tuned/untuned is a reassuring sign; a large jump is worth flagging
+before moving to the learner comparison in Section 3.
+</div>
+
+<div class="note-box">
+**Next steps (not yet in this file):** Section 3 — learner comparison
+(linear/logit with `sex2nd` dropped, Ranger, XGBoost untuned + tuned
+appendix) on both samples. Section 4 — weight diagnostics and Love plots on
+both samples. See `ae98_analysis_plan.txt` for the full build plan.
+</div>
