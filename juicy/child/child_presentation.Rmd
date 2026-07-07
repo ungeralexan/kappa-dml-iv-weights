@@ -1,0 +1,956 @@
+---
+title: "Angrist & Evans (1998) — Reproduction Tables (Step 1)"
+subtitle: "Two outcome-specific diagnostic subsamples: labor-force participation & log income"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body   { font-size: 15px; color: #2c2c2c; }
+h1     { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2     { color: #2c7bb6; margin-top: 28px; }
+h3     { color: #444; margin-top: 20px; }
+
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 12,
+  fig.height = 6
+)
+```
+
+---
+
+# Setup
+
+## Packages & Functions
+
+```{r packages-and-source}
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(cobalt)           # love.plot(), used inside make_love()
+library(viridis)          # colour scale, used inside make_love()
+library(OutcomeWeights)   # dml_with_smoother(), get_outcome_weights()
+library(DoubleML)         # DoubleMLIIVM, DoubleMLData
+library(mlr3verse)        # lrn() learners for linear/logit and ranger
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+
+source("functions_all.R")   # run_2sls, kappa_analytic_se_all, weight_diag, etc.
+cat("functions_all.R sourced.\n")
+```
+
+## Data & Design
+
+<div class="note-box">
+**Setting.** Angrist & Evans (1998) childbearing application. Instrument Z =
+`samesex` (sex of first two children matches). Treatment D = `morekids` (more
+than two children). Two outcome-specific analysis samples, each a 3,000-row
+stratified diagnostic subsample (built in
+`ae98_make_balanced_subsample_submission.Rmd`): **labor-force sample**
+(`ae98_labor_sub`, outcome family = `workedm`) and **log-income sample**
+(`ae98_income_sub`, outcome family = `lincomem`, restricted upstream to
+positive reported income). Covariates: `agem, agefstm, sexk, sex2nd, blackm,
+hispm, othracem` (7 covariates, one spec — AE98 has no Card/Kitagawa-style
+second spec). This step only builds the reproduction tables (SUW Table 4
+analogue); DML, learner comparison, and weight diagnostics come later.
+</div>
+
+```{r data}
+obj <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub. Run ae98_make_balanced_subsample_submission.Rmd first.")
+}
+
+ae98_labor_sub  <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
+
+# --- Labor-force sample: 3 outcome recodings (SUW Table 4, cols 1-3) ---
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(
+    workedm    = as.integer(workedm),
+    morekids   = as.integer(morekids),
+    samesex    = as.integer(samesex),
+    workedm_21 = workedm + 1L,        # 2 if worked, 1 otherwise
+    workedm_01 = 1L - workedm         # 1 if did not work, 0 otherwise
+  )
+
+# --- Log-income sample: 4 unit recodings (SUW Table 4, cols 4-7) ---
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(
+    morekids      = as.integer(morekids),
+    samesex       = as.integer(samesex),
+    lincomem      = log(incomem),             # dollars   -> col (5)
+    lincomem_cnt  = log(100   * incomem),     # cents     -> col (4)
+    lincomem_ths  = log(incomem / 1000),       # $1000s    -> col (6)
+    lincomem_hths = log(incomem / 100000)      # $100,000s -> col (7)
+  )
+
+cat(sprintf("Labor subsample:  N = %d | mean(workedm) = %.4f | mean(samesex) = %.4f | mean(morekids) = %.4f\n",
+            nrow(ae98_labor_sub), mean(ae98_labor_sub$workedm),
+            mean(ae98_labor_sub$samesex), mean(ae98_labor_sub$morekids)))
+cat(sprintf("Income subsample: N = %d | mean(lincomem) = %.4f | mean(samesex) = %.4f | mean(morekids) = %.4f\n",
+            nrow(ae98_income_sub), mean(ae98_income_sub$lincomem),
+            mean(ae98_income_sub$samesex), mean(ae98_income_sub$morekids)))
+```
+
+```{r design-matrices}
+RHS_FORMULA <- ~ agem + agefstm + sexk + sex2nd + blackm + hispm + othracem
+
+# Kappa design matrices — WITH intercept (for logit / CBPS)
+X_labor_kappa <- model.matrix(RHS_FORMULA, data = ae98_labor_sub)
+X_labor_df    <- as.data.frame(X_labor_kappa[, -1, drop = FALSE])
+
+X_income_kappa <- model.matrix(RHS_FORMULA, data = ae98_income_sub)
+X_income_df    <- as.data.frame(X_income_kappa[, -1, drop = FALSE])
+
+# Core vectors
+Z_labor <- ae98_labor_sub$samesex
+D_labor <- ae98_labor_sub$morekids
+
+Z_income <- ae98_income_sub$samesex
+D_income <- ae98_income_sub$morekids
+
+cat(sprintf("Kappa design: labor %d covariates (+intercept) | income %d covariates (+intercept)\n",
+            ncol(X_labor_kappa) - 1, ncol(X_income_kappa) - 1))
+
+# DML design matrices — no intercept, attributes stripped for grf (make_X)
+X_dml_labor  <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_labor_sub)
+X_dml_income <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_income_sub)
+
+# 6-covariate design matrices (sex2nd dropped) -- ONLY for the arm-specific
+# linear+logit learner in Section 3. sexk and sex2nd are exactly collinear
+# within a fixed Z arm (Z=1{sexk==sex2nd}), which breaks a design-matrix
+# inversion but does not affect kappa (pooled propensity), the grf honest
+# forest, Ranger, or XGBoost (all tree-based / no matrix inversion). See
+# ae98_analysis_plan.txt Section 3 for the full reasoning.
+X_dml_labor_lm  <- make_X(~ 0 + agem + agefstm + sexk + blackm + hispm + othracem,
+                          data = ae98_labor_sub)
+X_dml_income_lm <- make_X(~ 0 + agem + agefstm + sexk + blackm + hispm + othracem,
+                          data = ae98_income_sub)
+
+cat(sprintf("DML design: labor %dx%d | income %dx%d (7-covariate, used by ranger/xgboost/grf)\n",
+            nrow(X_dml_labor), ncol(X_dml_labor), nrow(X_dml_income), ncol(X_dml_income)))
+cat(sprintf("DML design (linear+logit only): labor %dx%d | income %dx%d (6-covariate, sex2nd dropped)\n",
+            nrow(X_dml_labor_lm), ncol(X_dml_labor_lm), nrow(X_dml_income_lm), ncol(X_dml_income_lm)))
+```
+
+---
+
+# 1. Reproduction — SUW Table 4 (split by outcome family)
+
+<div class="note-box">
+**Layout.** SUW Table 4 has 7 columns on the full samples (N = 394,840 labor /
+220,502 income): 3 labor-force recodings + 4 log-income unit recodings. We
+cannot reproduce those observation counts — everything below runs on the two
+3,000-row diagnostic subsamples only. Reproduced here is the **structure**:
+normalized estimators (τ_cb_u, τ_ml_u, τ_ml_a10) should stay translation
+invariant across recodings within a panel; unnormalized ones (τ_ml_a, τ_ml_t,
+τ_ml_a0) should not.
+</div>
+
+```{r build-columns, cache=TRUE}
+# One column = 2SLS + all six kappa estimators with analytical SEs.
+run_child_column <- function(Y, D, Z, X_kappa, X_df) {
+  list(
+    tsls  = run_2sls(Y, D, Z, X_df, endog_name = "D"),
+    kappa = kappa_analytic_se_all(Y, Z, D, X_kappa)
+  )
+}
+
+# --- Labor-force columns (cols 1-3 analogue) ---
+labor_cols <- list(
+  "1 if worked, 0 else"    = run_child_column(ae98_labor_sub$workedm,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df),
+  "2 if worked, 1 else"    = run_child_column(ae98_labor_sub$workedm_21,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df),
+  "1 if did not work, 0 else" = run_child_column(ae98_labor_sub$workedm_01,
+                                               D_labor, Z_labor, X_labor_kappa, X_labor_df)
+)
+
+# --- Log-income columns (cols 4-7 analogue, same order as Table 4) ---
+income_cols <- list(
+  "Cents"        = run_child_column(ae98_income_sub$lincomem_cnt,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "Dollars"      = run_child_column(ae98_income_sub$lincomem,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "$1000s"       = run_child_column(ae98_income_sub$lincomem_ths,
+                                     D_income, Z_income, X_income_kappa, X_income_df),
+  "$100,000s"    = run_child_column(ae98_income_sub$lincomem_hths,
+                                     D_income, Z_income, X_income_kappa, X_income_df)
+)
+
+cat("Labor columns (3) and income columns (4) computed.\n")
+```
+
+```{r table-builder, echo=FALSE}
+cell_fmt <- function(est, se, digits = 3) {
+  if (is.na(est)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0)
+    return(sprintf("%.3f<br><span style='color:#888'>(NA)</span>", est))
+  pval  <- 2 * pnorm(-abs(est / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s<br><span style='color:#888'>(%.3f)</span>", est, stars, se)
+}
+
+# Generic table builder — works for any number of columns (3 for labor, 4 for income).
+# flip_col: name of a column whose POINT ESTIMATE (not SE) should be displayed
+# with the opposite sign, matching SUW's own reporting convention for a
+# reflected (not translated) outcome recoding -- see ae98_sign_convention_note.txt.
+build_child_table <- function(col_list, flip_col = NULL) {
+  ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+  labels <- c("\u03c4_cb_u","\u03c4_ml_u","\u03c4_ml_a10","\u03c4_ml_a","\u03c4_ml_t","\u03c4_ml_a0")
+
+  fmt_one <- function(cn, est, se) {
+    if (!is.null(flip_col) && cn == flip_col) est <- -est   # display-only sign flip; SE untouched
+    cell_fmt(est, se)
+  }
+
+  row_2sls <- c(Estimator = "2SLS",
+                vapply(names(col_list), function(cn)
+                  fmt_one(cn, col_list[[cn]]$tsls$coef, col_list[[cn]]$tsls$se),
+                  character(1)))
+
+  kappa_rows <- lapply(seq_along(ests), function(i) {
+    e <- ests[i]
+    c(Estimator = labels[i],
+      vapply(names(col_list), function(cn)
+        fmt_one(cn, col_list[[cn]]$kappa$estimates[e], col_list[[cn]]$kappa$se[e]),
+        character(1)))
+  })
+
+  df <- as.data.frame(do.call(rbind, c(list(row_2sls), kappa_rows)),
+                       stringsAsFactors = FALSE)
+  names(df) <- c("Estimator", names(col_list))
+  rownames(df) <- NULL
+  df
+}
+```
+
+## Results {.tabset}
+
+### Binary Outcomes: Work Status (labor sample, N = `r nrow(ae98_labor_sub)`)
+
+```{r table-labor}
+build_child_table(labor_cols, flip_col = "1 if did not work, 0 else") %>%
+  kbl(escape = FALSE,
+      align = c("l", rep("c", length(labor_cols))),
+      caption = sprintf("AE98 reproduction — Labor-force participation (diagnostic subsample, N = %d; SUW Table 4 uses N = 394,840)",
+                         nrow(ae98_labor_sub))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",            1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",   2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators", 5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant across recodings). Orange = unnormalized. Covariates: agem, agefstm, sexk, sex2nd, blackm, hispm, othracem. Stars: * p<0.10, ** p<0.05, *** p<0.01. Following Slocinski, Uysal, and Wooldridge (2025), the 'did not work' column reports the additive inverse of the raw estimate (SE unchanged) so that normalized rows read identically across all three recodings, matching SUW Table 4's own display convention -- see ae98_sign_convention_note.txt for the derivation. This flip is NOT applied anywhere else (income table, Section 2 DML, Section 3 learner comparison): it is a display-only convention for this one reproduction column.")
+```
+
+### Continuous Outcome: Log Family Income (income sample, N = `r nrow(ae98_income_sub)`)
+
+```{r table-income}
+build_child_table(income_cols) %>%
+  kbl(escape = FALSE,
+      align = c("l", rep("c", length(income_cols))),
+      caption = sprintf("AE98 reproduction — Log family income (diagnostic subsample, N = %d; SUW Table 4 uses N = 220,502)",
+                         nrow(ae98_income_sub))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",            1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",   2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators", 5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant across unit recodings). Orange = unnormalized — expect these rows to change across Cents/Dollars/$1000s/$100,000s. Covariates: agem, agefstm, sexk, sex2nd, blackm, hispm, othracem. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 2. Double ML — PLR-IV & Wald-AIPW (honest forest, tuned vs. untuned)
+
+<div class="note-box">
+**Setting.** One `dml_with_smoother()` fit per sample, on that sample's
+natural outcome (`workedm` for labor, `lincomem` for income) — this is not
+a "log vs. binary" choice, it is the same two-sample split carried over from
+Section 1. `tune.parameters` is grf's own native tuning switch (passed
+through `...` to `grf::regression_forest`/`instrumental_forest`): `"none"` is
+grf's default (no internal tuning), `"all"` triggers grf's automatic,
+out-of-bag-loss-based tuning of the honest forest. We run **both** for each
+sample — 4 fits total — to see whether tuning changes anything before
+deciding what to carry forward. `set.seed(42)` is reset immediately before
+every call, since R has one global RNG stream and grf's own internal
+tuning search consumes draws the untuned run never does (small residual
+divergence between tuned/untuned runs is therefore expected even from the
+same seed — see `ae98_analysis_plan.txt` Section 4).
+</div>
+
+```{r dml-fit-all, cache=TRUE}
+# Labor sample: outcome = workedm (binary)
+set.seed(42); dml_labor_untuned  <- dml_with_smoother(
+  ae98_labor_sub$workedm, D_labor, X_dml_labor, Z_labor,
+  n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_labor_tuned    <- dml_with_smoother(
+  ae98_labor_sub$workedm, D_labor, X_dml_labor, Z_labor,
+  n_cf_folds = 5, tune.parameters = "all")
+
+# Income sample: outcome = lincomem (continuous, log dollars)
+set.seed(42); dml_income_untuned <- dml_with_smoother(
+  ae98_income_sub$lincomem, D_income, X_dml_income, Z_income,
+  n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_income_tuned   <- dml_with_smoother(
+  ae98_income_sub$lincomem, D_income, X_dml_income, Z_income,
+  n_cf_folds = 5, tune.parameters = "all")
+
+res_labor_untuned  <- summary(dml_labor_untuned)
+res_labor_tuned    <- summary(dml_labor_tuned)
+res_income_untuned <- summary(dml_income_untuned)
+res_income_tuned   <- summary(dml_income_tuned)
+
+# Extract PLR-IV and Wald-AIPW outcome weights for every fit.
+extract_w <- function(dml_obj) {
+  om <- get_outcome_weights(dml_obj)
+  check_omega_rows(om)
+  list(plriv    = as.vector(om$omega["PLR-IV",    ]),
+       waldaipw = as.vector(om$omega["Wald-AIPW", ]))
+}
+w_labor_untuned  <- extract_w(dml_labor_untuned)
+w_labor_tuned    <- extract_w(dml_labor_tuned)
+w_income_untuned <- extract_w(dml_income_untuned)
+w_income_tuned   <- extract_w(dml_income_tuned)
+
+cat("All 4 DML fits (2 samples x untuned/tuned) complete.\n")
+```
+
+```{r dml-cell-display, echo=FALSE}
+# PLR-IV + Wald-AIPW rows for one fit, with the algebraic identity check inline.
+show_dml_cell <- function(res, wlist, Y, cap) {
+  ids <- c(
+    check_weight_identity(wlist$plriv,    Y, get_estimate(res, "PLR-IV")),
+    check_weight_identity(wlist$waldaipw, Y, get_estimate(res, "Wald-AIPW"))
+  )
+  id_col <- "Identity: sum(w*Y)=tau"
+  df <- as.data.frame(res[c("PLR-IV", "Wald-AIPW"), , drop = FALSE])
+  df$Estimator <- rownames(df)
+  df[[id_col]] <- as.character(ids)
+  df <- df[, c("Estimator", setdiff(names(df), c("Estimator", id_col)), id_col)]
+  df %>%
+    kbl(caption = cap, digits = 4, row.names = FALSE,
+        align = c("l", rep("r", ncol(df) - 2), "c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "Identity column: TRUE means sum(omega * Y) reproduces the estimate to machine precision.")
+}
+```
+
+## Estimates {.tabset}
+
+### Labor sample (workedm)
+
+```{r dml-labor-untuned}
+show_dml_cell(res_labor_untuned, w_labor_untuned, ae98_labor_sub$workedm,
+              "Labor sample — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-labor-tuned}
+show_dml_cell(res_labor_tuned, w_labor_tuned, ae98_labor_sub$workedm,
+              "Labor sample — tuned honest forest (tune.parameters = \"all\")")
+```
+
+### Income sample (lincomem)
+
+```{r dml-income-untuned}
+show_dml_cell(res_income_untuned, w_income_untuned, ae98_income_sub$lincomem,
+              "Income sample — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-income-tuned}
+show_dml_cell(res_income_tuned, w_income_tuned, ae98_income_sub$lincomem,
+              "Income sample — tuned honest forest (tune.parameters = \"all\")")
+```
+
+<div class="note-box">
+**What to look at.** Compare untuned vs. tuned within each sample: does the
+point estimate move, does the SE shrink or grow, does the identity check
+still hold (it must — that's an algebra check on the package's own weight
+extraction, not a property that tuning could break)? A stable estimate
+across tuned/untuned is a reassuring sign; a large jump is worth flagging
+before moving to the learner comparison in Section 3.
+</div>
+
+---
+
+# 3. Learner Comparison — Estimates (linear/logit, Ranger, XGBoost)
+
+<div class="note-box">
+**Scope of this section: estimates only, not weight diagnostics.** ESS,
+Sigma-omega, weight-bridge tables, and Love plots are a separate, later
+step (Section 4, not built yet). This section only fits linear+logit and
+Ranger fresh, on both samples, and pulls in the already-tuned/untuned
+XGBoost estimates from `child_xgb_tuning.Rmd`'s export -- it does **not**
+refit XGBoost here, per the hard rule that `tune_on_folds = TRUE` has no
+single hyperparameter recipe to re-plug (see `ae98_analysis_plan.txt`).
+
+**Covariates.** Ranger uses the full 7-covariate `X_dml_labor`/`X_dml_income`
+(tree-based, unaffected by the `sexk`/`sex2nd` collinearity). Linear+logit
+uses the 6-covariate `X_dml_labor_lm`/`X_dml_income_lm` (`sex2nd` dropped),
+since it is the one arm-specific *parametric* nuisance model where that
+collinearity would otherwise produce a singular design matrix.
+</div>
+
+```{r ext-setup}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y); df$d <- as.numeric(D); df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                   x_cols = colnames(X))
+}
+
+dat_labor_lm   <- make_dml_data(ae98_labor_sub$workedm,   D_labor,  Z_labor,  X_dml_labor_lm)
+dat_labor      <- make_dml_data(ae98_labor_sub$workedm,   D_labor,  Z_labor,  X_dml_labor)
+dat_income_lm  <- make_dml_data(ae98_income_sub$lincomem, D_income, Z_income, X_dml_income_lm)
+dat_income     <- make_dml_data(ae98_income_sub$lincomem, D_income, Z_income, X_dml_income)
+
+cat("DoubleML data objects built: labor (7-cov, 6-cov) and income (7-cov, 6-cov).\n")
+```
+
+```{r ext-fit-helpers, echo=FALSE}
+# Learner specs -- identical to card_presentation_4_1.Rmd, so this is a like-
+# for-like comparison with the Card application's own learner choices.
+ml_lm <- function() list(g = lrn("regr.lm"),
+                         m = lrn("classif.log_reg"),
+                         r = lrn("classif.log_reg"))
+ml_rf <- function() list(g = lrn("regr.ranger",    keep.inbag = TRUE),
+                         m = lrn("classif.ranger", keep.inbag = TRUE),
+                         r = lrn("classif.ranger", keep.inbag = TRUE))
+
+# Fit one IIVM model and return list(obj, w, ok) -- same pattern as Card.
+fit_iivm <- function(dml_data, learners, Y) {
+  set.seed(42)
+  obj <- DoubleMLIIVM$new(data = dml_data,
+                          ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+                          n_folds = 5, score = "LATE")
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  om  <- get_outcome_weights(object = obj, dml_data = dml_data)
+  w   <- as.vector(om$omega)
+  ok  <- check_doubleml_identity(om, Y, obj$coef)
+  list(obj = obj, w = w, ok = ok)
+}
+
+# 2-row (Labor, Income) estimate table for one learner.
+learner_estimate_table <- function(fit_labor, fit_income, cap) {
+  id_col <- "Identity: sum(w*Y)=tau"
+  df <- data.frame(
+    Sample   = c("Labor (workedm)", "Income (lincomem)"),
+    Estimate = round(c(get_dml_coef(fit_labor$obj), get_dml_coef(fit_income$obj)), 4),
+    SE       = round(c(get_dml_se(fit_labor$obj),   get_dml_se(fit_income$obj)), 4)
+  )
+  df[[id_col]] <- c(fit_labor$ok, fit_income$ok)
+
+  df %>%
+    kbl(caption = cap, align = c("l","r","r","c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "Identity check: algebraic sum(omega*Y) = tau_hat (must be TRUE).")
+}
+```
+
+## Estimates {.tabset}
+
+### Linear + Logistic
+
+```{r ext-fit-lm, cache=TRUE}
+lm_labor  <- fit_iivm(dat_labor_lm,  ml_lm(), ae98_labor_sub$workedm)
+lm_income <- fit_iivm(dat_income_lm, ml_lm(), ae98_income_sub$lincomem)
+
+learner_estimate_table(lm_labor, lm_income, "LATE / Wald-AIPW-type estimate -- Linear + Logistic (6 covariates)")
+```
+
+### Ranger
+
+```{r ext-fit-rf, cache=TRUE}
+rf_labor  <- fit_iivm(dat_labor,  ml_rf(), ae98_labor_sub$workedm)
+rf_income <- fit_iivm(dat_income, ml_rf(), ae98_income_sub$lincomem)
+
+learner_estimate_table(rf_labor, rf_income, "LATE / Wald-AIPW-type estimate -- Ranger (7 covariates)")
+```
+
+### XGBoost (imported from child_xgb_tuning.Rmd)
+
+```{r ext-xgb-import}
+xgb_export_path <- "ae98_xgb_tuning_export.rds"
+if (file.exists(xgb_export_path)) {
+  xgb_export <- readRDS(xgb_export_path)
+  xgb_export$estimate_comparison %>%
+    kbl(align = c("l","l","c","r"),
+        caption = "LATE / Wald-AIPW estimate -- XGBoost, untuned vs. tune_on_folds=TRUE (imported, not refit here)") %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    collapse_rows(columns = 1, valign = "middle") %>%
+    footnote(general = "Imported from ae98_xgb_tuning_export.rds. Estimate (SE) shown without significance stars (not computed at export time), unlike the freshly-fit linear/ranger tables above. Do not refit XGBoost here -- tune_on_folds=TRUE has fold-specific hyperparameters, not one recipe to reuse.")
+} else {
+  cat("ae98_xgb_tuning_export.rds not found -- run child_xgb_tuning.Rmd first to generate it.\n")
+}
+```
+
+## Comparison Table
+
+```{r ext-comparison}
+ext_cell <- function(coef, se) {
+  if (is.na(coef) || !is.finite(coef)) return("\u2014")
+  if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
+  pval  <- 2 * pnorm(-abs(coef / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s (%.3f)", coef, stars, se)
+}
+
+learner_row <- function(label, fit_labor, fit_income) {
+  data.frame(Estimator = label,
+             `Labor (workedm)`   = ext_cell(get_dml_coef(fit_labor$obj),  get_dml_se(fit_labor$obj)),
+             `Income (lincomem)` = ext_cell(get_dml_coef(fit_income$obj), get_dml_se(fit_income$obj)),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+kappa_ref_row <- function(label, key) {
+  data.frame(Estimator = label,
+             `Labor (workedm)`   = ext_cell(labor_cols[["1 if worked, 0 else"]]$kappa$estimates[key],
+                                             labor_cols[["1 if worked, 0 else"]]$kappa$se[key]),
+             `Income (lincomem)` = ext_cell(income_cols[["Dollars"]]$kappa$estimates[key],
+                                             income_cols[["Dollars"]]$kappa$se[key]),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+comparison_rows <- list(
+  learner_row("Wald-AIPW / LATE (linear+logit)", lm_labor, lm_income),
+  learner_row("Wald-AIPW / LATE (ranger)",       rf_labor, rf_income)
+)
+
+if (exists("xgb_export")) {
+  xr <- xgb_export$estimate_comparison
+  get_xgb_est <- function(sample_label, learner_label) {
+    row <- xr[xr$Cell == sample_label & xr$Learner == learner_label, ]
+    if (nrow(row) == 0) return("\u2014")
+    row[["Estimate (SE)"]][1]
+  }
+  comparison_rows[[length(comparison_rows) + 1]] <- data.frame(
+    Estimator = "Wald-AIPW / LATE (XGBoost, untuned)",
+    `Labor (workedm)`   = get_xgb_est("Labor (workedm)",   "XGB untuned"),
+    `Income (lincomem)` = get_xgb_est("Income (lincomem)", "XGB untuned"),
+    check.names = FALSE, stringsAsFactors = FALSE)
+  comparison_rows[[length(comparison_rows) + 1]] <- data.frame(
+    Estimator = "Wald-AIPW / LATE (XGBoost, tune_on_folds=TRUE)",
+    `Labor (workedm)`   = get_xgb_est("Labor (workedm)",   "XGB tuned (tune_on_folds=TRUE)"),
+    `Income (lincomem)` = get_xgb_est("Income (lincomem)", "XGB tuned (tune_on_folds=TRUE)"),
+    check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+comparison_rows[[length(comparison_rows) + 1]] <- kappa_ref_row("\u03c4_cb_u (kappa, ref)", "tau_cb_u")
+comparison_rows[[length(comparison_rows) + 1]] <- kappa_ref_row("\u03c4_ml_u (kappa, ref)", "tau_ml_u")
+
+comp_df <- do.call(rbind, comparison_rows)
+n_learner_rows <- sum(grepl("^Wald-AIPW", comp_df$Estimator))
+
+comp_df %>%
+  kbl(align = c("l","c","c"),
+      caption = "Wald-AIPW / LATE Learner Comparison vs. Kappa -- Labor (workedm) and Income (lincomem)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("DoubleML learners", 1, n_learner_rows) %>%
+  pack_rows("Kappa reference",   n_learner_rows + 1, nrow(comp_df)) %>%
+  row_spec(1:n_learner_rows, background = "#eef6ff") %>%
+  footnote(general = "Each cell: estimate (SE). Blue = DoubleML/mlr3 learners and imported XGBoost. All mlr3 fits use score='LATE', n_folds=5. XGBoost rows are imported from child_xgb_tuning.Rmd, not refit here, and show no significance stars. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+<div class="note-box">
+**Not built in this file, on purpose, still pending:** the 6-covariate
+robustness check (kappa/ranger refit with `sex2nd` dropped, to empirically
+confirm the linear+logit restriction costs nothing) and the separate
+translation-invariance rerun file (`child_translation_invariance_method_a.Rmd`).
+See `ae98_analysis_plan.txt` for both.
+</div>
+
+---
+
+# 4. Weight Diagnostics
+
+<div class="note-box">
+**Reading the tables.** `Sum_w ≈ 0` confirms translation invariance.
+**`ESS_mod`** = modified effective sample size `(Σ|ωᵢ|)²/Σωᵢ²`
+(Chattopadhyay & Zubizarreta 2023) — the headline number, valid under
+negative weights. The old Kish `ESS = 1/Σωᵢ²` is shown alongside for
+reference only. Unlike Card (one grf fit per cell), AE98's Section 2 fit
+**both** untuned and tuned honest forests, so both appear here as separate
+rows — this lets you see whether `tune.parameters="all"` changed the weight
+geometry, not just the point estimate. XGBoost rows are pulled from the
+imported `xgb_export` (Section 3); if that file wasn't run, XGBoost rows are
+simply omitted rather than breaking the table.
+</div>
+
+```{r diag-builders, echo=FALSE}
+# Kappa weight bundles for both samples.
+kw_labor  <- kappa_weights_bundle(Z_labor,  D_labor,  X_labor_kappa)
+kw_income <- kappa_weights_bundle(Z_income, D_income, X_income_kappa)
+
+DIAG_ALIGN <- c("l","r","r","r","r","r")
+
+# Pull imported XGBoost weight vectors + identity flags, defensively (NULL/NA if not run yet).
+get_xgb_w  <- function(sample_label, tuned_label) {
+  if (!exists("xgb_export")) return(NULL)
+  xgb_export$omega_vectors[[sample_label]][[tuned_label]]
+}
+get_xgb_ok <- function(sample_label, tuned_label) {
+  if (!exists("xgb_export")) return(NA)
+  xgb_export$identity_checks[[sample_label]][[tuned_label]]
+}
+
+w_xgb_labor_untuned   <- get_xgb_w("Labor (workedm)",   "untuned")
+w_xgb_labor_tuned     <- get_xgb_w("Labor (workedm)",   "tuned")
+w_xgb_income_untuned  <- get_xgb_w("Income (lincomem)", "untuned")
+w_xgb_income_tuned    <- get_xgb_w("Income (lincomem)", "tuned")
+ok_xgb_labor_untuned  <- get_xgb_ok("Labor (workedm)",   "untuned")
+ok_xgb_labor_tuned    <- get_xgb_ok("Labor (workedm)",   "tuned")
+ok_xgb_income_untuned <- get_xgb_ok("Income (lincomem)", "untuned")
+ok_xgb_income_tuned   <- get_xgb_ok("Income (lincomem)", "tuned")
+
+# Visible diagnostic: tells you WHICH of the two possible causes applies for
+# each cell, instead of leaving that ambiguous in the Love-plot placeholder.
+cat(sprintf("xgb_export loaded: %s\n", exists("xgb_export")))
+cat("XGBoost weight/identity status per cell (w=NULL means the export is missing\n")
+cat("or that cell's weight extraction failed; ok=FALSE means weights ARE present\n")
+cat("but sum(omega*Y) != tau_hat -- i.e. XGBoost fails the affine-smoother identity\n")
+cat("for that cell, which is a real, reportable finding, not a bug):\n")
+status_tbl <- data.frame(
+  Cell   = rep(c("Labor (workedm)", "Income (lincomem)"), each = 2),
+  Tuned  = rep(c("untuned", "tuned"), times = 2),
+  w_is_null = c(is.null(w_xgb_labor_untuned), is.null(w_xgb_labor_tuned),
+                is.null(w_xgb_income_untuned), is.null(w_xgb_income_tuned)),
+  identity_ok = c(ok_xgb_labor_untuned, ok_xgb_labor_tuned,
+                  ok_xgb_income_untuned, ok_xgb_income_tuned)
+)
+print(status_tbl)
+
+# Skip a row cleanly if the weight vector is NULL/empty, rather than erroring.
+safe_diag_row <- function(w, label) if (is.null(w) || length(w) == 0) NULL else weight_diag(w, label)
+
+dml_diag_cell <- function(w_untuned, w_tuned, kw) {
+  do.call(rbind, Filter(Negate(is.null), list(
+    weight_diag(w_untuned$plriv,    "PLR-IV (untuned forest)"),
+    weight_diag(w_untuned$waldaipw, "Wald-AIPW (untuned forest)"),
+    weight_diag(w_tuned$plriv,      "PLR-IV (tuned forest)"),
+    weight_diag(w_tuned$waldaipw,   "Wald-AIPW (tuned forest)"),
+    weight_diag(kw$tau_cb_u,        "\u03c4_cb_u (kappa)"),
+    weight_diag(kw$tau_ml_u,        "\u03c4_ml_u (kappa)"),
+    weight_diag(kw$tau_ml_a10,      "\u03c4_ml_a10 (kappa)"),
+    weight_diag(kw$tau_ml_a,        "\u03c4_ml_a (kappa)"),
+    weight_diag(kw$tau_ml_a1,       "\u03c4_ml_t/a1 (kappa)"),
+    weight_diag(kw$tau_ml_a0,       "\u03c4_ml_a0 (kappa)")
+  )))
+}
+style_dml_diag <- function(df, cap) {
+  n_dml <- sum(grepl("forest", df[[1]]))
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(seq_len(n_dml), background = "#eef6ff") %>%
+    footnote(general = "Blue = grf honest-forest DML (untuned + tuned). Sum_w \u2248 0 <=> translation invariant. ESS_mod = (sum|w|)^2/sum(w^2) (report this); ESS = 1/sum(w^2) (reference only).")
+}
+
+ext_diag_block <- function(kw, w_lm, w_rf, w_xgb_untuned, w_xgb_tuned) {
+  do.call(rbind, Filter(Negate(is.null), list(
+    safe_diag_row(w_lm,          "Wald-AIPW (linear+logit)"),
+    safe_diag_row(w_rf,          "Wald-AIPW (ranger)"),
+    safe_diag_row(w_xgb_untuned, "Wald-AIPW (XGBoost, untuned)"),
+    safe_diag_row(w_xgb_tuned,   "Wald-AIPW (XGBoost, tune_on_folds=TRUE)"),
+    weight_diag(kw$tau_cb_u,     "\u03c4_cb_u (kappa, CBPS)"),
+    weight_diag(kw$tau_ml_u,     "\u03c4_ml_u (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a10,   "\u03c4_ml_a10 (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a,     "\u03c4_ml_a (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a1,    "\u03c4_ml_t (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a0,    "\u03c4_ml_a0 (kappa, unnorm)")
+  )))
+}
+style_ext_diag <- function(df, cap) {
+  n_learn <- sum(grepl("linear\\+logit|ranger|XGBoost", df[[1]], ignore.case = TRUE))
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(seq_len(n_learn), background = "#eef6ff") %>%
+    footnote(general = "Blue = DoubleML/mlr3 learners (incl. imported XGBoost). ESS_mod = (sum|w|)^2/sum(w^2) (report this); ESS = 1/sum(w^2) (reference only). XGBoost rows omitted if ae98_xgb_tuning_export.rds was not found.")
+}
+```
+
+## DML vs. Kappa {.tabset}
+
+### Labor (workedm)
+
+```{r dml-diag-labor}
+style_dml_diag(dml_diag_cell(w_labor_untuned, w_labor_tuned, kw_labor),
+               "Weight Diagnostics -- DML (untuned + tuned forest) vs. Kappa | Labor")
+```
+
+### Income (lincomem)
+
+```{r dml-diag-income}
+style_dml_diag(dml_diag_cell(w_income_untuned, w_income_tuned, kw_income),
+               "Weight Diagnostics -- DML (untuned + tuned forest) vs. Kappa | Income")
+```
+
+## Learners vs. Kappa {.tabset}
+
+### Labor (workedm)
+
+```{r ext-diag-labor}
+style_ext_diag(ext_diag_block(kw_labor, lm_labor$w, rf_labor$w,
+                              w_xgb_labor_untuned, w_xgb_labor_tuned),
+               "Weight Diagnostics -- Learners | Labor")
+```
+
+### Income (lincomem)
+
+```{r ext-diag-income}
+style_ext_diag(ext_diag_block(kw_income, lm_income$w, rf_income$w,
+                              w_xgb_income_untuned, w_xgb_income_tuned),
+               "Weight Diagnostics -- Learners | Income")
+```
+
+## Weight-Statistics Bridge {.tabset}
+
+<div class="note-box">
+**What this is.** For every estimator, `weight_bridge()` reports the outcome
+weights Overall / Treated / Control (control sign-flipped, Knaus's
+convention -- "Control mass" reads \u2248 1 when normalized, not \u2212 1; see
+`child_xgb_tuning.Rmd`'s footnote for the same point), alongside the two
+effective-sample-size measures. The headline is **ESS mod**.
+</div>
+
+```{r bridge-helpers, echo=FALSE}
+cell_weight_list <- function(w_untuned, w_tuned, lm_w, rf_w, xgb_w_untuned, xgb_w_tuned, kw) {
+  Filter(Negate(is.null), list(
+    "PLR-IV (untuned forest)"    = w_untuned$plriv,
+    "Wald-AIPW (untuned forest)" = w_untuned$waldaipw,
+    "PLR-IV (tuned forest)"      = w_tuned$plriv,
+    "Wald-AIPW (tuned forest)"   = w_tuned$waldaipw,
+    "Linear+Logit"               = lm_w,
+    "Ranger"                     = rf_w,
+    "XGBoost (untuned)"          = xgb_w_untuned,
+    "XGBoost (tuned)"            = xgb_w_tuned,
+    "\u03c4_cb_u (kappa)"        = kw$tau_cb_u,
+    "\u03c4_ml_u (kappa)"        = kw$tau_ml_u,
+    "\u03c4_ml_t (kappa)"        = kw$tau_ml_a1
+  ))
+}
+
+bridge_cells <- list(
+  "Labor (workedm)"   = list(D = D_labor,  w = cell_weight_list(w_labor_untuned,  w_labor_tuned,
+                                lm_labor$w, rf_labor$w, w_xgb_labor_untuned,  w_xgb_labor_tuned,  kw_labor)),
+  "Income (lincomem)" = list(D = D_income, w = cell_weight_list(w_income_untuned, w_income_tuned,
+                                lm_income$w, rf_income$w, w_xgb_income_untuned, w_xgb_income_tuned, kw_income))
+)
+
+bridge_table <- function(wlist, D, cap) {
+  ests <- names(wlist)
+  df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
+  disp <- df[, c("Scope","Min","Max","Pct_neg","Sum_top10","Sum_w","Sum_abs_w","ESS_kish","ESS_mod")]
+
+  kk <- disp %>%
+    kbl(caption = cap, row.names = FALSE,
+        col.names = c("Scope","Min","Max","%Neg","\u03a3Top10%","\u03a3\u03c9","\u03a3|\u03c9|","ESS Kish","ESS mod"),
+        align = c("l", rep("r", 8))) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 12) %>%
+    add_header_above(c(" " = 1, "Knaus summary() statistics" = 6, "Effective sample size" = 2)) %>%
+    column_spec(9, bold = TRUE, background = "#eef6ff")
+  for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
+  kk %>% footnote(general = "Control rows use Knaus's sign-flipped convention (mass reads ~1 when normalized, not -1). ESS mod = (sum|w|)^2/sum(w^2) is the number to report; ESS Kish = 1/sum(w^2) is reference only.")
+}
+
+ess_overview_df <- do.call(rbind, lapply(names(bridge_cells), function(cn) {
+  cl <- bridge_cells[[cn]]
+  do.call(rbind, lapply(names(cl$w), function(nm) {
+    ov <- weight_bridge(cl$w[[nm]], cl$D, nm)
+    ov <- ov[ov$Scope == "Overall", ]
+    data.frame(Cell = cn, Estimator = nm, ESS_kish = ov$ESS_kish, ESS_mod = ov$ESS_mod,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+}))
+```
+
+### ESS overview (Kish vs. modified)
+
+```{r bridge-ess-overview}
+ess_overview_df %>%
+  kbl(caption = "Effective sample size, Overall scope -- Kish (1/sum(w^2)) vs. modified ((sum|w|)^2/sum(w^2))",
+      col.names = c("Cell","Estimator","ESS Kish","ESS mod"),
+      align = c("l","l","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  column_spec(4, bold = TRUE, background = "#eef6ff") %>%
+  pack_rows(index = table(factor(ess_overview_df$Cell, levels = unique(ess_overview_df$Cell)))) %>%
+  footnote(general = "Given AE98's low complier share, low ESS_mod relative to N=3,000 is expected here -- a design feature to discuss, not necessarily a problem to fix.")
+```
+
+```{r bridge-ess-dumbbell, fig.height=6, fig.width=11}
+ggplot(ess_overview_df, aes(y = Estimator)) +
+  geom_segment(aes(x = ESS_kish, xend = ESS_mod, yend = Estimator),
+               colour = "#bdbdbd", linewidth = 1.1) +
+  geom_point(aes(x = ESS_kish, colour = "Kish"),     size = 2.6) +
+  geom_point(aes(x = ESS_mod,  colour = "Modified"), size = 2.6) +
+  facet_wrap(~ Cell, scales = "free_x") +
+  scale_colour_manual(values = c("Kish" = "#9e9e9e", "Modified" = "#2c7bb6"), name = NULL) +
+  labs(title = "Effective sample size: Kish -> modified", x = "Effective sample size", y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top", panel.grid.minor = element_blank())
+```
+
+### Labor (workedm)
+
+```{r bridge-labor}
+bridge_table(bridge_cells[["Labor (workedm)"]]$w, bridge_cells[["Labor (workedm)"]]$D,
+             "Weight-statistics bridge -- Labor (workedm)")
+```
+
+### Income (lincomem)
+
+```{r bridge-income}
+bridge_table(bridge_cells[["Income (lincomem)"]]$w, bridge_cells[["Income (lincomem)"]]$D,
+             "Weight-statistics bridge -- Income (lincomem)")
+```
+
+---
+
+# 5. Love Plots
+
+<div class="note-box">
+**XGBoost gating.** An XGBoost panel is excluded only if there is genuinely
+nothing to plot (`ae98_xgb_tuning_export.rds` missing or weight extraction
+failed). If the weights exist but fail the affine-smoother identity check
+(`sum(omega*Y) != tau_hat`), the panel is still plotted -- exactly the same
+standard already applied to the unnormalized kappa estimators below, which
+are plotted despite failing their own diagnostic (`Sum_w != 0`, i.e. not
+translation invariant). The failed-identity case gets a visible warning
+appended to its panel title instead of being hidden, so the reader sees the
+same balance picture everyone else sees, with the same level of caveat
+transparency as the "(unnorm)" labels.
+</div>
+
+```{r love-helpers, echo=FALSE}
+maybe_love <- function(label, w, D, X, ok = TRUE) {
+  if (is.null(w) || length(w) == 0) {
+    reason <- "excluded: ae98_xgb_tuning_export.rds\nnot found or weight extraction failed"
+    return(grid::textGrob(paste0(label, "\n", reason),
+                          gp = grid::gpar(fontsize = 10, col = "#b71c1c")))
+  }
+  if (!is.na(ok) && isFALSE(ok)) {
+    label <- paste0(label, "\n")
+  }
+  make_love(label, w, D, X)
+}
+```
+
+## DML vs. Kappa {.tabset}
+
+### Labor (workedm) — all 10 estimators
+
+```{r love-labor, fig.height=9, fig.width=14}
+grid.arrange(grobs = list(
+  make_love("PLR-IV (untuned)",     w_labor_untuned$plriv,    D_labor, X_dml_labor),
+  make_love("Wald-AIPW (untuned)",  w_labor_untuned$waldaipw, D_labor, X_dml_labor),
+  make_love("PLR-IV (tuned)",       w_labor_tuned$plriv,      D_labor, X_dml_labor),
+  make_love("Wald-AIPW (tuned)",    w_labor_tuned$waldaipw,   D_labor, X_dml_labor),
+  make_love("\u03c4_cb_u (CBPS)",   kw_labor$tau_cb_u,        D_labor, X_dml_labor),
+  make_love("\u03c4_ml_u",          kw_labor$tau_ml_u,        D_labor, X_dml_labor),
+  make_love("\u03c4_ml_a10",        kw_labor$tau_ml_a10,      D_labor, X_dml_labor),
+  make_love("\u03c4_ml_a (unnorm)", kw_labor$tau_ml_a,        D_labor, X_dml_labor),
+  make_love("\u03c4_ml_t (unnorm)", kw_labor$tau_ml_a1,       D_labor, X_dml_labor),
+  make_love("\u03c4_ml_a0 (unnorm)",kw_labor$tau_ml_a0,       D_labor, X_dml_labor)
+), nrow = 2, top = "Love Plots -- Labor (workedm): DML vs. Kappa")
+```
+
+### Income (lincomem) — all 10 estimators
+
+```{r love-income, fig.height=9, fig.width=14}
+grid.arrange(grobs = list(
+  make_love("PLR-IV (untuned)",     w_income_untuned$plriv,    D_income, X_dml_income),
+  make_love("Wald-AIPW (untuned)",  w_income_untuned$waldaipw, D_income, X_dml_income),
+  make_love("PLR-IV (tuned)",       w_income_tuned$plriv,      D_income, X_dml_income),
+  make_love("Wald-AIPW (tuned)",    w_income_tuned$waldaipw,   D_income, X_dml_income),
+  make_love("\u03c4_cb_u (CBPS)",   kw_income$tau_cb_u,        D_income, X_dml_income),
+  make_love("\u03c4_ml_u",          kw_income$tau_ml_u,        D_income, X_dml_income),
+  make_love("\u03c4_ml_a10",        kw_income$tau_ml_a10,      D_income, X_dml_income),
+  make_love("\u03c4_ml_a (unnorm)", kw_income$tau_ml_a,        D_income, X_dml_income),
+  make_love("\u03c4_ml_t (unnorm)", kw_income$tau_ml_a1,       D_income, X_dml_income),
+  make_love("\u03c4_ml_a0 (unnorm)",kw_income$tau_ml_a0,       D_income, X_dml_income)
+), nrow = 2, top = "Love Plots -- Income (lincomem): DML vs. Kappa")
+```
+
+## Learners vs. Kappa {.tabset}
+
+### Labor (workedm)
+
+```{r ext-love-labor, fig.height=9, fig.width=13}
+grid.arrange(grobs = list(
+  make_love("Linear+Logit\nLabor",          lm_labor$w,           D_labor, X_dml_labor),
+  make_love("Ranger\nLabor",                rf_labor$w,           D_labor, X_dml_labor),
+  maybe_love("XGBoost untuned\nLabor",      w_xgb_labor_untuned,  D_labor, X_dml_labor, ok_xgb_labor_untuned),
+  maybe_love("XGBoost tuned\nLabor",        w_xgb_labor_tuned,    D_labor, X_dml_labor, ok_xgb_labor_tuned),
+  make_love("\u03c4_cb_u\nLabor",           kw_labor$tau_cb_u,    D_labor, X_dml_labor),
+  make_love("\u03c4_ml_u\nLabor",           kw_labor$tau_ml_u,    D_labor, X_dml_labor)
+), nrow = 2, top = "Love Plots -- DoubleML learners vs. kappa | Labor (workedm)")
+```
+
+### Income (lincomem)
+
+```{r ext-love-income, fig.height=9, fig.width=13}
+grid.arrange(grobs = list(
+  make_love("Linear+Logit\nIncome",         lm_income$w,           D_income, X_dml_income),
+  make_love("Ranger\nIncome",               rf_income$w,           D_income, X_dml_income),
+  maybe_love("XGBoost untuned\nIncome",     w_xgb_income_untuned,  D_income, X_dml_income, ok_xgb_income_untuned),
+  maybe_love("XGBoost tuned\nIncome",       w_xgb_income_tuned,    D_income, X_dml_income, ok_xgb_income_tuned),
+  make_love("\u03c4_cb_u\nIncome",          kw_income$tau_cb_u,    D_income, X_dml_income),
+  make_love("\u03c4_ml_u\nIncome",          kw_income$tau_ml_u,    D_income, X_dml_income)
+), nrow = 2, top = "Love Plots -- DoubleML learners vs. kappa | Income (lincomem)")
+```
+
+<div class="note-box">
+**Not built yet (next steps, per `ae98_analysis_plan.txt`):** the
+6-covariate robustness check (kappa/ranger with `sex2nd` dropped) and
+`child_translation_invariance_method_a.Rmd` (the Method-A rerun on
+`workedm` vs. `workedm+1` and `lincomem` vs. `lincomem+log(100)`, with the
+sample held fixed across both fits).
+</div>
