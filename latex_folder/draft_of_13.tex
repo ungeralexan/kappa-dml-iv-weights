@@ -663,22 +663,31 @@ This makes it possible to use tree based learners such as random forest or xgboo
 The choice of five folds is due to the reason that moderate fold numbers keep enough observations for nuisance training while still ensuring that the score is evaluated out of sample.
 
 \subsubsection{Nuisance Training}
-The cross fitting procedure determines on which observations the nuisance functions are trained and evaluated. However it does not determine how complex a nuisance learner should be.
-This is especially relevant for XGBoost which has many hyperparamters such as the number of boosting rounds, the learning rate, the maximum tree depth, and the minimum child-node weight.
-For this reason I will use an additional tuning round for it.
-It is important to mention that tuning is not based on the final treatment-effect estimate, rather hyperparameters are selected only by predictive performance of the nuisance functions.
-For each nuisance function $j$, the selected hyperparameter vector is
 
-$$
-\hat{\lambda}_j = \arg\min_{\lambda \in \Lambda_j} CV_j(\lambda),
-$$
+The cross-fitting procedure determines on which observations the nuisance functions are trained and evaluated. 
+As common practice in machine learning we also will tune the hyperparameters of the nuisance learners.  In all tuned specifications, tuning is based on nuisance-prediction performance and not on the resulting treatment-effect estimate.\\
+The purpose of tuning is to control the complexity of the nuisance learners according to their out-of-sample predictive performance. This is particularly important for the Wald-AIPW specifications. The Wald-AIPW score contains inverse-propensity terms based on the fitted instrument propensity, for example terms involving $\hat m(X)$ and $1-\hat m(X)$ in the denominator. If a flexible learner produces fitted instrument propensities very close to zero or one, individual observations can receive very large score contributions. The resulting estimate may then become highly sensitive to a small number of observations. This is a standard instability of inverse-propensity and AIPW-type estimators under limited overlap or poorly regularized nuisance estimation, rather than a feature of the causal parameter itself.
+Gradient-boosted trees are a relevant case in this thesis because, if insufficiently regularized, they can generate highly concentrated fitted probabilities. Tuning the XGBoost nuisance learners by held-out prediction loss is therefore used to select a more appropriate level of learner complexity for the nuisance functions. The tuning criterion is fixed before the treatment-effect estimate is computed and does not use the Wald-AIPW point estimate or its standard error. In the empirical sections, I assess the diagnostic implications of this mechanism by reporting nuisance losses and the share of near-boundary fitted probabilities. This diagnostic is reported for both binary nuisance components, the instrument propensity $\hat m(X)$ and the treatment-regression probabilities $\hat r(0,X)$ and $\hat r(1,X)$, although the direct inverse-propensity denominator in the IIVM score is based on $\hat m(X)$. The movement of the treatment-effect estimate after tuning is interpreted only in light of these nuisance diagnostics, not as the criterion by which tuning is justified.
+The partially linear IV score is less exposed to this specific inverse-propensity mechanism, because it is based on residualized moments rather than the same AIPW re-weighting structure. For this reason, the near-boundary propensity concern is most relevant for the Wald-AIPW learner comparisons, especially for XGBoost.\\
+The PLR-IV and Wald-AIPW estimators based on outcome weights are implemented using the honest random forest smoother from the \textsc{OutcomeWeights} package \citep{knaus2024treatment}, which builds on the generalized random forest implementation in \texttt{grf} \citep{athey2019generalized}. In this case, tuning is native to the forest implementation. Setting \texttt{tune.parameters = "all"} passes the tuning request to \texttt{grf} and triggers an internal search over the forest's tunable hyperparameters: the subsample fraction, the number of variables considered at each split (\texttt{mtry}), the minimum node size, the honesty fraction, honesty leaf pruning, the split-balance parameter \texttt{alpha}, and the imbalance penalty.
+The tuning procedure can be described schematically as follows. The algorithm draws a number of candidate configurations $\lambda_1,\ldots,\lambda_R$ from the hyperparameter space and fits a smaller ``mini-forest'' at each candidate configuration. For each candidate, it computes a debiased estimate of the out-of-bag prediction error. This debiasing is used because the mini-forests contain fewer trees than the final production forest, so their raw out-of-bag errors contain additional Monte Carlo noise. The resulting pairs of candidate configurations and debiased errors are then smoothed, and the selected configuration is chosen by minimizing the predicted smoothed error over an additional set of randomly drawn candidate configurations. The final forest used for estimation is then grown with the selected tuning parameters. Since the empirical implementation uses five-fold cross-fitting, the nuisance forests are trained separately for the corresponding cross-fitting folds.\\
+For the XGBoost Wald-AIPW specifications, hyperparameters are selected through the \textsc{DoubleML} interface to \texttt{mlr3tuning}. In contrast to the honest forest case, the tuning procedure is not an internal XGBoost tuning path but an external nuisance-learner tuning step managed by \textsc{DoubleML}. For each nuisance learner, a random search evaluates a finite number $E$ of candidate hyperparameter configurations,
+$\lambda^{(1)},\ldots,\lambda^{(E)}$, over the number of boosting rounds, the maximum tree depth, the learning rate, and the minimum child-node weight. In the empirical implementation, $E=15$ and the candidates are evaluated by three-fold inner cross-validation.
 
-where $\Lambda_j$ denotes the hyperparameter search space and $CV_j(\lambda)$ is the inner cross-validation loss.
-As Loss for continous outcome regressions the root mean squarred error is used and for binary treatment and instrument models the log-loss is used. 
-The tuning is nested inside the DML procedure. Within each outer cross-fitting fold, the inner cross-validation is performed only on the corresponding training sample.
-The held-out fold used for evaluating the final orthogonal score is therefore not used for choosing the XGBoost hyperparameters. This avoids tuning directly on the observations that enter the final score evaluation.In the empirical analysis, I apply this tuning step only to the XGBoost Wald-AIPW specification. Especially for the Card framework in which the XGBoost is very reliant on tuning due to the rich covariate specification in the Card and Kitagawa specification.
-The other learners are used as benchmark nuisance specifications.
-Tuning will show whether the unstable default XGBoost results are driven by poorly calibrated nuisance predictions.
+For nuisance component $j$, the selected configuration is
+
+\[
+\hat\lambda_j
+=
+\arg\min_{\lambda \in \{\lambda^{(1)},\ldots,\lambda^{(E)}\}}
+\frac{1}{K_{\mathrm{inner}}}
+\sum_{k=1}^{K_{\mathrm{inner}}}
+L_j(\lambda; k),
+\]
+
+where $K_{\mathrm{inner}}=3$. The loss $L_j$ is the root mean squared error for the outcome regression and the log-loss for the binary instrument and treatment nuisance functions. The search is therefore over a finite set of randomly drawn candidates rather than over the full continuous hyperparameter space.
+The tuning is performed with \texttt{tune\_on\_folds = TRUE}. Hence, the inner cross-validation search is carried out separately inside each outer cross-fitting training fold. Observations that form the held-out fold for evaluating the final orthogonal score are therefore not used either for fitting the nuisance functions or for selecting the XGBoost hyperparameters used to predict them. This avoids the hyperparameter-selection leakage that would arise from tuning once on the full sample and then reusing the same selected configuration in all outer folds.\\
+Both tuning procedures follow the same principle.Hyperparameters are selected using out-of-sample nuisance-prediction performance and never by optimizing the treatment-effect estimate itself. They differ in implementation. Honest random forest tuning is handled internally by \texttt{grf} through \texttt{tune.parameters = "all"}, whereas XGBoost tuning is conducted through the \textsc{DoubleML}/\texttt{mlr3tuning} interface using random search and inner cross-validation. Because the XGBoost tuning is fold-specific, there is no single global hyperparameter configuration for the tuned XGBoost specification. Reported XGBoost hyperparameter values are therefore descriptive summaries of the values selected across folds, not a single recipe that is subsequently plugged into all folds.
  
 
 
