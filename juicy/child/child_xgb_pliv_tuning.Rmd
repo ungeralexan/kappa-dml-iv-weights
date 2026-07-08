@@ -47,7 +47,7 @@ SEED        = 42
 N_CF        = 5
 TUNE_EVALS  = 15
 INNER_FOLDS = 3
-EXTRACT_WEIGHTS = FALSE
+EXTRACT_WEIGHTS = TRUE
 ```
 
 <div class="note-box">
@@ -179,9 +179,16 @@ omega_vec <- function(om) {
 }
 
 extract_xgb_w <- function(r, cell) {
+  if (is.null(r) || is.null(r$obj)) {
+    stop("Cannot extract weights because the fitted DoubleML object is NULL.")
+  }
   dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
   om <- get_outcome_weights(object = r$obj, dml_data = dml_data)
   omega_vec(om)
+}
+
+safe_extract_xgb_w <- function(r, cell) {
+  tryCatch(extract_xgb_w(r, cell), error = function(e) NULL)
 }
 
 fit_cell <- function(dml_data, learners, label, tune = FALSE, tune_on_folds = FALSE) {
@@ -319,7 +326,34 @@ if (nrow(hp_raw) > 0) {
 ```{r xgb-pliv-weight-table}
 if (isTRUE(EXTRACT_WEIGHTS)) {
   one_xgb_diag_row <- function(cell_name, learner_name, r, cell) {
-    w  <- extract_xgb_w(r, cell)
+    if (is.null(r) || is.null(r$obj)) {
+      return(data.frame(Cell = cell_name, Learner = learner_name,
+                        Estimate = NA_real_, ESS = NA_real_, ESS_mod = NA_real_,
+                        `Sigma omega` = NA_real_, `Sigma abs omega` = NA_real_,
+                        `Treated mass` = NA_real_,
+                        `Control mass (-sum control weights)` = NA_real_,
+                        `max abs omega` = NA_real_,
+                        `Identity ok` = NA,
+                        `Weight status` = "fit failed before weight extraction",
+                        check.names = FALSE))
+    }
+
+    w <- tryCatch(extract_xgb_w(r, cell), error = function(e) {
+      attr(e, "weight_error") <- TRUE
+      e
+    })
+    if (inherits(w, "error")) {
+      return(data.frame(Cell = cell_name, Learner = learner_name,
+                        Estimate = as.numeric(r$coef), ESS = NA_real_, ESS_mod = NA_real_,
+                        `Sigma omega` = NA_real_, `Sigma abs omega` = NA_real_,
+                        `Treated mass` = NA_real_,
+                        `Control mass (-sum control weights)` = NA_real_,
+                        `max abs omega` = NA_real_,
+                        `Identity ok` = NA,
+                        `Weight status` = paste("weight extraction failed:", conditionMessage(w)),
+                        check.names = FALSE))
+    }
+
     wb <- weight_bridge(w, cell$D, learner_name)
     ov <- wb[wb$Scope == "Overall", ]; tr <- wb[wb$Scope == "Treated", ]; co <- wb[wb$Scope == "Control", ]
 
@@ -334,6 +368,7 @@ if (isTRUE(EXTRACT_WEIGHTS)) {
                `Treated mass` = tr$Sum_w, `Control mass (-sum control weights)` = co$Sum_w,
                `max abs omega` = max(abs(w)),
                `Identity ok` = identity_ok,
+               `Weight status` = "ok",
                check.names = FALSE)
   }
 
@@ -353,7 +388,7 @@ if (isTRUE(EXTRACT_WEIGHTS)) {
     kbl(caption = "AE98: PLR-IV XGBoost outcome-weight diagnostics, untuned vs. tuned") %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12) %>%
     row_spec(which(xgb_pliv_weight_table$Learner == "PLR-IV XGB tuned"), background = "#eef6ff") %>%
-    footnote(general = "Identity ok = TRUE means sum(omega*Y) reproduces the PLR-IV coefficient to machine precision. If FALSE, use the XGBoost PLR-IV weight row as a diagnostic only.")
+    footnote(general = "Identity ok = TRUE means sum(omega*Y) reproduces the PLR-IV coefficient to machine precision. If Weight status reports a failed fit, the corresponding DoubleML object was NULL before weight extraction began. If Weight status reports a weight-extraction failure, the model fit exists but get_outcome_weights() failed or was not available for that object.")
 } else {
   xgb_pliv_weight_table <- data.frame()
   cat("Skipped PLR-IV XGBoost outcome-weight extraction because EXTRACT_WEIGHTS = FALSE.\n")
@@ -369,8 +404,8 @@ if (isTRUE(EXTRACT_WEIGHTS)) {
 if (isTRUE(EXTRACT_WEIGHTS)) {
   xgb_pliv_omega_vectors <- lapply(names(cells), function(cell_name) {
     list(
-      untuned = extract_xgb_w(results[[cell_name]]$untuned, cells[[cell_name]]),
-      tuned   = extract_xgb_w(results[[cell_name]]$tuned,   cells[[cell_name]])
+      untuned = safe_extract_xgb_w(results[[cell_name]]$untuned, cells[[cell_name]]),
+      tuned   = safe_extract_xgb_w(results[[cell_name]]$tuned,   cells[[cell_name]])
     )
   })
   names(xgb_pliv_omega_vectors) <- names(cells)
@@ -385,11 +420,13 @@ if (isTRUE(EXTRACT_WEIGHTS)) {
     cell <- cells[[cell_name]]
     list(
       untuned = tryCatch(
-        check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$untuned, cell$Y, results[[cell_name]]$untuned$coef),
+        if (is.null(xgb_pliv_omega_vectors[[cell_name]]$untuned) || is.null(results[[cell_name]]$untuned)) NA else
+          check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$untuned, cell$Y, results[[cell_name]]$untuned$coef),
         error = function(e) NA
       ),
       tuned = tryCatch(
-        check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$tuned, cell$Y, results[[cell_name]]$tuned$coef),
+        if (is.null(xgb_pliv_omega_vectors[[cell_name]]$tuned) || is.null(results[[cell_name]]$tuned)) NA else
+          check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$tuned, cell$Y, results[[cell_name]]$tuned$coef),
         error = function(e) NA
       )
     )

@@ -543,9 +543,9 @@ learner_pair_table(pliv_rf_labor, pliv_rf_income, rf_labor, rf_income,
                    "Learner estimates -- Ranger PLR-IV and Ranger Wald-AIPW/LATE (7 covariates)")
 ```
 
-### XGBoost (imported exports)
+### XGBoost Wald-AIPW (imported export)
 
-```{r ext-xgb-import}
+```{r ext-xgb-wald-import}
 xgb_export_path <- "ae98_xgb_tuning_export.rds"
 if (file.exists(xgb_export_path)) {
   xgb_export <- readRDS(xgb_export_path)
@@ -559,7 +559,11 @@ if (file.exists(xgb_export_path)) {
 } else {
   cat("ae98_xgb_tuning_export.rds not found -- run child_xgb_tuning.Rmd first to generate it.\n")
 }
+```
 
+### XGBoost PLR-IV (imported export)
+
+```{r ext-xgb-pliv-import}
 xgb_pliv_export_path <- "ae98_xgb_pliv_tuning_export.rds"
 if (file.exists(xgb_pliv_export_path)) {
   xgb_pliv_export <- readRDS(xgb_pliv_export_path)
@@ -766,7 +770,7 @@ status_tbl %>%
       align = c("l","l","l","c","c")) %>%
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = FALSE, font_size = 12) %>%
-  footnote(general = "PLR-IV XGBoost estimates are imported in Section 3, but PLR-IV XGBoost weights are omitted here when the PLR-IV export was created with EXTRACT_WEIGHTS = FALSE. Wald-AIPW XGBoost weights remain imported from ae98_xgb_tuning_export.rds.")
+  footnote(general = "XGBoost estimates are imported in Section 3. XGBoost weights enter the Section 4 diagnostics whenever the corresponding export contains omega vectors. identity_ok = FALSE means the weights are present but do not exactly reproduce the reported coefficient via sum(omega*Y), so these rows should be read as learner-sensitivity diagnostics rather than clean algebraic benchmarks.")
 
 # Skip a row cleanly if the weight vector is NULL/empty, rather than erroring.
 safe_diag_row <- function(w, label) if (is.null(w) || length(w) == 0) NULL else weight_diag(w, label)
@@ -795,18 +799,12 @@ style_dml_diag <- function(df, cap) {
     footnote(general = "Blue = grf honest-forest DML (untuned + tuned). Sum_w close to 0 indicates translation invariance. ESS_mod is the modified effective sample size.")
 }
 
-ext_diag_block <- function(kw, w_lm_pliv, w_lm_iivm, w_rf_pliv, w_rf_iivm,
-                           w_xgb_pliv_untuned, w_xgb_pliv_tuned,
-                           w_xgb_untuned, w_xgb_tuned) {
+learner_diag_block <- function(kw, family, w_linear, w_ranger, w_xgb_untuned, w_xgb_tuned) {
   do.call(rbind, Filter(Negate(is.null), list(
-    safe_diag_row(w_lm_pliv,     "PLR-IV (linear)"),
-    safe_diag_row(w_lm_iivm,     "Wald-AIPW (linear+logit)"),
-    safe_diag_row(w_rf_pliv,     "PLR-IV (ranger)"),
-    safe_diag_row(w_rf_iivm,     "Wald-AIPW (ranger)"),
-    safe_diag_row(w_xgb_pliv_untuned, "PLR-IV (XGBoost, untuned)"),
-    safe_diag_row(w_xgb_pliv_tuned,   "PLR-IV (XGBoost, tune_on_folds=TRUE)"),
-    safe_diag_row(w_xgb_untuned, "Wald-AIPW (XGBoost, untuned)"),
-    safe_diag_row(w_xgb_tuned,   "Wald-AIPW (XGBoost, tune_on_folds=TRUE)"),
+    safe_diag_row(w_linear,      paste0(family, " (linear", ifelse(family == "Wald-AIPW", "+logit", ""), ")")),
+    safe_diag_row(w_ranger,      paste0(family, " (ranger)")),
+    safe_diag_row(w_xgb_untuned, paste0(family, " (XGBoost, untuned)")),
+    safe_diag_row(w_xgb_tuned,   paste0(family, " (XGBoost, tune_on_folds=TRUE)")),
     weight_diag(kw$tau_cb_u,     "\u03c4_cb_u (kappa, CBPS)"),
     weight_diag(kw$tau_ml_u,     "\u03c4_ml_u (kappa, MLE)"),
     weight_diag(kw$tau_ml_a10,   "\u03c4_ml_a10 (kappa, MLE)"),
@@ -815,14 +813,14 @@ ext_diag_block <- function(kw, w_lm_pliv, w_lm_iivm, w_rf_pliv, w_rf_iivm,
     weight_diag(kw$tau_ml_a0,    "\u03c4_ml_a0 (kappa, unnorm)")
   )))
 }
-style_ext_diag <- function(df, cap) {
-  n_learn <- sum(grepl("PLR-IV|Wald-AIPW", df[[1]], ignore.case = TRUE))
+style_learner_diag <- function(df, cap, family) {
+  n_learn <- sum(grepl(family, df[[1]], fixed = TRUE))
   df %>%
     kbl(caption = cap, align = DIAG_ALIGN) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     row_spec(seq_len(n_learn), background = "#eef6ff") %>%
-    footnote(general = "Blue = DoubleML/mlr3 learners. XGBoost rows are imported from the separate Wald-AIPW and PLR-IV tuning exports and omitted if the corresponding export is unavailable. ESS_mod is the modified effective sample size. Check the printed XGBoost status table above before treating XGBoost weights as clean outcome-weight objects.")
+    footnote(general = sprintf("Blue = %s DoubleML/mlr3 learners. XGBoost rows are imported from the corresponding tuning export and omitted if the export is unavailable. ESS_mod is the modified effective sample size. Check the XGBoost status table above: identity_ok = FALSE means weights are available but do not exactly reproduce the coefficient.", family))
 }
 ```
 
@@ -842,28 +840,50 @@ style_dml_diag(dml_diag_cell(w_income_untuned, w_income_tuned, kw_income),
                "Weight Diagnostics -- DML (untuned + tuned forest) vs. Kappa | Income")
 ```
 
-## Learners vs. Kappa {.tabset}
+## Learner Weights vs. Kappa {.tabset}
 
-### Labor (workedm)
+### PLR-IV | Labor (workedm)
 
 ```{r ext-diag-labor}
-style_ext_diag(ext_diag_block(kw_labor,
-                              pliv_lm_labor$w, lm_labor$w,
-                              pliv_rf_labor$w, rf_labor$w,
-                              w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned,
-                              w_xgb_labor_untuned, w_xgb_labor_tuned),
-               "Weight Diagnostics -- Learners | Labor")
+style_learner_diag(
+  learner_diag_block(kw_labor, "PLR-IV",
+                     pliv_lm_labor$w, pliv_rf_labor$w,
+                     w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned),
+  "Weight Diagnostics -- PLR-IV learners vs. Kappa | Labor",
+  "PLR-IV")
 ```
 
-### Income (lincomem)
+### PLR-IV | Income (lincomem)
 
 ```{r ext-diag-income}
-style_ext_diag(ext_diag_block(kw_income,
-                              pliv_lm_income$w, lm_income$w,
-                              pliv_rf_income$w, rf_income$w,
-                              w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned,
-                              w_xgb_income_untuned, w_xgb_income_tuned),
-               "Weight Diagnostics -- Learners | Income")
+style_learner_diag(
+  learner_diag_block(kw_income, "PLR-IV",
+                     pliv_lm_income$w, pliv_rf_income$w,
+                     w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned),
+  "Weight Diagnostics -- PLR-IV learners vs. Kappa | Income",
+  "PLR-IV")
+```
+
+### Wald-AIPW | Labor (workedm)
+
+```{r ext-diag-wald-labor}
+style_learner_diag(
+  learner_diag_block(kw_labor, "Wald-AIPW",
+                     lm_labor$w, rf_labor$w,
+                     w_xgb_labor_untuned, w_xgb_labor_tuned),
+  "Weight Diagnostics -- Wald-AIPW learners vs. Kappa | Labor",
+  "Wald-AIPW")
+```
+
+### Wald-AIPW | Income (lincomem)
+
+```{r ext-diag-wald-income}
+style_learner_diag(
+  learner_diag_block(kw_income, "Wald-AIPW",
+                     lm_income$w, rf_income$w,
+                     w_xgb_income_untuned, w_xgb_income_tuned),
+  "Weight Diagnostics -- Wald-AIPW learners vs. Kappa | Income",
+  "Wald-AIPW")
 ```
 
 ## Weight-Statistics Bridge {.tabset}
@@ -877,21 +897,28 @@ effective sample size. The headline is **ESS mod**.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
-cell_weight_list <- function(w_untuned, w_tuned, lm_pliv_w, lm_iivm_w,
-                             rf_pliv_w, rf_iivm_w,
-                             xgb_pliv_untuned_w, xgb_pliv_tuned_w,
-                             xgb_w_untuned, xgb_w_tuned, kw) {
+pliv_weight_list <- function(w_untuned, w_tuned, lm_pliv_w, rf_pliv_w,
+                             xgb_pliv_untuned_w, xgb_pliv_tuned_w, kw) {
   Filter(Negate(is.null), list(
     "PLR-IV (untuned forest)"    = w_untuned$plriv,
-    "Wald-AIPW (untuned forest)" = w_untuned$waldaipw,
     "PLR-IV (tuned forest)"      = w_tuned$plriv,
-    "Wald-AIPW (tuned forest)"   = w_tuned$waldaipw,
     "PLR-IV (linear)"            = lm_pliv_w,
-    "Wald-AIPW (linear+logit)"   = lm_iivm_w,
     "PLR-IV (ranger)"            = rf_pliv_w,
-    "Wald-AIPW (ranger)"         = rf_iivm_w,
     "PLR-IV (XGBoost untuned)"   = xgb_pliv_untuned_w,
     "PLR-IV (XGBoost tuned)"     = xgb_pliv_tuned_w,
+    "\u03c4_cb_u (kappa)"        = kw$tau_cb_u,
+    "\u03c4_ml_u (kappa)"        = kw$tau_ml_u,
+    "\u03c4_ml_t (kappa)"        = kw$tau_ml_a1
+  ))
+}
+
+waldaipw_weight_list <- function(w_untuned, w_tuned, lm_iivm_w, rf_iivm_w,
+                                 xgb_w_untuned, xgb_w_tuned, kw) {
+  Filter(Negate(is.null), list(
+    "Wald-AIPW (untuned forest)" = w_untuned$waldaipw,
+    "Wald-AIPW (tuned forest)"   = w_tuned$waldaipw,
+    "Wald-AIPW (linear+logit)"   = lm_iivm_w,
+    "Wald-AIPW (ranger)"         = rf_iivm_w,
     "Wald-AIPW (XGBoost untuned)"= xgb_w_untuned,
     "Wald-AIPW (XGBoost tuned)"  = xgb_w_tuned,
     "\u03c4_cb_u (kappa)"        = kw$tau_cb_u,
@@ -901,16 +928,22 @@ cell_weight_list <- function(w_untuned, w_tuned, lm_pliv_w, lm_iivm_w,
 }
 
 bridge_cells <- list(
-  "Labor (workedm)"   = list(D = D_labor,  w = cell_weight_list(w_labor_untuned,  w_labor_tuned,
-                                pliv_lm_labor$w, lm_labor$w,
-                                pliv_rf_labor$w, rf_labor$w,
-                                w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned,
-                                w_xgb_labor_untuned,  w_xgb_labor_tuned,  kw_labor)),
-  "Income (lincomem)" = list(D = D_income, w = cell_weight_list(w_income_untuned, w_income_tuned,
-                                pliv_lm_income$w, lm_income$w,
-                                pliv_rf_income$w, rf_income$w,
-                                w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned,
-                                w_xgb_income_untuned, w_xgb_income_tuned, kw_income))
+  "PLR-IV | Labor (workedm)" = list(D = D_labor, w = pliv_weight_list(
+    w_labor_untuned, w_labor_tuned,
+    pliv_lm_labor$w, pliv_rf_labor$w,
+    w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned, kw_labor)),
+  "PLR-IV | Income (lincomem)" = list(D = D_income, w = pliv_weight_list(
+    w_income_untuned, w_income_tuned,
+    pliv_lm_income$w, pliv_rf_income$w,
+    w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned, kw_income)),
+  "Wald-AIPW | Labor (workedm)" = list(D = D_labor, w = waldaipw_weight_list(
+    w_labor_untuned, w_labor_tuned,
+    lm_labor$w, rf_labor$w,
+    w_xgb_labor_untuned, w_xgb_labor_tuned, kw_labor)),
+  "Wald-AIPW | Income (lincomem)" = list(D = D_income, w = waldaipw_weight_list(
+    w_income_untuned, w_income_tuned,
+    lm_income$w, rf_income$w,
+    w_xgb_income_untuned, w_xgb_income_tuned, kw_income))
 )
 
 bridge_table <- function(wlist, D, cap) {
@@ -931,18 +964,36 @@ bridge_table <- function(wlist, D, cap) {
 }
 ```
 
-### Labor (workedm)
+### PLR-IV | Labor (workedm)
 
 ```{r bridge-labor}
-bridge_table(bridge_cells[["Labor (workedm)"]]$w, bridge_cells[["Labor (workedm)"]]$D,
-             "Weight-statistics bridge -- Labor (workedm)")
+bridge_table(bridge_cells[["PLR-IV | Labor (workedm)"]]$w,
+             bridge_cells[["PLR-IV | Labor (workedm)"]]$D,
+             "Weight-statistics bridge -- PLR-IV | Labor (workedm)")
 ```
 
-### Income (lincomem)
+### PLR-IV | Income (lincomem)
 
 ```{r bridge-income}
-bridge_table(bridge_cells[["Income (lincomem)"]]$w, bridge_cells[["Income (lincomem)"]]$D,
-             "Weight-statistics bridge -- Income (lincomem)")
+bridge_table(bridge_cells[["PLR-IV | Income (lincomem)"]]$w,
+             bridge_cells[["PLR-IV | Income (lincomem)"]]$D,
+             "Weight-statistics bridge -- PLR-IV | Income (lincomem)")
+```
+
+### Wald-AIPW | Labor (workedm)
+
+```{r bridge-wald-labor}
+bridge_table(bridge_cells[["Wald-AIPW | Labor (workedm)"]]$w,
+             bridge_cells[["Wald-AIPW | Labor (workedm)"]]$D,
+             "Weight-statistics bridge -- Wald-AIPW | Labor (workedm)")
+```
+
+### Wald-AIPW | Income (lincomem)
+
+```{r bridge-wald-income}
+bridge_table(bridge_cells[["Wald-AIPW | Income (lincomem)"]]$w,
+             bridge_cells[["Wald-AIPW | Income (lincomem)"]]$D,
+             "Weight-statistics bridge -- Wald-AIPW | Income (lincomem)")
 ```
 
 ---
