@@ -1,0 +1,505 @@
+---
+title: "Angrist & Evans (1998) — Translation Invariance: Rerun Check (Method A)"
+subtitle: "Kappa estimators, DML smoother (PLR-IV / Wald-AIPW), and the learner comparison"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+h3   { color: #444; margin-top: 20px; }
+table { font-size: 13px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.width = 12, fig.height = 6, autodep = TRUE
+)
+```
+
+---
+
+# Purpose
+
+This notebook checks translation invariance by the rerun method (Method A): the whole
+estimation pipeline is fit once on the original outcome and once on the same outcome
+shifted by a constant `k`, using the same seed, and the two point estimates are compared
+directly. `ti_unified_row()` reports both this rerun check (Method A: `diff_A`,
+`invariant_A`) and the frozen-weight algebraic prediction (Method B: `diff_B`,
+`invariant_B`) from the same fit, plus `gap_AB` — whether the two agree.
+
+<div class="note-box">
+**Two workflows only, not every SUW recoding.** Translation invariance is the claim that
+`τ̂(Y+c) = τ̂(Y)` for **any** constant `c` — demonstrating it for one nonzero `c` per
+outcome family is sufficient; testing every possible constant would be redundant (they
+only differ in the value of `k`). This file therefore uses exactly two pure additive
+shifts:
+
+- **Labor**: `workedm` vs. `workedm + 1`, `k = 1`.
+- **Income**: `lincomem` vs. `lincomem + log(100)` (i.e. the cents recoding), `k = log(100)`.
+
+**`workedm_01 = 1 - workedm` is deliberately EXCLUDED from this file.** It is a
+reflection plus a shift (`Y' = -Y+1`), not a pure translation, so it does not isolate
+the same question — it belongs only in the SUW reproduction table in `child_test.Rmd`.
+The mathematics of translation invariance (Σωᵢ=0 ⟺ invariant to any additive constant)
+makes no distinction between a binary and a continuous outcome — `workedm+1` and
+`lincomem+log(100)` exercise exactly the same mechanism, just with different `k` and a
+different real-world motivation (income's shift mirrors an actual unit-of-measurement
+choice; labor's is a synthetic algebraic stress test of the same property).
+</div>
+
+# Setup
+
+```{r packages-and-source}
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(cobalt)
+library(viridis)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+source("functions_all.R")
+cat("functions_all.R sourced.\n")
+```
+
+## Runtime switches
+
+<div class="warn-box">
+**Build and test in stages.** Kappa, DML headline, and linear/logit + Ranger are cheap
+and should all run first. XGBoost's Method-A check requires a FULL
+`tune_on_folds = TRUE` retune-and-refit, run twice per workflow (once on the original
+outcome, once on the shifted one) — roughly 4x the cost of `child_xgb_tuning.Rmd`'s
+tuned XGBoost cell across both workflows. Leave `RUN_XGB <- FALSE` until everything
+else is confirmed working, then turn it on, starting with Labor only.
+</div>
+
+```{r switches}
+RUN_KAPPA          <- TRUE
+RUN_DML            <- TRUE
+RUN_LM_RF           <- TRUE
+RUN_XGB            <- FALSE   # set TRUE only after everything else is confirmed
+RUN_XGB_LABOR_ONLY <- TRUE    # if RUN_XGB, do Labor first; set FALSE to add Income too
+
+cat(sprintf("RUN_KAPPA=%s RUN_DML=%s RUN_LM_RF=%s RUN_XGB=%s RUN_XGB_LABOR_ONLY=%s\n",
+            RUN_KAPPA, RUN_DML, RUN_LM_RF, RUN_XGB, RUN_XGB_LABOR_ONLY))
+```
+
+## Data — the EXACT same subsamples as child_test.Rmd, no resampling
+
+```{r data}
+obj <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub.")
+}
+ae98_labor_sub  <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
+
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(workedm = as.integer(workedm), morekids = as.integer(morekids),
+         samesex = as.integer(samesex))
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(morekids = as.integer(morekids), samesex = as.integer(samesex),
+         lincomem = log(incomem))
+
+Z_labor <- ae98_labor_sub$samesex;  D_labor  <- ae98_labor_sub$morekids
+Z_income <- ae98_income_sub$samesex; D_income <- ae98_income_sub$morekids
+
+# The two shifts. Labor: pure +1. Income: +log(100), verified below to equal the
+# cents recoding used elsewhere, so this workflow is consistent with child_test.Rmd.
+k_labor  <- 1
+k_income <- log(100)
+
+Y_labor_orig   <- ae98_labor_sub$workedm
+Y_labor_shift  <- ae98_labor_sub$workedm + k_labor
+
+Y_income_orig  <- ae98_income_sub$lincomem
+Y_income_shift <- ae98_income_sub$lincomem + k_income
+
+# Sanity check: Y_income_shift should equal log(100*incomem) exactly (the cents coding).
+max_dev <- max(abs(Y_income_shift - log(100 * ae98_income_sub$incomem)))
+cat(sprintf("k_income = log(100) = %.12f, max deviation from cents coding = %.3e\n",
+            k_income, max_dev))
+stopifnot(max_dev < 1e-9)
+
+cat(sprintf("Labor:  N=%d | Income: N=%d (same subsamples as child_test.Rmd)\n",
+            nrow(ae98_labor_sub), nrow(ae98_income_sub)))
+```
+
+## Design matrices — identical construction to child_test.Rmd
+
+```{r design-matrices}
+RHS_FORMULA <- ~ agem + agefstm + sexk + sex2nd + blackm + hispm + othracem
+
+X_labor_kappa  <- model.matrix(RHS_FORMULA, data = ae98_labor_sub)
+X_income_kappa <- model.matrix(RHS_FORMULA, data = ae98_income_sub)
+
+X_dml_labor  <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_labor_sub)
+X_dml_income <- make_X(~ 0 + agem + agefstm + sexk + sex2nd + blackm + hispm + othracem,
+                       data = ae98_income_sub)
+
+# 6-covariate (sex2nd dropped) -- ONLY for linear+logit, same reasoning as child_test.Rmd
+# Section 3: sexk/sex2nd are exactly collinear within a fixed Z arm, which breaks the
+# arm-specific parametric (lm/logit) design-matrix inversion. Tree-based learners and
+# the grf honest forest are unaffected and keep all 7 covariates.
+X_dml_labor_lm  <- make_X(~ 0 + agem + agefstm + sexk + blackm + hispm + othracem,
+                          data = ae98_labor_sub)
+X_dml_income_lm <- make_X(~ 0 + agem + agefstm + sexk + blackm + hispm + othracem,
+                          data = ae98_income_sub)
+
+workflows <- list(
+  Labor = list(label = "Labor (workedm)", D = D_labor, Z = Z_labor,
+               X_kappa = X_labor_kappa, X_dml = X_dml_labor, X_dml_lm = X_dml_labor_lm,
+               Y_orig = Y_labor_orig, Y_shift = Y_labor_shift, k = k_labor),
+  Income = list(label = "Income (lincomem)", D = D_income, Z = Z_income,
+               X_kappa = X_income_kappa, X_dml = X_dml_income, X_dml_lm = X_dml_income_lm,
+               Y_orig = Y_income_orig, Y_shift = Y_income_shift, k = k_income)
+)
+cat("Two workflows built: Labor (k=1), Income (k=log(100)).\n")
+```
+
+---
+
+# 1. Kappa estimators
+
+<div class="note-box">
+Kappa outcome weights are built only from the instrument, treatment, and estimated
+propensity score — they never touch Y. Refitting on the shifted outcome therefore uses
+IDENTICAL weights; `gap_AB` should be machine-zero for every row here. This section is
+cheap regardless of `RUN_KAPPA` -- it's always safe to leave on.
+</div>
+
+```{r kappa-name-bridge}
+# kappa_analytic_se_all() labels the tau_a,1 estimator "tau_ml_t"; kappa_weights_bundle()
+# labels the same estimator's weight vector "tau_ml_a1". Bridge explicitly (same
+# inconsistency documented in functions_all.R and already handled this way in Card's file).
+kappa_key_map <- c(
+  tau_cb_u = "tau_cb_u", tau_ml_u = "tau_ml_u", tau_ml_a10 = "tau_ml_a10",
+  tau_ml_a = "tau_ml_a", tau_ml_t = "tau_ml_a1", tau_ml_a0 = "tau_ml_a0"
+)
+
+build_kappa_ti_rows <- function(wf) {
+  est_o  <- kappa_analytic_se_all(wf$Y_orig,  wf$Z, wf$D, wf$X_kappa)$estimates
+  est_s  <- kappa_analytic_se_all(wf$Y_shift, wf$Z, wf$D, wf$X_kappa)$estimates
+  w_list <- kappa_weights_bundle(wf$Z, wf$D, wf$X_kappa)
+
+  rows <- lapply(names(kappa_key_map), function(est_name) {
+    w_name <- kappa_key_map[[est_name]]
+    row <- ti_unified_row(name = est_name, w_dollars = w_list[[w_name]],
+                          tau_dollars = est_o[[est_name]], tau_cents = est_s[[est_name]],
+                          k = wf$k)
+    row$Sample <- wf$label
+    row
+  })
+  do.call(rbind, rows)
+}
+```
+
+```{r kappa-ti-run, cache=TRUE}
+if (RUN_KAPPA) {
+  kappa_ti_all <- do.call(rbind, lapply(workflows, build_kappa_ti_rows))
+} else {
+  cat("RUN_KAPPA is FALSE -- skipped.\n")
+}
+```
+
+```{r kappa-ti-table}
+if (RUN_KAPPA) {
+  kappa_ti_all[, c("Sample", setdiff(names(kappa_ti_all), c("Sample", "gap_AB")))] %>%
+    kbl(caption = "Kappa estimators -- original vs. shifted outcome, both samples",
+        digits = 8, row.names = FALSE) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(which(!kappa_ti_all$invariant_A), background = "#fffbf0") %>%
+    footnote(general = "Orange = Method-A rerun did not reproduce invariance (expected for the unnormalized kappa rows). gap_AB should be ~0 everywhere: kappa weights never depend on Y.")
+}
+```
+
+---
+
+# 2. DML headline estimators (PLR-IV, Wald-AIPW)
+
+<div class="note-box">
+Tuned honest forest only (`tune.parameters="all"`), matching Card's own scope for this
+file -- `child_test.Rmd` Section 2 already covers the tuned-vs-untuned comparison as a
+separate question. Both the original and shifted fits use the same seed, same
+`n_cf_folds`, and same tuning setting, so any difference reflects the outcome shift
+itself rather than unrelated estimation randomness.
+</div>
+
+```{r dml-headline-builder}
+build_dml_headline_ti_rows <- function(wf, n_cf_folds = 5) {
+  set.seed(42)
+  fit_o <- dml_with_smoother(wf$Y_orig, wf$D, wf$X_dml, wf$Z,
+                             n_cf_folds = n_cf_folds, tune.parameters = "all")
+  set.seed(42)
+  fit_s <- dml_with_smoother(wf$Y_shift, wf$D, wf$X_dml, wf$Z,
+                             n_cf_folds = n_cf_folds, tune.parameters = "all")
+
+  res_o <- summary(fit_o); res_s <- summary(fit_s)
+  om_o  <- get_outcome_weights(fit_o)
+  check_omega_rows(om_o)
+
+  rows <- lapply(c("PLR-IV", "Wald-AIPW"), function(est) {
+    w   <- as.vector(om_o$omega[est, ])
+    row <- ti_unified_row(name = est, w_dollars = w,
+                          tau_dollars = get_estimate(res_o, est),
+                          tau_cents   = get_estimate(res_s, est), k = wf$k)
+    row$Sample <- wf$label
+    row
+  })
+  do.call(rbind, rows)
+}
+```
+
+```{r dml-headline-run, cache=TRUE}
+if (RUN_DML) {
+  dml_headline_ti_all <- do.call(rbind, lapply(workflows, build_dml_headline_ti_rows))
+} else {
+  cat("RUN_DML is FALSE -- skipped.\n")
+}
+```
+
+```{r dml-headline-table}
+if (RUN_DML) {
+  dml_headline_ti_all[, c("Sample", setdiff(names(dml_headline_ti_all), c("Sample", "gap_AB")))] %>%
+    kbl(caption = "DML smoother (tuned honest forest) -- original vs. shifted, both samples",
+        digits = 8, row.names = FALSE) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(which(!dml_headline_ti_all$invariant_A), background = "#fffbf0")
+}
+```
+
+---
+
+# 3. Learner comparison
+
+## 3a. Linear and Ranger learners (Wald-AIPW/IIVM and PLR-IV)
+
+<div class="note-box">
+This section mirrors the learner comparison in `child_test.Rmd`, but reruns
+each estimator on the original and shifted outcomes. For Wald-AIPW/LATE we
+use `DoubleMLIIVM`; for PLR-IV we use `DoubleMLPLIV`. Linear Wald-AIPW uses
+linear outcome regression plus logit nuisance models, while linear PLR-IV uses
+linear regression nuisance models throughout, as required by `DoubleMLPLIV`.
+Ranger keeps the full 7-covariate design for both estimators.
+
+PLR-IV XGBoost is deliberately not included here: it is treated as an
+estimate-only sensitivity check in `child_test.Rmd`, and its outcome weights
+are not currently extracted.
+</div>
+
+```{r dml-learner-setup}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y); df$d <- as.numeric(D); df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z", x_cols = colnames(X))
+}
+
+ml_lm_iivm <- function() list(g = lrn("regr.lm"),
+                              m = lrn("classif.log_reg"),
+                              r = lrn("classif.log_reg"))
+ml_rf_iivm <- function() list(g = lrn("regr.ranger",    keep.inbag = TRUE),
+                              m = lrn("classif.ranger", keep.inbag = TRUE),
+                              r = lrn("classif.ranger", keep.inbag = TRUE))
+
+ml_lm_pliv <- function() list(l = lrn("regr.lm"),
+                              m = lrn("regr.lm"),
+                              r = lrn("regr.lm"))
+ml_rf_pliv <- function() list(l = lrn("regr.ranger", keep.inbag = TRUE),
+                              m = lrn("regr.ranger", keep.inbag = TRUE),
+                              r = lrn("regr.ranger", keep.inbag = TRUE))
+
+omega_vec <- function(om, preferred_row = NULL) {
+  w <- om$omega
+  if (is.null(dim(w))) return(as.vector(w))
+  if (!is.null(preferred_row) && !is.null(rownames(w)) && preferred_row %in% rownames(w)) {
+    return(as.vector(w[preferred_row, ]))
+  }
+  as.vector(w[1, ])
+}
+
+fit_iivm <- function(dml_data, learners, Y) {
+  set.seed(42)
+  o <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
+                        ml_r = learners$r, n_folds = 5, score = "LATE")
+  o$fit(store_models = TRUE, store_predictions = TRUE)
+  om <- get_outcome_weights(object = o, dml_data = dml_data)
+  w <- omega_vec(om, "Wald-AIPW")
+  list(obj = o, w = w, ok = check_weight_identity(w, Y, get_dml_coef(o)))
+}
+
+fit_pliv <- function(dml_data, learners, Y) {
+  set.seed(42)
+  o <- DoubleMLPLIV$new(data = dml_data, ml_l = learners$l, ml_m = learners$m,
+                        ml_r = learners$r, n_folds = 5)
+  o$fit(store_models = TRUE, store_predictions = TRUE)
+  om <- get_outcome_weights(object = o, dml_data = dml_data)
+  w <- omega_vec(om, "PLR-IV")
+  list(obj = o, w = w, ok = check_weight_identity(w, Y, get_dml_coef(o)))
+}
+
+build_dml_learner_ti_row <- function(wf, label, learners_fn, X_dml, fit_fn) {
+  dat_o <- make_dml_data(wf$Y_orig,  wf$D, wf$Z, X_dml)
+  dat_s <- make_dml_data(wf$Y_shift, wf$D, wf$Z, X_dml)
+
+  fit_o <- fit_fn(dat_o, learners_fn(), wf$Y_orig)
+  fit_s <- fit_fn(dat_s, learners_fn(), wf$Y_shift)
+
+  row <- ti_unified_row(name = label, w_dollars = fit_o$w,
+                        tau_dollars = get_dml_coef(fit_o$obj),
+                        tau_cents   = get_dml_coef(fit_s$obj), k = wf$k)
+  row$Sample <- wf$label
+  row$identity_ok <- fit_o$ok
+  row
+}
+```
+
+```{r dml-learner-run, cache=TRUE}
+if (RUN_LM_RF) {
+  dml_learner_ti_all <- do.call(rbind, lapply(workflows, function(wf) {
+    rbind(
+      build_dml_learner_ti_row(wf, "PLR-IV (linear)",          ml_lm_pliv,  wf$X_dml_lm, fit_pliv),
+      build_dml_learner_ti_row(wf, "Wald-AIPW (linear+logit)", ml_lm_iivm,  wf$X_dml_lm, fit_iivm),
+      build_dml_learner_ti_row(wf, "PLR-IV (ranger)",          ml_rf_pliv,  wf$X_dml,    fit_pliv),
+      build_dml_learner_ti_row(wf, "Wald-AIPW (ranger)",       ml_rf_iivm,  wf$X_dml,    fit_iivm)
+    )
+  }))
+} else {
+  cat("RUN_LM_RF is FALSE -- skipped.\n")
+}
+```
+
+```{r dml-learner-table}
+if (RUN_LM_RF) {
+  drop_cols <- c("gap_AB", "identity_ok")
+  dml_learner_ti_all[, c("Sample", setdiff(names(dml_learner_ti_all), c("Sample", drop_cols)))] %>%
+    kbl(caption = "DML learners -- PLR-IV and Wald-AIPW, original vs. shifted outcome",
+        digits = 8, row.names = FALSE) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    collapse_rows(columns = 1, valign = "middle") %>%
+    row_spec(which(!dml_learner_ti_all$invariant_A), background = "#fffbf0") %>%
+    footnote(general = "PLR-IV rows use DoubleMLPLIV. Wald-AIPW/LATE rows use DoubleMLIIVM. Linear specifications use the 6-covariate design with sex2nd dropped; ranger uses the full 7-covariate design. Orange rows fail the Method-A rerun invariance check.")
+}
+```
+
+## 3b. XGBoost (tune_on_folds = TRUE, full rerun)
+
+<div class="warn-box">
+**Why the saved `ae98_xgb_tuning_export.rds` cannot be reused here.** That file's tuned
+XGBoost fit belongs to the ORIGINAL outcome only. `tune_on_folds=TRUE` means
+hyperparameters are chosen separately per outer fold via nested CV -- there is no single
+frozen recipe to hand to a fresh fit on `Y+k` the way Card's file does with
+`set_ml_nuisance_params()`. The correct Method-A check reruns the ENTIRE procedure --
+`obj$tune(..., tune_on_folds=TRUE)` then `obj$fit()` -- once on the original outcome and
+once on the shifted outcome, same seed before each. The saved export remains valid for
+the descriptive learner-comparison table and the Method-B frozen-weight check in
+`child_test.Rmd`; it is simply not the right object for a Method-A rerun.
+</div>
+
+```{r xgb-setup}
+SEED <- 42; N_CF <- 5; TUNE_EVALS <- 15; INNER_FOLDS <- 3
+
+make_xgb_learners <- function() {
+  list(g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+       m = lrn("classif.xgboost", predict_type = "prob"),
+       r = lrn("classif.xgboost", predict_type = "prob"))
+}
+xgb_ps <- function() {
+  ps(nrounds = p_int(50, 400), max_depth = p_int(2, 5),
+     eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8))
+}
+tune_param_set <- function() list(ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+tune_settings <- function() {
+  list(n_folds_tune = INNER_FOLDS, rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
+       measure = list(ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss"),
+       terminator = trm("evals", n_evals = TUNE_EVALS), algorithm = tnr("random_search"))
+}
+
+# Full Method-A rerun for one outcome: retune (tune_on_folds=TRUE) + refit from scratch.
+fit_xgb_tuned_ti <- function(Y, D, Z, X) {
+  dml_data <- make_dml_data(Y, D, Z, X)
+  learners <- make_xgb_learners()
+  o <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
+                        ml_r = learners$r, n_folds = N_CF, score = "LATE")
+  o$tune(param_set = tune_param_set(), tune_settings = tune_settings(), tune_on_folds = TRUE)
+  o$fit(store_models = TRUE, store_predictions = TRUE)
+  om <- get_outcome_weights(object = o, dml_data = dml_data)
+  w  <- as.vector(om$omega)
+  list(obj = o, tau = get_dml_coef(o), w = w,
+       identity_ok = check_weight_identity(w, Y, get_dml_coef(o)))
+}
+
+build_xgb_ti_row <- function(wf) {
+  set.seed(SEED); fit_o <- fit_xgb_tuned_ti(wf$Y_orig,  wf$D, wf$Z, wf$X_dml)
+  set.seed(SEED); fit_s <- fit_xgb_tuned_ti(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
+
+  row <- ti_unified_row(name = "Wald-AIPW (XGBoost, tune_on_folds=TRUE)",
+                        w_dollars = fit_o$w, tau_dollars = fit_o$tau,
+                        tau_cents = fit_s$tau, k = wf$k)
+  row$Sample <- wf$label
+  row$identity_ok <- fit_o$identity_ok
+  row
+}
+```
+
+```{r xgb-run, cache=TRUE}
+if (RUN_XGB) {
+  xgb_workflows <- if (RUN_XGB_LABOR_ONLY) workflows["Labor"] else workflows
+  xgb_ti_all <- do.call(rbind, lapply(xgb_workflows, build_xgb_ti_row))
+} else {
+  cat("RUN_XGB is FALSE -- skipped. Set RUN_XGB <- TRUE once Sections 1-3a are confirmed working.\n")
+}
+```
+
+```{r xgb-table}
+if (RUN_XGB) {
+  drop_cols <- c("gap_AB", "identity_ok")
+  xgb_ti_all[, c("Sample", setdiff(names(xgb_ti_all), c("Sample", drop_cols)))] %>%
+    kbl(caption = "DML Wald-AIPW, XGBoost (tune_on_folds=TRUE, full rerun) -- original vs. shifted",
+        digits = 8, row.names = FALSE) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(which(!xgb_ti_all$invariant_A), background = "#fffbf0") %>%
+    footnote(general = "identity_ok column omitted from display but computed -- check xgb_ti_all$identity_ok if XGBoost's balance/Love-plot diagnostics need the same affine-smoother caveat applied elsewhere in this project.")
+} else {
+  cat("XGBoost section skipped (RUN_XGB = FALSE).\n")
+}
+```
+
+<div class="note-box">
+**Reading this file.** For every row: `invariant_B` (Method B, algebraic) should match
+`invariant_A` (Method A, rerun) closely for kappa and the grf honest forest (affine
+smoothers). Small `gap_AB` for adaptive learners (Ranger, XGBoost) is expected and
+reflects genuine re-fitting stochasticity, not a bug -- large `gap_AB` would be worth
+flagging. Unnormalized kappa rows (`tau_ml_a`, `tau_ml_t`, `tau_ml_a0`) are EXPECTED to
+fail `invariant_A`/`invariant_B` -- that is the whole point of including them.
+</div>
