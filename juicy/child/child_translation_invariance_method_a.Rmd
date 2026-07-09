@@ -40,9 +40,9 @@ knitr::opts_chunk$set(
 This notebook checks translation invariance by the rerun method (Method A): the whole
 estimation pipeline is fit once on the original outcome and once on the same outcome
 shifted by a constant `k`, using the same seed, and the two point estimates are compared
-directly. `ti_unified_row()` reports both this rerun check (Method A: `diff_A`,
-`invariant_A`) and the frozen-weight algebraic prediction (Method B: `diff_B`,
-`invariant_B`) from the same fit, plus `gap_AB` — whether the two agree.
+directly. The tables report both this rerun check (Method A: `diff_A`, `invariant_A`)
+and the frozen-weight algebraic prediction (Method B: `diff_B`, `invariant_B`) from
+the original fit, plus `gap_AB` -- whether the two agree.
 
 <div class="note-box">
 **Two workflows only, not every SUW recoding.** Translation invariance is the claim that
@@ -80,34 +80,53 @@ library(viridis)
 library(OutcomeWeights)
 library(DoubleML)
 library(mlr3verse)
+library(mlr3tuning)
 
 lgr::get_logger("mlr3")$set_threshold("warn")
 lgr::get_logger("bbotk")$set_threshold("warn")
 
 source("functions_all.R")
 cat("functions_all.R sourced.\n")
+
+ti_child_row <- function(name, w_original, tau_original, tau_shifted, k,
+                         digits = 12) {
+  row <- ti_unified_row(name = name, w_dollars = w_original,
+                        tau_dollars = tau_original, tau_cents = tau_shifted,
+                        k = k, digits = digits)
+  names(row)[names(row) == "tau_dollars"] <- "tau_original"
+  names(row)[names(row) == "tau_cents"] <- "tau_shifted"
+  row$Shift_k <- round(k, digits)
+  row[, c("Estimator", "Shift_k", "tau_original", "tau_shifted",
+          "sum_w", "diff_B", "diff_A", "gap_AB",
+          "invariant_B", "invariant_A")]
+}
 ```
 
 ## Runtime switches
 
 <div class="warn-box">
-**Build and test in stages.** Kappa, DML headline, and linear/logit + Ranger are cheap
-and should all run first. XGBoost's Method-A check requires a FULL
-`tune_on_folds = TRUE` retune-and-refit, run twice per workflow (once on the original
-outcome, once on the shifted one) — roughly 4x the cost of `child_xgb_tuning.Rmd`'s
-tuned XGBoost cell across both workflows. Leave `RUN_XGB <- FALSE` until everything
-else is confirmed working, then turn it on, starting with Labor only.
+**XGBoost is enabled for the full child check.** Kappa, the DML headline, and the
+linear/Ranger learner rows are comparatively cheap. The XGBoost Method-A rows rerun
+nested tuning on the shifted outcome for Wald-AIPW and PLR-IV. The original XGBoost
+estimates and weights are imported from the saved tuning exports, so the notebook does
+not duplicate a completed original-outcome tuning run.
 </div>
 
 ```{r switches}
-RUN_KAPPA          <- TRUE
-RUN_DML            <- TRUE
-RUN_LM_RF           <- TRUE
-RUN_XGB            <- FALSE   # set TRUE only after everything else is confirmed
-RUN_XGB_LABOR_ONLY <- TRUE    # if RUN_XGB, do Labor first; set FALSE to add Income too
+RUN_KAPPA             <- TRUE
+RUN_DML               <- TRUE
+RUN_LM_RF             <- TRUE
+RUN_XGB_METHOD_A      <- TRUE
+RUN_XGB_LABOR_ONLY    <- FALSE
+RUN_XGB_WALD_AIPW     <- TRUE
+RUN_XGB_PLIV          <- TRUE
+USE_XGB_ORIGINAL_EXPORT <- TRUE
 
-cat(sprintf("RUN_KAPPA=%s RUN_DML=%s RUN_LM_RF=%s RUN_XGB=%s RUN_XGB_LABOR_ONLY=%s\n",
-            RUN_KAPPA, RUN_DML, RUN_LM_RF, RUN_XGB, RUN_XGB_LABOR_ONLY))
+cat(sprintf(
+  "RUN_KAPPA=%s RUN_DML=%s RUN_LM_RF=%s RUN_XGB_METHOD_A=%s RUN_XGB_LABOR_ONLY=%s RUN_XGB_WALD_AIPW=%s RUN_XGB_PLIV=%s\n",
+  RUN_KAPPA, RUN_DML, RUN_LM_RF, RUN_XGB_METHOD_A, RUN_XGB_LABOR_ONLY,
+  RUN_XGB_WALD_AIPW, RUN_XGB_PLIV
+))
 ```
 
 ## Data — the EXACT same subsamples as child_test.Rmd, no resampling
@@ -198,7 +217,7 @@ cheap regardless of `RUN_KAPPA` -- it's always safe to leave on.
 ```{r kappa-name-bridge}
 # kappa_analytic_se_all() labels the tau_a,1 estimator "tau_ml_t"; kappa_weights_bundle()
 # labels the same estimator's weight vector "tau_ml_a1". Bridge explicitly (same
-# inconsistency documented in functions_all.R and already handled this way in Card's file).
+# inconsistency documented in functions_all.R and handled explicitly here.
 kappa_key_map <- c(
   tau_cb_u = "tau_cb_u", tau_ml_u = "tau_ml_u", tau_ml_a10 = "tau_ml_a10",
   tau_ml_a = "tau_ml_a", tau_ml_t = "tau_ml_a1", tau_ml_a0 = "tau_ml_a0"
@@ -211,9 +230,9 @@ build_kappa_ti_rows <- function(wf) {
 
   rows <- lapply(names(kappa_key_map), function(est_name) {
     w_name <- kappa_key_map[[est_name]]
-    row <- ti_unified_row(name = est_name, w_dollars = w_list[[w_name]],
-                          tau_dollars = est_o[[est_name]], tau_cents = est_s[[est_name]],
-                          k = wf$k)
+    row <- ti_child_row(name = est_name, w_original = w_list[[w_name]],
+                        tau_original = est_o[[est_name]],
+                        tau_shifted = est_s[[est_name]], k = wf$k)
     row$Sample <- wf$label
     row
   })
@@ -246,9 +265,8 @@ if (RUN_KAPPA) {
 # 2. DML headline estimators (PLR-IV, Wald-AIPW)
 
 <div class="note-box">
-Tuned honest forest only (`tune.parameters="all"`), matching Card's own scope for this
-file -- `child_test.Rmd` Section 2 already covers the tuned-vs-untuned comparison as a
-separate question. Both the original and shifted fits use the same seed, same
+Tuned honest forest only (`tune.parameters="all"`); `child_test.Rmd` Section 2 already
+covers the tuned-vs-untuned comparison as a separate question. Both the original and shifted fits use the same seed, same
 `n_cf_folds`, and same tuning setting, so any difference reflects the outcome shift
 itself rather than unrelated estimation randomness.
 </div>
@@ -268,9 +286,9 @@ build_dml_headline_ti_rows <- function(wf, n_cf_folds = 5) {
 
   rows <- lapply(c("PLR-IV", "Wald-AIPW"), function(est) {
     w   <- as.vector(om_o$omega[est, ])
-    row <- ti_unified_row(name = est, w_dollars = w,
-                          tau_dollars = get_estimate(res_o, est),
-                          tau_cents   = get_estimate(res_s, est), k = wf$k)
+    row <- ti_child_row(name = est, w_original = w,
+                        tau_original = get_estimate(res_o, est),
+                        tau_shifted = get_estimate(res_s, est), k = wf$k)
     row$Sample <- wf$label
     row
   })
@@ -311,9 +329,8 @@ linear outcome regression plus logit nuisance models, while linear PLR-IV uses
 linear regression nuisance models throughout, as required by `DoubleMLPLIV`.
 Ranger keeps the full 7-covariate design for both estimators.
 
-PLR-IV XGBoost is deliberately not included here: it is treated as an
-estimate-only sensitivity check in `child_test.Rmd`, and its outcome weights
-are not currently extracted.
+XGBoost is handled separately below because the Method-A check requires nested
+tuning on the shifted outcome.
 </div>
 
 ```{r dml-learner-setup}
@@ -373,9 +390,9 @@ build_dml_learner_ti_row <- function(wf, label, learners_fn, X_dml, fit_fn) {
   fit_o <- fit_fn(dat_o, learners_fn(), wf$Y_orig)
   fit_s <- fit_fn(dat_s, learners_fn(), wf$Y_shift)
 
-  row <- ti_unified_row(name = label, w_dollars = fit_o$w,
-                        tau_dollars = get_dml_coef(fit_o$obj),
-                        tau_cents   = get_dml_coef(fit_s$obj), k = wf$k)
+  row <- ti_child_row(name = label, w_original = fit_o$w,
+                      tau_original = get_dml_coef(fit_o$obj),
+                      tau_shifted = get_dml_coef(fit_s$obj), k = wf$k)
   row$Sample <- wf$label
   row$identity_ok <- fit_o$ok
   row
@@ -411,89 +428,177 @@ if (RUN_LM_RF) {
 }
 ```
 
-## 3b. XGBoost (tune_on_folds = TRUE, full rerun)
+## 3b. XGBoost Method A
 
 <div class="warn-box">
-**Why the saved `ae98_xgb_tuning_export.rds` cannot be reused here.** That file's tuned
-XGBoost fit belongs to the ORIGINAL outcome only. `tune_on_folds=TRUE` means
-hyperparameters are chosen separately per outer fold via nested CV -- there is no single
-frozen recipe to hand to a fresh fit on `Y+k` the way Card's file does with
-`set_ml_nuisance_params()`. The correct Method-A check reruns the ENTIRE procedure --
-`obj$tune(..., tune_on_folds=TRUE)` then `obj$fit()` -- once on the original outcome and
-once on the shifted outcome, same seed before each. The saved export remains valid for
-the descriptive learner-comparison table and the Method-B frozen-weight check in
-`child_test.Rmd`; it is simply not the right object for a Method-A rerun.
+**XGBoost rule used here.** The original-outcome tuned XGBoost estimates and weights
+are imported from the saved tuning exports. For the shifted outcome, the whole nested
+tuning procedure is rerun: same seed, same subsample, same cross-fitting setup, same
+`tune_on_folds = TRUE`. This is the relevant Method-A check. Reusing a single frozen
+hyperparameter recipe would define a different exercise because the original tuning
+selected fold-specific hyperparameters.
 </div>
 
 ```{r xgb-setup}
 SEED <- 42; N_CF <- 5; TUNE_EVALS <- 15; INNER_FOLDS <- 3
 
-make_xgb_learners <- function() {
+if (!USE_XGB_ORIGINAL_EXPORT) {
+  stop("This notebook expects USE_XGB_ORIGINAL_EXPORT <- TRUE for the original XGBoost side.")
+}
+
+xgb_wald_export <- readRDS("ae98_xgb_tuning_export.rds")
+xgb_pliv_export <- readRDS("ae98_xgb_pliv_tuning_export.rds")
+
+make_xgb_learners_iivm <- function() {
   list(g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
        m = lrn("classif.xgboost", predict_type = "prob"),
        r = lrn("classif.xgboost", predict_type = "prob"))
+}
+make_xgb_learners_pliv <- function() {
+  list(l = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+       m = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+       r = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0))
 }
 xgb_ps <- function() {
   ps(nrounds = p_int(50, 400), max_depth = p_int(2, 5),
      eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8))
 }
-tune_param_set <- function() list(ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
-tune_settings <- function() {
+tune_param_set_iivm <- function() list(ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+tune_param_set_pliv <- function() list(ml_l = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+tune_settings_iivm <- function() {
   list(n_folds_tune = INNER_FOLDS, rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
        measure = list(ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss"),
        terminator = trm("evals", n_evals = TUNE_EVALS), algorithm = tnr("random_search"))
 }
-
-# Full Method-A rerun for one outcome: retune (tune_on_folds=TRUE) + refit from scratch.
-fit_xgb_tuned_ti <- function(Y, D, Z, X) {
-  dml_data <- make_dml_data(Y, D, Z, X)
-  learners <- make_xgb_learners()
-  o <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
-                        ml_r = learners$r, n_folds = N_CF, score = "LATE")
-  o$tune(param_set = tune_param_set(), tune_settings = tune_settings(), tune_on_folds = TRUE)
-  o$fit(store_models = TRUE, store_predictions = TRUE)
-  om <- get_outcome_weights(object = o, dml_data = dml_data)
-  w  <- as.vector(om$omega)
-  list(obj = o, tau = get_dml_coef(o), w = w,
-       identity_ok = check_weight_identity(w, Y, get_dml_coef(o)))
+tune_settings_pliv <- function() {
+  list(n_folds_tune = INNER_FOLDS, rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
+       measure = list(ml_l = "regr.rmse", ml_m = "regr.rmse", ml_r = "regr.rmse"),
+       terminator = trm("evals", n_evals = TUNE_EVALS), algorithm = tnr("random_search"))
 }
 
-build_xgb_ti_row <- function(wf) {
-  set.seed(SEED); fit_o <- fit_xgb_tuned_ti(wf$Y_orig,  wf$D, wf$Z, wf$X_dml)
-  set.seed(SEED); fit_s <- fit_xgb_tuned_ti(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
+get_xgb_original <- function(export, cell, learner) {
+  row <- export$weight_diagnostics |>
+    filter(.data$Cell == cell, .data$Learner == learner)
+  if (nrow(row) != 1) {
+    stop(sprintf("Expected one export row for %s / %s, found %d.", cell, learner, nrow(row)))
+  }
+  list(tau = row$Estimate[[1]],
+       w = as.vector(export$omega_vectors[[cell]]$tuned),
+       identity_ok = isTRUE(export$identity_checks[[cell]]$tuned))
+}
 
-  row <- ti_unified_row(name = "Wald-AIPW (XGBoost, tune_on_folds=TRUE)",
-                        w_dollars = fit_o$w, tau_dollars = fit_o$tau,
-                        tau_cents = fit_s$tau, k = wf$k)
-  row$Sample <- wf$label
-  row$identity_ok <- fit_o$identity_ok
-  row
+fit_xgb_wald_shifted <- function(Y, D, Z, X) {
+  dml_data <- make_dml_data(Y, D, Z, X)
+  learners <- make_xgb_learners_iivm()
+  o <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
+                        ml_r = learners$r, n_folds = N_CF, score = "LATE")
+  o$tune(param_set = tune_param_set_iivm(), tune_settings = tune_settings_iivm(),
+         tune_on_folds = TRUE)
+  o$fit(store_models = TRUE, store_predictions = TRUE)
+  list(obj = o, tau = get_dml_coef(o))
+}
+
+fit_xgb_pliv_shifted <- function(Y, D, Z, X) {
+  dml_data <- make_dml_data(Y, D, Z, X)
+  learners <- make_xgb_learners_pliv()
+  o <- DoubleMLPLIV$new(data = dml_data, ml_l = learners$l, ml_m = learners$m,
+                        ml_r = learners$r, n_folds = N_CF)
+  o$tune(param_set = tune_param_set_pliv(), tune_settings = tune_settings_pliv(),
+         tune_on_folds = TRUE)
+  o$fit(store_models = TRUE, store_predictions = TRUE)
+  list(obj = o, tau = get_dml_coef(o))
+}
+
+build_xgb_method_a_rows <- function(wf) {
+  rows <- list()
+
+  if (RUN_XGB_WALD_AIPW) {
+    original <- get_xgb_original(xgb_wald_export, wf$label, "XGB tuned")
+    set.seed(SEED)
+    shifted <- fit_xgb_wald_shifted(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
+    row <- ti_child_row(name = "Wald-AIPW (XGBoost tuned)",
+                        w_original = original$w,
+                        tau_original = original$tau,
+                        tau_shifted = shifted$tau,
+                        k = wf$k)
+    row$Sample <- wf$label
+    row$identity_ok <- original$identity_ok
+    rows[["wald"]] <- row
+  }
+
+  if (RUN_XGB_PLIV) {
+    original <- get_xgb_original(xgb_pliv_export, wf$label, "PLR-IV XGB tuned")
+    set.seed(SEED)
+    shifted <- fit_xgb_pliv_shifted(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
+    row <- ti_child_row(name = "PLR-IV (XGBoost tuned)",
+                        w_original = original$w,
+                        tau_original = original$tau,
+                        tau_shifted = shifted$tau,
+                        k = wf$k)
+    row$Sample <- wf$label
+    row$identity_ok <- original$identity_ok
+    rows[["pliv"]] <- row
+  }
+
+  do.call(rbind, rows)
+}
+
+save_xgb_method_a_export <- function(xgb_ti_all) {
+  saveRDS(
+    list(results = xgb_ti_all,
+         settings = list(seed = SEED, n_cf = N_CF, tune_evals = TUNE_EVALS,
+                         inner_folds = INNER_FOLDS, tune_on_folds = TRUE,
+                         original_exports = c("ae98_xgb_tuning_export.rds",
+                                              "ae98_xgb_pliv_tuning_export.rds"))),
+    "ae98_translation_xgb_method_a_export.rds"
+  )
 }
 ```
 
-```{r xgb-run, cache=TRUE}
-if (RUN_XGB) {
+```{r xgb-run, cache=TRUE, cache.extra=list(RUN_XGB_METHOD_A, RUN_XGB_LABOR_ONLY, RUN_XGB_WALD_AIPW, RUN_XGB_PLIV, TUNE_EVALS, INNER_FOLDS)}
+if (RUN_XGB_METHOD_A) {
   xgb_workflows <- if (RUN_XGB_LABOR_ONLY) workflows["Labor"] else workflows
-  xgb_ti_all <- do.call(rbind, lapply(xgb_workflows, build_xgb_ti_row))
+  xgb_ti_all <- do.call(rbind, lapply(xgb_workflows, build_xgb_method_a_rows))
+  save_xgb_method_a_export(xgb_ti_all)
 } else {
-  cat("RUN_XGB is FALSE -- skipped. Set RUN_XGB <- TRUE once Sections 1-3a are confirmed working.\n")
+  cat("XGBoost Method A skipped (RUN_XGB_METHOD_A = FALSE).\n")
 }
 ```
 
 ```{r xgb-table}
-if (RUN_XGB) {
+if (RUN_XGB_METHOD_A) {
   drop_cols <- c("gap_AB", "identity_ok")
   xgb_ti_all[, c("Sample", setdiff(names(xgb_ti_all), c("Sample", drop_cols)))] %>%
-    kbl(caption = "DML Wald-AIPW, XGBoost (tune_on_folds=TRUE, full rerun) -- original vs. shifted",
+    kbl(caption = "XGBoost Method A -- original export vs. shifted rerun",
         digits = 8, row.names = FALSE) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
+    collapse_rows(columns = 1, valign = "middle") %>%
     row_spec(which(!xgb_ti_all$invariant_A), background = "#fffbf0") %>%
-    footnote(general = "identity_ok column omitted from display but computed -- check xgb_ti_all$identity_ok if XGBoost's balance/Love-plot diagnostics need the same affine-smoother caveat applied elsewhere in this project.")
+    footnote(general = "Original tuned estimates and original outcome weights are imported from the saved XGBoost tuning exports. Shifted estimates are generated by rerunning nested tuning with the same seed, folds, tuning budget, and tune_on_folds=TRUE. Orange rows fail the Method-A rerun invariance check.")
 } else {
-  cat("XGBoost section skipped (RUN_XGB = FALSE).\n")
+  cat("XGBoost Method A skipped (RUN_XGB_METHOD_A = FALSE).\n")
 }
 ```
+
+```{r xgb-identity-table}
+if (RUN_XGB_METHOD_A) {
+  xgb_ti_all %>%
+    select(Sample, Estimator, identity_ok, sum_w, diff_B, diff_A, gap_AB) %>%
+    kbl(caption = "XGBoost weight identity and Method-A/Method-B gap",
+        digits = 8, row.names = FALSE) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    collapse_rows(columns = 1, valign = "middle") %>%
+    footnote(general = "identity_ok checks whether the imported original weights reproduce the original XGBoost point estimate exactly. For XGBoost this may fail because the estimator is not an affine smoother in the same clean sense as the kappa or grf rows; interpret the weight-based Method-B column with that caveat.")
+}
+```
+
+<div class="note-box">
+The XGBoost block writes `ae98_translation_xgb_method_a_export.rds` after a successful
+run. That file stores only the Method-A table and settings; it does not overwrite the
+original XGBoost tuning exports.
+</div>
 
 <div class="note-box">
 **Reading this file.** For every row: `invariant_B` (Method B, algebraic) should match
