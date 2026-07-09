@@ -7,11 +7,9 @@ applications?
 
 
 ### Sub-questions I want to answer
-**RQ1.** What are the structural properties of outcome weights for kappa-based LATE (ESS- here there two formulas that defined that, negative weight share, sum-to-zero as translation invariance
-criterion), and how do they differ from those of DML-based estimators independently
-of any specific dataset?
-Importnat to bridge teh gap between what he defines as outcome wieghts statistics and what I define in my function
-
+**RQ1.** What are the structural properties of outcome weights for kappa-based
+LATE estimators, and how do they differ from those of DML-based estimators
+independently of any specific dataset?
 
 **RQ2.** When applied to empirical datasets, how do outcome weights of DML-based
 estimators (Wald-AIPW with cross-fitted random forests) and kappa estimators compare
@@ -41,19 +39,24 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 **Section 1.4 — Contribution**
-1. Derive closed-form outcome weights for τ̂ᵤ in the Knaus PIVE framewor.
-2. Show translation invariance for all estimators. This should be done using the rerun check which means fitting the etsimator twice using the same random seed botj times and then check the fifference is the same as log(100) times the weight
+1. Derive closed-form outcome weights for τ̂ᵤ in the Knaus PIVE framework.
+2. Separate three related concepts that are easy to confuse: SUW estimator
+   normalization, Knaus outcome-weight normalization, and translation-invariance
+   rerun checks.
 3. Clarify the distinction between Abadie's kappa weights (identification objects)
    and outcome weights in the PIVE sense (ωᵢ such that τ̂ = ΣωᵢYᵢ).
-4. Apply Love maybe the package offers something unique for the binary variables he meant when it comes to depicting plots and ESS diagnostics to kappa estimators for the first time,
-   using the same pipeline as Knaus (2024).
+4. Apply outcome-weight diagnostics, including Love plots, SMDs, negative weights,
+   and ESS measures, to kappa estimators using the same diagnostic logic as
+   Knaus (2024).
 5. Compare kappa estimators (τ̂ᵤᵐˡ, τ̂ᵤᶜᵇ, τ̂ₐ,₁₀) with DML Wald-AIPW across
    three empirical applications, using multiple ML learners for the nuisance
    parameters.
-6. Apply the DML estimators using Knaus outcome weights package. And make a full diagnostics section meaning really look sometimes at the smoother matrix and maybe look also at the descritptives or so.  
-7. Implement the Wald AIPW estimation with double machine learning using XGBOOST and linear regression and the ranger function of the package and try there to set up a tuning section which tunes the parameters for the xgboost in order to get clean results for the DMl estimator section. Moreover show what the difference is between what he implemented there in his developmemt package and what is done with the outcome weights package
-8. Check descriptives for all of the three framewoks, things such as, how good the first stage, is how propensity score differs firn really the instruement values, whetehr teh isntrument and everything is binary and there are no missing or so, make it clean so that no errros appear
-9. New task from Knaus whihc he summarised as 2. Eine sehr spannende Erweiterung wäre noch Wald-AIPW und PLR-IV mit logit pscore und OLS outcome regression zu implementieren, quasi als Zwischenstufe zwischen den parametrischen Methoden im Wooldridge Paper und den DML Methoden. Das ist nicht im OutcomeWeights Paket abgedeckt und wäre gerade deswegen ideal, um auch ein bisschen zu Coden. Am einfachsten wäre es vermutlich, das über das DoubleML package zu machen. Ich hänge dir mal an, wie man es ohne Instrument innerhalb von DoubeML implementieren würde. Ich denke es würde dann darauf hinauslaufen diese Funktion https://github.com/MCKnaus/OutcomeWeights/blob/0c94f940b04c14d0247b46842af37752e306b79e/R/DoubleML.R#L191 kompatibel zu machen mit lrn("regr.lm"). Wenn du das sauber hinbekommst (ich würde dir bei Problemen auch helfen) hättest du deutlich mehr erreicht, als wenn du die instrumental_forest Funktionen einfach anwendest und es würde sich exzellent in die übergeordnete Fragestellung einfügen. Was meinst du?
+6. Implement and compare DML learner variants for Wald-AIPW and PLR-IV,
+   including linear/logit baselines, Ranger, and tuned/untuned XGBoost.
+7. Use Method-A rerun checks to test translation invariance of the implemented
+   estimators, controlling seeds, folds, learners, and tuning rules.
+8. Provide clean descriptive and design diagnostics for each empirical application
+   before interpreting outcome-weight results.
 
 
 ---
@@ -86,35 +89,52 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - Propensity score estimation: MLE logit (τ̂ᵤᵐˡ) vs. CBPS (τ̂ᵤᶜᵇ);
   Proposition 3.5: with CBPS all normalized estimators coincide
 
-**Section 2.4 — Why normalization matters**
-- Definition TI (translation invariance): τ̂(Y, W) = τ̂(Y+k, W) for all k
-- Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
-- Definition SE (scale equivariance): brief statement, linked to log-unit sensitivity
-- Concrete example: cents vs. dollars failure from Table 2 of SUW 202, here especially later mentioning that there are 2 methods how to measure it but that I am keen on method A as this is even proposed by the professor & this is the way it is gonna be implemented in the code
-
-**Section 2.5 — DML and Wald-AIPW**
+**Section 2.4 — DML-based IV estimators**
 - DML framework (Chernozhukov et al. 2018): PLR-IV and Wald-AIPW estimator
-- -Maybe set it a bit apart like how PLR-IV does not always measure LATE
+- Set PLR-IV apart clearly: it is a partially linear IV estimator and does not
+  automatically target the same LATE object unless the structural assumptions
+  justify that interpretation
 - The difference between LATE and the constant structural treatment theta and when
   they are the same
 - Two nuisance parameters: E[Y|Z, X] and E[D|Z, X], estimated via K-fold
   cross-fitting
-- - For XGBoost, hyperparameters are selected by inner cross-validation.
-- - The tuning criterion is predictive nuisance loss, not the causal estimand.
+- For XGBoost, hyperparameters are selected by inner cross-validation
+- The tuning criterion is predictive nuisance loss, not the causal estimand
 
 
-**Section 2.6 — PIVE framework and outcome weights (Knaus 2024)**
-- Any estimator fitting the pseudo-IV structure: τ̂ = Σᵢ ωᵢYᵢ
+**Section 2.5 — Outcome weights and Knaus normalization**
+- Introduce outcome weights conceptually: τ̂ = Σᵢ ωᵢYᵢ
 - The two-step: (i) form pseudo-instrument Z̃ and transformation matrix T;
   (ii) ω' = (Z̃'D̃)⁻¹Z̃'T
-- "Fully normalized" in Knaus (2024): Σ_{D=1} ωᵢ = +1, Σ_{D=0} ωᵢ = −1
-  (Table 5)
+- Outcome weights are final sample-level diagnostic weights, not Abadie κ-weights
+- Distinguish explicitly from SUW/Wooldridge normalization:
+  - SUW normalization = estimator construction via normalized weighted means
+  - Knaus normalization = property of final outcome weights after fitting
+- Knaus classes:
+  - translation/scale-normalized: Σᵢωᵢ = 0
+  - fully normalized: Σ_{D=1}ωᵢ = +1 and Σ_{D=0}ωᵢ = −1
+- Boundary sentence: derivations and classification for kappa estimators are
+  deferred to Chapter 3
+
+**Section 2.6 — Translation and scale invariance**
+- Definition TI: τ̂(Y, W) = τ̂(Y+k, W) for all k
+- Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
+- Definition SE / scale issue: brief statement, linked to log-unit sensitivity
+- Outcome-weight proof: τ̂(Y+k) − τ̂(Y) = kΣᵢωᵢ
+- Concrete example: cents vs. dollars is an additive shift after logs
+- Separate clearly:
+  - Method B = frozen-weight algebraic check using extracted ωᵢ
+  - Method A = full rerun of the implemented estimator on Y+k
+- Emphasize that Method A is the later empirical contribution because it includes
+  nuisance training, cross-fitting, tuning, and algorithmic randomness
+
 **Section 2.7 — Covariate balance diagnostics**
 - Standardized Mean Difference (SMD): |X̄ₜᵣₑₐₜₑ_ₖ − X̄_cₒₙₜᵣₒₗ_ₖ| / SD(Xₖ),
   computed with outcome weights ωᵢ
 - Love plots: one dot per covariate, unadjusted vs. weighted SMD; threshold at
   |SMD| ≤ 0.1
-- Effective Sample Size (ESS): ESS = 1 / Σᵢ ωᵢ², also to take into account are the modified ESS mentioned in Zubizaretta
+- Effective Sample Size (ESS): standard Kish-style ESS and the modified ESS used
+  in the thesis diagnostics
 - Negative weight share: % of observations with ωᵢ < 0
 
 ---
@@ -128,7 +148,8 @@ estimators but does not apply it empirically. This thesis fills that gap.
   (sample-level PIVE weights, Knaus 2024) clearly established
 - Subsection 3.1.1 (Two notions of normalization): SUW normalization (estimator
   construction) vs. Knaus normalization
-- With regard to why do we need outcome weights. Love plots use ωᵢ, not κᵢ — stated explicitly
+- Motivate outcome weights directly: Love plots, SMDs, ESS, and negative-weight
+  diagnostics use ωᵢ, not κᵢ
 
 **Section 3.2 — PIVE framework** 
 - Proposition 1 (Knaus 2024) stated formally with label 
@@ -165,27 +186,26 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 1. Data and the design
 
-- The draft Lottery -> the instrument
-
-- Smaple, variables and design Diagnostics
+- Draft lottery instrument
+- Sample, variables, and design diagnostics
 
 2. Point Estimates and Replication
 
 3. Double Machine Learning Comparison
 
-- Comparing the double machine leanring estimators of his outcome weights package with the ones in the outcome package development function
+- Compare DML estimators from the OutcomeWeights implementation with the
+  manually implemented learner variants where relevant
+- Include the intermediate linear/logit implementation if it strengthens the
+  bridge between kappa estimators and flexible DML estimators
 
-- Maybe also implementing the last task extension he gave me to get the smoother matrix somehow as well using the linear or the logistic regression.
+4. Outcome Weights Diagnostics and Covariate Balance
 
-4.Outcome Weights Diagnostics and Covariate Balance
-
-- Here trying to make a mix of my outcome weight diagnostic and his summary that he gave me using just summary of his package
-
-- Make translation invariance visible and see if values change why this is the case 
+- Combine Knaus-style summary statistics with the thesis-specific diagnostics
+- Make translation-invariance sensitivity visible where the outcome coding changes
 
 5. Love plots
 
-6. Conclusion and on Angrist Vietnam Framewrok
+6. Short application conclusion
 
 
 
@@ -193,13 +213,13 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 
-### Chapter 5 — Empirical Applications: Card (1995) and Angrist & Evans (1998)
+### Chapter 5 — Empirical Application: Card (1995)
 
 1. Data 
 
 - College Proximity - the instrument
 
-- Treatment Definintions and outcomes
+- Treatment definitions and outcomes
 
 - Covariate Specifications
 
@@ -208,21 +228,70 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 
-### Chapter 6 - Angrist and Evans Labour Supply
+### Chapter 6 — Empirical Application: Angrist & Evans (1998) Childbearing
 
-1. Data
+1. Data and sample construction
 
-- For now find the sample size: It has 290 000 obs which is way to much and would cause the smoother matrix to crash, thinking off how can I thoughtfully choose from the sample maybe a small sample, 3-5k lets see what happens and who do I choose.
+- Instrument: same-sex composition of the first two children
+- Treatment: more than two children
+- Outcomes:
+  - labor supply / worked last year (`workedm`)
+  - log income (`lincomem`)
+- Two relevant analysis samples:
+  - labor/binary-outcome sample
+  - positive-income subsample for log income
+- Diagnostic subsamples: honest stratified 3,000-observation draws, one for labor
+  and one for income, designed to preserve the IV structure without seed searching
 
+2. Descriptive diagnostics
+
+3. Kappa replication and SUW recodings
+
+- Replicate the normalized and unnormalized kappa estimators from SUW
+- Binary outcome recodings:
+  - `workedm`
+  - additive translation check where relevant
+  - display convention for “did not work” kept separate from the actual analysis
+- Income recodings:
+  - log income in different monetary units
+
+
+4. DML and learner comparison
+
+- DML smoother / GRF-style headline estimators: PLR-IV and Wald-AIPW
+- Learner comparison:
+  - linear/logit baseline
+  - Ranger
+  - XGBoost imported from separate tuning scripts
+- PLR-IV and Wald-AIPW shown separately to avoid mixing estimator families
+- XGBoost tuning:
+  - untuned baseline kept fixed
+  - tuned version selected by inner CV on nuisance-prediction loss
+  - weights extracted where available and flagged when identity checks fail
+
+
+5. Translation-invariance rerun check
+
+- Method B: frozen-weight algebraic prediction from extracted outcome weights
+- Method A: full rerun on shifted outcomes with same seed, folds, learner, and tuning rule
+- Labor: additive shift of `workedm`
+- Income: log-unit shift such as `log(100)`
+- XGBoost Method A:
+  - original tuned estimates imported from saved tuning exports
+  - shifted outcome rerun with the same nested tuning procedure
+- Interpretation of results belongs in the findings chapter; this chapter reports
+  the diagnostic structure and main checks
 
 ### Chapter 7 — Discussion 
 
-1. Creating a cross Application summary, especailly being key on a comaprative design diagnostic table across all three applications.
+1. Cross-application summary, with a comparative design-diagnostic table across
+   all empirical applications
 
 2. What does the outcome weights lens add
 
 3. DML learner comparison
-- especially what my new implementation gave me based on what knaus said, to be figured out.
+- Discuss what the additional linear/Ranger/XGBoost implementations add relative
+  to the package-based diagnostics
 
 
 ### Chapter 8 — Conclusion (1–2 pages)
