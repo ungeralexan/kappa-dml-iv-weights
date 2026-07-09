@@ -249,13 +249,13 @@ double machine learning.
 \section{Econometric Framework}
 
 \subsection{Instrumental variables LATE, and compliers}
-The causal effect of schooling on later earnings is a classical problem in empirical economics. 
+The causal effect of schooling on later earnings is a classical problem in empirical economics
+\citep{griliches1977estimating,card1993using}.
 Individuals with more schooling often display higher wages, but this gap cannot be interpreted directly as the effect of education.
-Schooling decissions are are related to family background, ability, motivation, and local opportunities, which also affect later labour-market outcomes.
+Schooling decisions are related to family background, ability, motivation, and local opportunities,
+which may also affect later labour-market outcomes.
 A naive comparison between more and less educated individuals would therefore combine the causal effect of schooling with selection into education.
-Instrumental variables can be a way to adress this problem. 
-The instrument has the purpose of isolating the variation in the treatment that is induced by an external source. 
-This is done by shifting the probability of treatment while being otherwise unrelated to the potential outcomes, except through the treatment itself. \\
+Instrumental variables provide one way to address this problem. The idea is to use variation in treatment that is induced by an external source. The instrument shifts treatment take-up, while being otherwise unrelated to potential outcomes except through treatment.\\
 In the classical linear IV model, this logic is often introduced through two-stage least squares (2SLS).
 Consider the structural equation
 \begin{equation}
@@ -272,14 +272,14 @@ This regression captures the relationship between the instrument and treatment t
 \begin{equation}
 Y_i = \alpha + \theta \widehat D_i + \varepsilon_i.
 \end{equation}
-The second stage hence uses the variation in treatment that is induced by the instrument.\\
-For this procedure in order to have consistent estimators two important requirements must be fullfilled \citep{wooldridge2016introductory}:
+The second stage hence uses the variation in treatment that is induced by the instrument.
+In this simple linear IV model, the two core requirements are instrument relevance and instrument exogeneity \citep{wooldridge2016introductory}:
 \begin{equation}
 \operatorname{Cov}(Z_i, D_i) \neq 0, \qquad \operatorname{Cov}(Z_i, U_i) = 0   
 \end{equation}
 The first is relevance, which means that the instrument affects treatment take up.
 The second is exogeneity, which means that the the instrument is unrelated to the unobserved determinants of the outcome.
-Under homogeneous treatment effects, 2SLS recovers the common causal effect $\theta$.
+Under homogeneous treatment effects, 2SLS recovers the common causal effect $\theta$ \citep{angrist1995identification,angrist1996identification}.
 For a binary instrument and a binary treatment, the corresponding IV estimand can be written as the Wald ratio \citep{wald1940fitting}:
 \begin{equation}
     \theta^{Wald} = \frac{E[Y|Z=1] - E[Y|Z=0]}{E[D|Z=1] - E[D|Z=0]}
@@ -301,7 +301,7 @@ is the outcome individual $i$ would realize if assigned $Z_i=1$ but not treated,
 while $Y_i(1,1)$ is the outcome under $Z_i=1$ and treatment.\\
 The exclusion restriction rules out a direct effect of the instrument on the outcome. Formally,
 \begin{equation}
-    Y_i(1,d)=Y_i(0,d)=Y_i(d), \qquad d \in \{0,1\}
+    Y_i(1,d)=Y_i(0,d)=Y_i(d), \qquad d \in \{0,1\}.
 \end{equation}
 After imposing this restriction, the instrument can affect the outcome only through 
 treatment. The potential outcomes can therefore be written simply as $Y_i(1)$ and 
@@ -319,8 +319,7 @@ D_i(1)=1 & \text{Complier} & \text{Always-taker}
 Never-takers are untreated irrespective of the instrument, $D_i(1)=D_i(0)=0$. 
 Always-takers are treated irrespective of the instrument, $D_i(1)=D_i(0)=1$. 
 Compliers are induced into treatment by the instrument, $D_i(1)=1$ and $D_i(0)=0$. 
-Defiers move in the opposite direction, $D_i(1)=0$ and $D_i(0)=1$. The assumption 
-of monotonicity rules out the existence of defiers, requiring that $D_i(1) \geq D_i(0)$ for all $i$.
+Defiers move in the opposite direction, $D_i(1)=0$ and $D_i(0)=1$.
 This classification is important because the first stage is determined by the change in treatment status induced by the instrument:
 \begin{equation}
 D_i(1)-D_i(0).
@@ -332,52 +331,73 @@ D_i(1) \geq D_i(0)
 \end{equation}
 for all (i).
 Hence, the instrument may increase treatment take-up, but it may not induce any individual to move in the opposite direction.
-Hence, the denominator of the Wald ratio measures the size of the complier group.
-Thus, the same Wald ratio has two different interpretations depending on the maintained assumptions. Under homogeneous treatment effects, it recovers the common treatment effect. Under heterogeneous treatment effects, instrument independence, exclusion, a non-zero first stage, and monotonicity, it identifies the Local Average Treatment Effect, meaning the average treatment effect for compliers.
+Under instrument independence and monotonicity, the denominator of the Wald ratio equals the population share of compliers.
+Thus, the same Wald ratio has two different interpretations depending on the maintained assumptions. Under homogeneous treatment effects, it recovers the common treatment effect. Under heterogeneous treatment effects, instrument independence, exclusion, a non-zero first stage, and monotonicity, it identifies the Local Average Treatment Effect, meaning the average treatment effect for compliers\citep{angrist1995identification, angrist1996identification}.
 
 
 
 
 
-\subsubsection{The importance of weights}
+\subsubsection{From unconditional to conditional IV}
 
 The previous argument establishes the LATE interpretation in the binary-instrument, binary-treatment setting. This benchmark is most transparent when the instrument comparison is valid unconditionally. In many empirical applications, however, instrument validity is more plausibly stated conditional on observed covariates. Individuals differ in observed characteristics $(X_i)$, and these characteristics may be related to instrument assignment. For example, in a schooling application, college proximity may be related to region, family background, or urban residence. A simple comparison of individuals with $Z_i=1$ and $Z_i=0$ would then not compare otherwise similar individuals.
 
 The IV independence assumption is therefore more naturally formulated conditionally,
 \begin{equation}
-    Y_i(0,0), Y_i(1,0),Y_i(0,1), Y_i(1,1),D_i(0),D_i(1) \perp Z_i \mid X_i.
+\big(Y_i(0,0),Y_i(0,1),Y_i(1,0),Y_i(1,1),D_i(0),D_i(1)\big)
+\perp Z_i \mid X_i .
 \end{equation}
 Under this condition, the relevant comparison is no longer the unconditional contrast between all individuals with $Z_i=1$ and all individuals with $Z_i=0$, but a comparison within covariate strata. This introduces the conditional instrument propensity score
 \begin{equation}
     p(X_i)=P(Z_i=1\mid X_i),
 \end{equation}
-which measures the probability of receiving the instrument for individuals with observed characteristics $X_i$.
-
-By Frisch--Waugh--Lovell, $Z_i$ can be replaced by its residual after projecting it on $X_i$,
+which measures the probability of receiving the instrument for individuals with observed characteristics $X_i$.\\
+In linear 2SLS with covariates, covariate adjustment can be understood through the
+Frisch--Waugh--Lovell theorem. According the identifying variation in the instrument is the part
+that remains after linearly projecting \(Z_i\) on the included covariates. Let
 \begin{equation}
-    \tilde{Z}_i = Z_i - L[Z\mid X_i].
+    \tilde Z_i = Z_i - \mathbb{L}[Z_i\mid X_i],
 \end{equation}
-This removes the part that is explained by the covariates from the instrument, and uses only the remaining instrument variation. But \citet{blandhol2022tsls} show that this only gives a clean LATE-type interpretation if the linear projection correctly reproduces the true conditional mean of the instrument,
+where \(\mathbb{L}[Z_i\mid X_i]\) denotes the linear projection of the instrument on the
+included covariates. A clean LATE interpretation of covariate-adjusted TSLS requires that this linear projection
+captures the relevant conditional instrument propensity score. A central sufficient condition
+is the rich-covariates condition,
 \begin{equation}
-    \mathbb{L}[Z \mid X] = \mathbb{E}[Z \mid X] = \mathbb{P}(Z = 1 \mid X),
+    \mathbb{L}[Z\mid X] = \mathbb{E}[Z\mid X] = P(Z=1\mid X),
 \end{equation}
-a condition also referred to as the rich covariate condition. Saturated covariate specifications guarantee it, but additive controls typically do not. If the condition fails, covariate-adjusted TSLS may no longer average only complier effects, but can also depend on always-takers or never-takers.
-
+which holds, for example, under saturated covariate specifications but need not hold with
+simple additive controls \citep{blandhol2022tsls}.
 This motivates an alternative route that uses the conditional instrument propensity score explicitly, rather than through a linear projection of $Z_i$ on $X_i$. The kappa theorem in \citet{abadie2003semiparametric} provides such a route, identifying moments of the complier population as reweighted moments of the observed data, under the conditions stated next.
 
 \subsection{Abadie's kappa weights}
 
-The following four conditions, due to \citet{abadie2003semiparametric}, extend the requirements introduced in Section~2.1 to settings with covariates.
-
+The conditional-IV framework extends the binary LATE setting by allowing the instrument
+to be as good as randomly assigned only after conditioning on observed covariates.
+Following \citet{abadie2003semiparametric}, let
+$p(X_i)=P(Z_i=1\mid X_i)$ denote the instrument propensity score. We impose the following conditions.
 \textbf{Assumption (Conditional IV).}
 \begin{enumerate}
-    \item[(i)] Independence: $Y_i(0,0), Y_i(1,0),Y_i(0,1), Y_i(1,1),D_i(0),D_i(1) \perp Z_i \mid X_i$.
-    \item[(ii)] Exclusion: $Y_i(1,d) = Y_i(0,d)$ almost surely conditional on $X_i$, for $d \in \{0,1\}$.
-    \item[(iii)] First stage and overlap: $0 < p(X_i) < 1$, and $P(D_i(1)=1\mid X_i) > P(D_i(0)=1\mid X_i)$.
-    \item[(iv)] Monotonicity: $P(D_i(1) \geq D_i(0) \mid X_i) = 1$.
+    \item[(i)] Independence:
+    \[
+    \big(Y_i(0,0),Y_i(0,1),Y_i(1,0),Y_i(1,1),D_i(0),D_i(1)\big)
+    \perp Z_i \mid X_i.
+    \]
+    \item[(ii)] Exclusion:
+    \[
+    Y_i(1,d)=Y_i(0,d) \quad \text{a.s. conditional on } X_i,\quad d\in\{0,1\}.
+    \]
+    \item[(iii)] First stage and overlap:
+    \[
+    0<p(X_i)<1,\qquad
+    P(D_i(1)=1\mid X_i)>P(D_i(0)=1\mid X_i).
+    \]
+    \item[(iv)] Monotonicity:
+    \[
+    P(D_i(1)\geq D_i(0)\mid X_i)=1.
+    \]
 \end{enumerate}
-Condition (i) restates the conditional independence assumption introduced above. Conditions (ii) and (iv) are the conditional analogues of the exclusion restriction and the monotonicity assumption from Section~2.1. Condition (iii) adds an overlap requirement, ruling out values of $X_i$ for which one of the two instrument values is never observed.
-Define
+Condition (i) restates the conditional independence assumption introduced above. Conditions (ii) and (iv) are the conditional analogues of the exclusion restriction and the monotonicity assumption from Section~2.1. Condition (iii) combines overlap, which rules out values of $X_i$ for which one of the two instrument values is never observed, with a conditional first-stage requirement.
+Define the three kappa weights
 \begin{equation}
     \kappa_{0i} = (1-D_i)\,\frac{(1-Z_i)-(1-p(X_i))}{p(X_i)\big(1-p(X_i)\big)}, \qquad
     \kappa_{1i} = D_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)},
@@ -393,35 +413,156 @@ Define
     E\big[g_1(Y_i(1),X_i)\mid D_i(1)>D_i(0)\big] &= \frac{E\big[\kappa_{1i}\, g_1(Y_i,X_i)\big]}{P(D_i(1)>D_i(0))}. \tag{c}
 \end{align}
 Equations (a)-(c) also hold conditional on $X_i$.
-This lemma is what makes the complier subpopulation statistically tractable despite the fact that no individual can ever be classified as a complier: $D_i(0)$ and $D_i(1)$ are never jointly observed, so a sample of compliers cannot be constructed directly. Instead, any moment of interest for compliers can be recovered as a reweighted moment of the full observed sample, where the weight depends only on observable quantities ($D_i$, $Z_i$, $X_i$).
-
-Two applications of this lemma are needed to identify $\tau_{LATE}$.
-\emph{The denominator.} Setting $g(Y_i,D_i,X_i)=1$ in (a) gives
+The theorem makes the complier population statistically tractable even though complier
+status is not observed.
+ By choosing \(g\), \(g_0\), and \(g_1\) appropriately, moments of the
+complier distribution can be written as weighted moments of the observed data.
+In particular, setting \(g(Y_i,D_i,X_i)=1\) gives
 \begin{equation}
-    E[\kappa_i] = P(D_i(1)>D_i(0)).
+    E[\kappa_i]=P(D_i(1)>D_i(0)).
 \end{equation}
-The complier share is therefore identified as the average of $\kappa_i$ over the full sample.
-
-\emph{The numerator.} Setting $g_0(Y_i(0),X_i)=Y_i(0)$ in (b) and $g_1(Y_i(1),X_i)=Y_i(1)$ in (c) gives
+Using the definition
+$\tau_{LATE}=E[Y_i(1)-Y_i(0)\mid D_i(1)>D_i(0)],$
+setting $g_0(Y_i(0),X_i)=Y_i(0)$ and
+$g_1(Y_i(1),X_i)=Y_i(1)$ yields
 \begin{equation}
-    E[Y_i(0)\mid D_i(1)>D_i(0)] = \frac{E[\kappa_{0i}Y_i]}{P(D_i(1)>D_i(0))}, \qquad
-    E[Y_i(1)\mid D_i(1)>D_i(0)] = \frac{E[\kappa_{1i}Y_i]}{P(D_i(1)>D_i(0))}.
+    \tau_{LATE}
+    =
+    \frac{E[\kappa_{1i}Y_i]-E[\kappa_{0i}Y_i]}
+    {P(D_i(1)>D_i(0))}
+    =
+    \frac{E[(\kappa_{1i}-\kappa_{0i})Y_i]}
+    {P(D_i(1)>D_i(0))}.
 \end{equation}
-Subtracting the two and using the definition of $\tau_{LATE}$,
-\begin{equation}
-    \tau_{LATE} = \frac{E[\kappa_{1i}Y_i]-E[\kappa_{0i}Y_i]}{P(D_i(1)>D_i(0))} = \frac{E\big[(\kappa_{1i}-\kappa_{0i})Y_i\big]}{P(D_i(1)>D_i(0))}.
-\end{equation}
-The weight difference simplifies, since
-\begin{equation}
-    \kappa_{1i}-\kappa_{0i}
-    = D_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))} - (1-D_i)\,\frac{p(X_i)-Z_i}{p(X_i)(1-p(X_i))}
-    = \frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))},
-\end{equation}
-which no longer depends on $D_i$. Hence
+Since $
+\kappa_{1i}-\kappa_{0i}
+=
+\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))},
+$ this can also be written as
 \begin{equation}
     \tau_{LATE} = \frac{1}{P(D_i(1)>D_i(0))}\,E\!\left[Y_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)}\right].
 \end{equation}
-It is worth noting already that $P(D_i(1)>D_i(0))$ can equivalently be written as $E[\kappa_i]$, $E[\kappa_{0i}]$, or $E[\kappa_{1i}]$,  all three are valid in population under Assumption (Conditional IV), they coincide in population, but their sample analogues need not coincide in finite samples whether $p(X_i)$ is known or estimated. This ambiguity in the denominator is the source of the different weighting estimators of $\tau_{LATE}$ developed in the next section.
+It is worth noting already that $P(D_i(1)>D_i(0))$ can equivalently be written as
+$E[\kappa_i]$, $E[\kappa_{0i}]$, or $E[\kappa_{1i}]$. All three representations are valid
+in population under Assumption (Conditional IV) and coincide there. Their sample
+analogues, however, need not coincide in finite samples, whether $p(X_i)$ is known or
+estimated. This finite-sample ambiguity in the denominator is the source of the different
+weighting estimators of $\tau_{LATE}$ developed in the next section.
+
+\subsection{Kappa and weighting estimators of the LATE}
+
+
+The previous section shows that Abadie's kappa theorem identifies the LATE but does
+not determine a unique finite-sample estimator. The population complier share
+$P(D_i(1)>D_i(0))$ can be represented as $E[\kappa_i]$, $E[\kappa_{0i}]$, or
+$E[\kappa_{1i}]$. These representations coincide in population, but their sample
+analogues generally differ. Different choices of normalization and denominator
+therefore lead to different sample estimators of the same population parameter.\\
+Following \citet{sloczynski2025abadie}, I consider five weighting estimators. Two are
+normalized: the Uysal estimator $\hat\tau_u$ and the Abadie--Cattaneo estimator
+$\hat\tau_{a,10}$. The remaining three, $\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$,
+and $\hat\tau_{a,0}$, are unnormalized sample analogues. The formal consequences of
+this distinction are discussed in the next section; here I first define the estimators.
+
+\subsubsection*{Two normalized estimators}
+The first estimator, $\hat\tau_u$, is due to \citet{uysal2011three}. It is
+the ratio of two separately Hájek-normalized inverse-probability-weighted
+contrasts,
+\begin{equation}
+    \hat\tau_u =
+    \frac{
+        \left(\sum_{i=1}^N \frac{Z_i}{p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{Y_iZ_i}{p(X_i)}
+        -
+        \left(\sum_{i=1}^N \frac{1-Z_i}{1-p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{Y_i(1-Z_i)}{1-p(X_i)}
+    }{
+        \left(\sum_{i=1}^N \frac{Z_i}{p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{D_iZ_i}{p(X_i)}
+        -
+        \left(\sum_{i=1}^N \frac{1-Z_i}{1-p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{D_i(1-Z_i)}{1-p(X_i)}
+    }.
+    \label{eq:tau_u}
+\end{equation}
+Both the numerator and the denominator are differences of Hájek-normalized
+IPW means, so each of the four underlying weighting schemes sums to unity by
+construction.\\
+The second normalized estimator, $\hat\tau_{a,10}$, is due to
+\citet{abadie2018econometric} (see also \citealp{sant2022covariate}). Rather
+than normalizing the treated and untreated IPW means separately, it
+normalizes the $\kappa_1$- and $\kappa_0$-weighted outcome means directly,
+\begin{equation}
+    \hat\tau_{a,10} =
+    \left(\sum_{i=1}^N \kappa_{1i}\right)^{-1}\sum_{i=1}^N \kappa_{1i}Y_i
+    -
+    \left(\sum_{i=1}^N \kappa_{0i}\right)^{-1}\sum_{i=1}^N \kappa_{0i}Y_i.
+    \label{eq:tau_a10}
+\end{equation}
+
+\subsubsection*{Three unnormalized estimators}
+The remaining three estimators share a common numerator, obtained directly
+from the identity $\tau_{LATE} = P(D_i(1)>D_i(0))^{-1} E\!\left[Y_i\,
+\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}\right]$ derived above, and differ only in
+which sample analogue of $P(D_i(1)>D_i(0))$ is used as the denominator:
+\begin{align}
+    \hat\tau_a &= \left(N^{-1}\sum_{i=1}^N \kappa_i\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_a}\\
+    \hat\tau_t \;(=\hat\tau_{a,1}) &= \left(N^{-1}\sum_{i=1}^N \kappa_{1i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_t}\\
+    \hat\tau_{a,0} &= \left(N^{-1}\sum_{i=1}^N \kappa_{0i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}. \label{eq:tau_a0}
+\end{align}
+None of these three estimators is normalized in this sense. The treated and
+untreated components of the contrast are not both separately rescaled to sum
+to one. This normalization distinction has direct finite-sample consequences:
+as discussed in the next section, \citet{sloczynski2025abadie} show that
+$\hat\tau_u$ and $\hat\tau_{a,10}$ are translation invariant, whereas
+$\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$ are not. 
+ Of the three, $\hat\tau_t$ is by
+far the most widely used in the applied literature, going back to
+\citet{tan2006regression} and \citet{frolich2007nonparametric}, and later
+adopted by, among others, \citet{macurdy2011flexible},
+\citet{donald2014inverse, donald2014testing}, and
+\citet{abdulkadirouglu2017research}.
+
+\subsubsection*{Estimating the propensity score}
+
+In applications, the instrument propensity score $p(X_i)$ is usually unknown. Following
+\citet{sloczynski2025abadie}, I use a parametric logit specification
+$F(X_i,\alpha)=\frac{\exp(X_i\alpha)}{1+\exp(X_i\alpha)}.$
+I consider two estimators of $\alpha$. The first is standard maximum likelihood, denoted
+$\hat\alpha^{ml}$. The second estimator is the covariate balancing propensity score of
+\citet{imai2014covariate}, denoted \(\hat\alpha^{cb}\), defined as the solution to
+\begin{equation}
+    N^{-1}\sum_{i=1}^N \frac{Z_i}{F(X_i,\hat\alpha^{cb})}X_i =
+    N^{-1}\sum_{i=1}^N \frac{1-Z_i}{1-F(X_i,\hat\alpha^{cb})}X_i.
+    \label{eq:cbps_moment}
+\end{equation}
+This moment condition chooses the propensity-score parameters to balance reweighted
+covariates across instrument values, rather than to maximize the logit likelihood.\\
+The superscript on an estimator indicates which propensity score is used. For example,
+$\hat\tau_u^{ml}$ and $\hat\tau_u^{cb}$ are obtained by plugging in
+$\hat p^{ml}(X_i)=F(X_i,\hat\alpha^{ml})$ and
+$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively. The same convention applies
+to the remaining kappa estimators.\\
+This reporting convention matters. With maximum-likelihood propensity scores, the
+finite-sample denominator ambiguity remains, so the ML versions of the estimators
+generally differ. With covariate balancing propensity scores and a constant in $X_i$,
+\citet{sloczynski2025abadie} show the exact finite-sample identity
+$
+\hat\tau_u^{cb}
+=
+\hat\tau_t^{cb}
+=
+\hat\tau_{a,1}^{cb}
+=
+\hat\tau_{a,0}^{cb}
+=
+\hat\tau_{a,10}^{cb}.
+$
+Hence, reporting all these CBPS-based estimates separately would be redundant; they
+coincide mechanically in the sample. I therefore report $\hat\tau_u^{cb}$ as the
+CBPS-based representative, while the remaining estimators are reported with
+maximum-likelihood propensity scores. The unnormalized estimator $\hat\tau_a^{cb}$
+is not covered by this equivalence and is not part of the normalized estimator comparison.
+
+
+
+
 
 
 
@@ -661,17 +802,16 @@ This preserves the practical advantage of using the full sample while avoiding t
 Cross-fitting is combined with Neyman orthogonal scores. Orthogonality means that small first-stage errors in the nuisance functions have only a second-order effect on the final parameter estimate. Intuitively, the score is constructed such that the treatment-effect estimate is locally insensitive to small perturbations in the nuisance estimates.
 This makes it possible to use tree based learners such as random forest or xgboost without treating the resulting causal estimate as a simple plug-in machine-learning prediction. In the empirical applications below, I use five-fold cross-fitting.
 The choice of five folds is due to the reason that moderate fold numbers keep enough observations for nuisance training while still ensuring that the score is evaluated out of sample.
-
 \subsubsection{Nuisance Training}
 
-The cross-fitting procedure determines on which observations the nuisance functions are trained and evaluated. 
-As common practice in machine learning we also will tune the hyperparameters of the nuisance learners.  In all tuned specifications, tuning is based on nuisance-prediction performance and not on the resulting treatment-effect estimate.\\
+The cross-fitting procedure determines on which observations the nuisance functions are trained and evaluated.
+As is common in machine learning, I also tune the hyperparameters of selected nuisance learners. In all tuned specifications, tuning is based on nuisance-prediction performance and not on the resulting treatment-effect estimate.\\
 The purpose of tuning is to control the complexity of the nuisance learners according to their out-of-sample predictive performance. This is particularly important for the Wald-AIPW specifications. The Wald-AIPW score contains inverse-propensity terms based on the fitted instrument propensity, for example terms involving $\hat m(X)$ and $1-\hat m(X)$ in the denominator. If a flexible learner produces fitted instrument propensities very close to zero or one, individual observations can receive very large score contributions. The resulting estimate may then become highly sensitive to a small number of observations. This is a standard instability of inverse-propensity and AIPW-type estimators under limited overlap or poorly regularized nuisance estimation, rather than a feature of the causal parameter itself.
 Gradient-boosted trees are a relevant case in this thesis because, if insufficiently regularized, they can generate highly concentrated fitted probabilities. Tuning the XGBoost nuisance learners by held-out prediction loss is therefore used to select a more appropriate level of learner complexity for the nuisance functions. The tuning criterion is fixed before the treatment-effect estimate is computed and does not use the Wald-AIPW point estimate or its standard error. In the empirical sections, I assess the diagnostic implications of this mechanism by reporting nuisance losses and the share of near-boundary fitted probabilities. This diagnostic is reported for both binary nuisance components, the instrument propensity $\hat m(X)$ and the treatment-regression probabilities $\hat r(0,X)$ and $\hat r(1,X)$, although the direct inverse-propensity denominator in the IIVM score is based on $\hat m(X)$. The movement of the treatment-effect estimate after tuning is interpreted only in light of these nuisance diagnostics, not as the criterion by which tuning is justified.
-The partially linear IV score is less exposed to this specific inverse-propensity mechanism, because it is based on residualized moments rather than the same AIPW re-weighting structure. For this reason, the near-boundary propensity concern is most relevant for the Wald-AIPW learner comparisons, especially for XGBoost.\\
-The PLR-IV and Wald-AIPW estimators based on outcome weights are implemented using the honest random forest smoother from the \textsc{OutcomeWeights} package \citep{knaus2024treatment}, which builds on the generalized random forest implementation in \texttt{grf} \citep{athey2019generalized}. In this case, tuning is native to the forest implementation. Setting \texttt{tune.parameters = "all"} passes the tuning request to \texttt{grf} and triggers an internal search over the forest's tunable hyperparameters: the subsample fraction, the number of variables considered at each split (\texttt{mtry}), the minimum node size, the honesty fraction, honesty leaf pruning, the split-balance parameter \texttt{alpha}, and the imbalance penalty.
-The tuning procedure can be described schematically as follows. The algorithm draws a number of candidate configurations $\lambda_1,\ldots,\lambda_R$ from the hyperparameter space and fits a smaller ``mini-forest'' at each candidate configuration. For each candidate, it computes a debiased estimate of the out-of-bag prediction error. This debiasing is used because the mini-forests contain fewer trees than the final production forest, so their raw out-of-bag errors contain additional Monte Carlo noise. The resulting pairs of candidate configurations and debiased errors are then smoothed, and the selected configuration is chosen by minimizing the predicted smoothed error over an additional set of randomly drawn candidate configurations. The final forest used for estimation is then grown with the selected tuning parameters. Since the empirical implementation uses five-fold cross-fitting, the nuisance forests are trained separately for the corresponding cross-fitting folds.\\
-For the XGBoost Wald-AIPW specifications, hyperparameters are selected through the \textsc{DoubleML} interface to \texttt{mlr3tuning}. In contrast to the honest forest case, the tuning procedure is not an internal XGBoost tuning path but an external nuisance-learner tuning step managed by \textsc{DoubleML}. For each nuisance learner, a random search evaluates a finite number $E$ of candidate hyperparameter configurations,
+The partially linear IV score is less exposed to this specific inverse-propensity mechanism, because it is based on residualized moments rather than the same AIPW re-weighting structure. For this reason, the near-boundary propensity concern is most relevant for the Wald-AIPW learner comparisons, especially for XGBoost. In the PLR-IV XGBoost specification, the nuisance functions are instead treated as regression problems for the outcome, instrument, and treatment residualizations. The relevant tuning concern is therefore the predictive regularization of these residualization steps, not the stabilization of inverse-propensity denominators.\\
+The PLR-IV and Wald-AIPW headline estimators based on outcome weights are implemented using the honest random forest smoother from the \textsc{OutcomeWeights} package \citep{knaus2024treatment}, which builds on the generalized random forest implementation in \texttt{grf} \citep{athey2019generalized}. In this case, tuning is native to the forest implementation. Setting \texttt{tune.parameters = "all"} passes the tuning request to \texttt{grf} and triggers an internal search over the forest's tunable hyperparameters: the subsample fraction, the number of variables considered at each split (\texttt{mtry}), the minimum node size, the honesty fraction, honesty leaf pruning, the split-balance parameter \texttt{alpha}, and the imbalance penalty.
+The tuning procedure can be described schematically as follows. The algorithm draws a number of candidate configurations $\lambda_1,\ldots,\lambda_R$ from the hyperparameter space and fits a smaller ``mini-forest'' at each candidate configuration. For each candidate, it computes a debiased estimate of the out-of-bag prediction error. This debiasing is used because the mini-forests contain fewer trees than the final production forest, so their raw out-of-bag errors contain additional Monte Carlo noise. The resulting pairs of candidate configurations and debiased errors are then smoothed, and the selected configuration is chosen by minimizing the predicted smoothed error over an additional set of randomly drawn candidate configurations. The final forest used for each nuisance component and cross-fitting fold is then grown with the selected tuning parameters. Since the empirical implementation uses five-fold cross-fitting, the nuisance forests are trained separately for the corresponding cross-fitting folds.\\
+For the XGBoost learner specifications, hyperparameters are selected through the \textsc{DoubleML} interface to \texttt{mlr3tuning}. In contrast to the honest forest case, the tuning procedure is not an internal XGBoost tuning path but an external nuisance-learner tuning step managed by \textsc{DoubleML}. For each nuisance learner, a random search evaluates a finite number $E$ of candidate hyperparameter configurations,
 $\lambda^{(1)},\ldots,\lambda^{(E)}$, over the number of boosting rounds, the maximum tree depth, the learning rate, and the minimum child-node weight. In the empirical implementation, $E=15$ and the candidates are evaluated by three-fold inner cross-validation.
 
 For nuisance component $j$, the selected configuration is
@@ -685,10 +825,13 @@ For nuisance component $j$, the selected configuration is
 L_j(\lambda; k),
 \]
 
-where $K_{\mathrm{inner}}=3$. The loss $L_j$ is the root mean squared error for the outcome regression and the log-loss for the binary instrument and treatment nuisance functions. The search is therefore over a finite set of randomly drawn candidates rather than over the full continuous hyperparameter space.
+where $K_{\mathrm{inner}}=3$. For the Wald-AIPW/IIVM XGBoost specification, the loss \(L_j\) is the root mean squared error for the outcome regression and the log-loss for the binary instrument propensity and the branch-specific treatment-regression probabilities. For the PLR-IV XGBoost specification, all three nuisance components are implemented as regression learners, so the corresponding tuning losses are root mean squared errors for the outcome, instrument, and treatment residualization steps. The search is therefore over a finite set of randomly drawn candidates rather than over the full continuous hyperparameter space.
 The tuning is performed with \texttt{tune\_on\_folds = TRUE}. Hence, the inner cross-validation search is carried out separately inside each outer cross-fitting training fold. Observations that form the held-out fold for evaluating the final orthogonal score are therefore not used either for fitting the nuisance functions or for selecting the XGBoost hyperparameters used to predict them. This avoids the hyperparameter-selection leakage that would arise from tuning once on the full sample and then reusing the same selected configuration in all outer folds.\\
-Both tuning procedures follow the same principle.Hyperparameters are selected using out-of-sample nuisance-prediction performance and never by optimizing the treatment-effect estimate itself. They differ in implementation. Honest random forest tuning is handled internally by \texttt{grf} through \texttt{tune.parameters = "all"}, whereas XGBoost tuning is conducted through the \textsc{DoubleML}/\texttt{mlr3tuning} interface using random search and inner cross-validation. Because the XGBoost tuning is fold-specific, there is no single global hyperparameter configuration for the tuned XGBoost specification. Reported XGBoost hyperparameter values are therefore descriptive summaries of the values selected across folds, not a single recipe that is subsequently plugged into all folds.
- 
+Both tuning procedures follow the same principle. Hyperparameters are selected using out-of-sample nuisance-prediction performance and never by optimizing the treatment-effect estimate itself. They differ in implementation. Honest random forest tuning is handled internally by \texttt{grf} through \texttt{tune.parameters = "all"}, whereas XGBoost tuning is conducted through the \textsc{DoubleML}/\texttt{mlr3tuning} interface using random search and inner cross-validation. Because the XGBoost tuning is fold-specific, there is no single global hyperparameter configuration for the tuned XGBoost specification. Reported XGBoost hyperparameter values are therefore descriptive summaries of the values selected across folds, not a single recipe that is subsequently plugged into all folds.
+
+
+
+
 
 
 \section{Empirical Application: Military Service and Wages}
@@ -1721,6 +1864,78 @@ Log-income sample & \(Z=1\) & 1.000 \\
 \end{tabular}
 \end{table}
 This relationship is not an empirical imbalance. It follows directly from the definition of the instrument. However, it matters for later parametric nuisance models. In pooled propensity-score models, both child-sex indicators can be included as separate main effects. In arm-specific outcome or treatment models, however, including both indicators together with an intercept would create perfect collinearity. For this reason, the arm-specific parametric nuisance specifications used below omit one of the two child-sex indicators.
+
+\subsection{Reproduction of the SUW Recoding Table}
+\label{subsec:ae_child_reproduction}
+
+\citet{sloczynski2025abadie} report the Angrist--Evans application in a single table with seven outcome codings. These consist of three codings of labor-force participation and four unit codings of log income. Since the present thesis uses diagnostic subsamples of 3{,}000 observations for each outcome family, I reproduce the same structure in two separate tables. Table~\ref{tab:ae_child_labor_recode} reports the labor-force recodings and Table~\ref{tab:ae_child_income_recode} reports the income unit recodings. 
+Because this thesis uses smaller diagnostic subsamples, the purpose is not to match the full-sample point estimates exactly.\\
+The normalized estimators in Panel B behave exactly as translation invariance predicts. Within each row, the estimates are identical up to rounding across all pure outcome translations. For labor-force participation, the first two columns compare \(Y_i=1\{\text{worked}_i=1\}\) with \(Y_i+1\). For income, changing the unit of measurement before taking logarithms only adds a constant to the logged outcome. \\
+The third labor-force column requires a separate comment. The coding \(1\{\text{did not work}\}=1-1\{\text{worked}\}\) is not a pure translation. It is a reflection plus a shift, \(Y_i'=-Y_i+1\). \citet{sloczynski2025abadie} explicitly state in their table note that, for this coding, they report the additive inverse of the raw estimate. Table~\ref{tab:ae_child_labor_recode} follows this display convention: only the reported point estimate in the third labor-force column is multiplied by \(-1\), while the standard error is unchanged. This convention is used only to match the published SUW layout. It is not applied to the income table, to the DML estimates below, or to the later translation-invariance rerun analysis.\\
+The unnormalized estimators in Panel C are visibly sensitive to the outcome coding. In the labor table, for example, \(\hat\tau_a^{ml}\) equals \(-0.091\) under the original coding, \(-0.083\) under the shifted coding, and \(-0.099\) under the display-adjusted reflected coding. The implied realized outcome-weight sum of about \(0.008\) comes from comparing the first two columns, which are the genuine translation \(Y_i\) and \(Y_i+1\). The third column is consistent with the same value only after undoing the SUW display convention: the displayed value \(-0.099\) corresponds to a raw reflected estimate of \(+0.099\), and the reflection formula then gives the same implied weight sum.\\
+The diagnostic subsamples reproduce the qualitative pattern of \citet{sloczynski2025abadie}: normalized estimators are invariant to recoding, while unnormalized estimators are not.
+The magnitude of the sensitivity is smaller here than in the published full-sample table, but this is not problematic because the tables are based on different samples.
+The main point estimates are also close to the published full-sample estimates relative to the uncertainty induced by the smaller diagnostic samples. For example, the labor 2SLS estimate is \(-0.096\) in the diagnostic subsample, compared with \(-0.117\) in \citet{sloczynski2025abadie}. For log income, the corresponding estimates are \(-0.170\) and \(-0.135\). These differences are small relative to the standard errors in the diagnostic subsamples. As a rough sampling-scale benchmark, scaling the published standard errors by the square root of the sample-size ratio gives \(0.025\sqrt{394{,}840/3{,}000}\approx 0.287\) for labor and \(0.092\sqrt{220{,}502/3{,}000}\approx 0.789\) for income, close to the observed diagnostic-subsample standard errors of \(0.275\) and \(0.752\).
+ The point estimates and standard errors should therefore be interpreted as subsample diagnostics. They are useful for showing that the same finite-sample mechanism is present, not for replacing the full-sample estimates reported by \citet{sloczynski2025abadie}
+
+
+
+\begin{table}[H]
+\centering
+\caption{AE98 reproduction --- labor-force participation}
+\label{tab:ae_child_labor_recode}
+\small
+\begin{tabular}{lccc}
+\toprule
+Estimator & 1 if worked, 0 else & 2 if worked, 1 else & 1 if did not work, 0 else \\
+\midrule
+\multicolumn{4}{l}{\textit{Panel A: 2SLS (HC1-robust)}} \\
+2SLS & $-0.096$ \newline $(0.275)$ & $-0.096$ \newline $(0.275)$ & $-0.096$ \newline $(0.275)$ \\
+\addlinespace
+\multicolumn{4}{l}{\textit{Panel B: Normalized kappa estimators}} \\
+$\hat\tau_u^{cb}$   & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ \\
+$\hat\tau_u^{ml}$   & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ \\
+$\hat\tau_{a,10}^{ml}$ & $-0.095$ \newline $(0.275)$ & $-0.095$ \newline $(0.275)$ & $-0.095$ \newline $(0.275)$ \\
+\addlinespace
+\multicolumn{4}{l}{\textit{Panel C: Unnormalized kappa estimators}} \\
+$\hat\tau_a^{ml}$   & $-0.091$ \newline $(0.275)$ & $-0.083$ \newline $(0.277)$ & $-0.099$ \newline $(0.275)$ \\
+$\hat\tau_{a,1}^{ml}$ & $-0.091$ \newline $(0.274)$ & $-0.082$ \newline $(0.276)$ & $-0.099$ \newline $(0.273)$ \\
+$\hat\tau_{a,0}^{ml}$ & $-0.091$ \newline $(0.276)$ & $-0.083$ \newline $(0.278)$ & $-0.099$ \newline $(0.276)$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\parbox{0.95\textwidth}{\footnotesize \textit{Notes:} Diagnostic subsample, $N=3{,}000$; \citet{sloczynski2025abadie} report $N=394{,}840$ on the full sample. Each cell reports the point estimate with the standard error below. Covariates as in Table~\ref{tab:ae_child_covariates}. Following \citet{sloczynski2025abadie}, the third column reports the additive inverse of the raw estimate; see the discussion below.}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{AE98 reproduction --- log family income}
+\label{tab:ae_child_income_recode}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Estimator & Cents & Dollars & \$1000s & \$100{,}000s \\
+\midrule
+\multicolumn{5}{l}{\textit{Panel A: 2SLS (HC1-robust)}} \\
+2SLS & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ \\
+\addlinespace
+\multicolumn{5}{l}{\textit{Panel B: Normalized kappa estimators}} \\
+$\hat\tau_u^{cb}$   & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ \\
+$\hat\tau_u^{ml}$   & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ \\
+$\hat\tau_{a,10}^{ml}$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ \\
+\addlinespace
+\multicolumn{5}{l}{\textit{Panel C: Unnormalized kappa estimators}} \\
+$\hat\tau_a^{ml}$   & $0.011$ \newline $(0.848)$ & $-0.050$ \newline $(0.796)$ & $-0.142$ \newline $(0.756)$ & $-0.203$ \newline $(0.756)$ \\
+$\hat\tau_{a,1}^{ml}$ & $0.011$ \newline $(0.843)$ & $-0.050$ \newline $(0.791)$ & $-0.141$ \newline $(0.751)$ & $-0.201$ \newline $(0.751)$ \\
+$\hat\tau_{a,0}^{ml}$ & $0.011$ \newline $(0.854)$ & $-0.050$ \newline $(0.802)$ & $-0.143$ \newline $(0.760)$ & $-0.204$ \newline $(0.761)$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\parbox{0.95\textwidth}{\footnotesize \textit{Notes:} Diagnostic subsample, $N=3{,}000$; \citet{sloczynski2025abadie} report $N=220{,}502$ on the full sample. Each cell reports the point estimate with the standard error below. Covariates as in Table~\ref{tab:ae_child_covariates}.}
+\end{table}
+
 % ==============================================================================
 \section{Discussion}
 \label{sec:discussion}
