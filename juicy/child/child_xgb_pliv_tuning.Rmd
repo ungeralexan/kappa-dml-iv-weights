@@ -64,11 +64,10 @@ same base settings as requested:
 fold. This avoids reusing a global tuning choice for observations that later
 serve as held-out fold predictions.
 
-**Weight extraction.** `EXTRACT_WEIGHTS` is set to `FALSE` by default because
-`get_outcome_weights()` is currently prohibitively slow for the PLR-IV
-XGBoost objects. The estimate/tuning export is still created. If weight
-extraction is needed later, switch `EXTRACT_WEIGHTS = TRUE` and run this file
-separately.
+**Weight extraction.** `EXTRACT_WEIGHTS` is currently set to `TRUE` because
+the main analysis uses the exported PLR-IV XGBoost weight vectors. This is
+the slow part of the notebook. If only the estimate and tuning tables are
+needed, set `EXTRACT_WEIGHTS = FALSE` before knitting.
 </div>
 
 <div class="warn-box">
