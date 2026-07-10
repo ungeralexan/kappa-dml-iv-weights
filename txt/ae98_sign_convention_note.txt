@@ -1,0 +1,60 @@
+NOTE: SIGN CONVENTION FOR THE THIRD LABOR-FORCE RECODING (Table 4, col. 3)
+============================================================================
+
+ISSUE
+-----
+child_test.Rmd's labor-force reproduction table currently prints the RAW
+2SLS/kappa coefficient for all three labor recodings. For the first two
+columns (workedm, workedm_21 = workedm+1) this is correct and matches
+Słoczyński, Uysal & Wooldridge (SUW 2025), Table 4, since both are pure
+translations of the same underlying variable and normalized estimators are
+translation invariant by construction.
+
+For the third column (workedm_01 = 1 - workedm, i.e. "1 if did not work, 0
+otherwise"), the raw coefficient is NOT what SUW's Table 4 reports. This
+recoding is a genuine reflection of the outcome (Y' = 1 - Y, not just a
+shift), and for any linear-in-Y estimator (2SLS, kappa weighting, OLS —
+no exceptions, this is elementary regression algebra) the raw coefficient on
+D must flip sign relative to column 1. Our own subsample output already
+shows this correctly: labor table gives -0.096 (col 1) and +0.096 (col 3),
+a clean, mathematically required sign flip.
+
+SUW's own Table 4 note resolves why their printed column 3 does NOT show a
+sign flip (all three labor columns print as -0.117 in the published table).
+Direct quote from the paper (Table 4 note, JBES 2025, p. 173-174; also in
+project file Abadie_s_Kappa_and_Weighting_Estimators_of_the_Local_Average_
+Treatment_Effect1.pdf):
+
+  "In the case of labor force participation, we also recode the outcome as
+  2 if worked for pay and 1 otherwise; and as 0 if worked for pay and 1
+  otherwise. In the latter case, we report the additive inverse of each
+  estimate."
+
+So: SUW deliberately negate the raw regression coefficient before printing
+column 3, purely as a presentational device so every normalized row reads
+identically across all three columns at a glance. This is documented,
+intentional, and NOT a property the estimator produces on its own — it is
+a manual sign flip applied by the authors after estimation.
+
+WHAT THIS MEANS FOR OUR CODE
+-----------------------------
+- Our current raw-coefficient output (sign flips in col. 3) is mathematically
+  correct and not a bug.
+- It does not yet visually match SUW Table 4's layout, because we have not
+  applied their documented additive-inverse convention.
+
+FIX (not yet applied — pending decision on when to patch child_test.Rmd)
+--------------------------------------------------------------------------
+For the "1 if did not work, 0 otherwise" column only:
+  - Negate the point estimate before formatting (cell_fmt), i.e. report
+    -1 * coef instead of coef.
+  - Leave the SE unchanged (SEs are not sign-flipped, only point estimates).
+  - Add a table footnote reproducing SUW's own note: "For the third
+    labor-force recoding (did not work = 1), we report the additive inverse
+    of the raw estimate, following Słoczyński, Uysal, and Wooldridge (2025)."
+- Apply this ONLY to the labor-force table's third column. The income table
+  (cents/dollars/$1000s/$100,000s) involves pure scale transformations of a
+  continuous log outcome, not a reflection, so no analogous sign flip is
+  needed there — those columns already match SUW's convention as-is.
+
+STATUS: identified, not yet patched into child_test.Rmd.

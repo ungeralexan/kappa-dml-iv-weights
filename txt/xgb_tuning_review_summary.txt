@@ -1,0 +1,243 @@
+SUMMARY: XGBOOST TUNING PROCEDURES — WALD-AIPW vs. PLR-IV
+Prepared from a joint review by Claude (Anthropic) and ChatGPT (OpenAI)
+Files reviewed:
+  - child_xgb_tuning.Rmd        (Wald-AIPW / DoubleMLIIVM, score = "LATE")
+  - child_xgb_pliv_tuning.Rmd   (PLR-IV / DoubleMLPLIV, score = "partialling out")
+  - DML_smoothers (2).rmd       (original Knaus & Rakov reference vignette,
+                                  "Outcome Weights for DoubleML Objects")
+
+PURPOSE OF THIS DOCUMENT
+Both Claude and ChatGPT were asked, independently and then in follow-up turns,
+whether the two child tuning scripts (1) use the same tuning procedure and
+purpose, (2) use the same "base"/untuned XGBoost hyperparameters, and (3) are
+methodologically correct. Both assistants converged on the same conclusions.
+This file consolidates both analyses so a third reviewer (Codex) can check
+them against the actual code and the user's specific thesis/analysis purpose.
+
+===========================================================================
+1. WHERE THE TWO TUNING PROCEDURES ARE IDENTICAL
+===========================================================================
+Both assistants independently confirmed the following are identical across
+child_xgb_tuning.Rmd (Wald-AIPW) and child_xgb_pliv_tuning.Rmd (PLR-IV):
+
+  - SEED            = 42                    (both files)
+  - N_CF            = 5   outer cross-fitting folds       (both files)
+  - INNER_FOLDS     = 3   inner tuning folds               (both files)
+  - TUNE_EVALS      = 15  random-search evaluation budget  (both files)
+  - Search algorithm:      tnr("random_search")            (both files)
+  - Terminator:            trm("evals", n_evals = TUNE_EVALS)
+  - Inner resampling:      rsmp("cv", folds = INNER_FOLDS) via n_folds_tune
+  - Hyperparameter search space (xgb_ps()), identical in both files:
+        nrounds          = p_int(50, 400)
+        max_depth        = p_int(2, 5)
+        eta              = p_dbl(0.02, 0.20)
+        min_child_weight = p_int(1, 8)
+  - tune_on_folds = TRUE used for the tuned model in both files
+    (hyperparameters are re-selected separately inside each outer
+    cross-fitting fold's training data, not once globally — this avoids
+    tuning-induced leakage into the held-out test fold of each split)
+  - set.seed(SEED) is called immediately before object creation in both
+    files, so outer-fold splits are reproducible and the untuned vs. tuned
+    fits within a cell share the same outer-fold split.
+
+CLAUDE VERIFICATION (against official DoubleML R documentation, CRAN manual
+dated May 2026):
+  - tune_on_folds=TRUE is documented exactly as described above: "each of
+    the K folds used in the cross-fitting procedure could be split up into
+    K_tune subfolds ... used for evaluation of the candidate models" —
+    i.e., genuinely nested, no leakage. Confirmed correct usage.
+  - The R method `tune()` is NOT deprecated in the R package (checked the
+    current CRAN manual). A combined Python/R docs page mentions a
+    `tune_ml_models()` replacement, but that example uses Python/optuna
+    syntax — the deprecation applies to the Python DoubleML package, not
+    the R package. Both scripts correctly use the current, supported R
+    method.
+  - param_set / tune_settings argument names, measure keys ("regr.rmse",
+    "classif.logloss"), and the tune() call signature all match the
+    documented API exactly in both files.
+
+CONCLUSION ON THIS POINT (both assistants agree):
+Same high-level tuning procedure, same search space, same budget, same
+nested/anti-leakage design, same current+correct API usage. This part can
+be considered verified and correct in both files.
+
+===========================================================================
+2. WHERE THE TWO PROCEDURES GENUINELY DIFFER (AND WHY)
+===========================================================================
+
+2a. Base ("untuned") XGBoost hyperparameters — asymmetric by design, not a bug
+---------------------------------------------------------------------------
+PLR-IV file:
+    base <- list(alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0)
+    l = do.call(lrn, c(list("regr.xgboost"), base))
+    m = do.call(lrn, c(list("regr.xgboost"), base))
+    r = do.call(lrn, c(list("regr.xgboost"), base))
+  -> ALL THREE nuisance learners (l, m, r) get the four base parameters,
+     because all three are regr.xgboost (regression) learners.
+
+Wald-AIPW file:
+    g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0)
+    m = lrn("classif.xgboost", predict_type = "prob")
+    r = lrn("classif.xgboost", predict_type = "prob")
+  -> Only the outcome learner g (regression) gets the four base parameters.
+     m and r are classif.xgboost and do NOT get them.
+
+RESOLUTION (both assistants agree, after checking the original reference
+file "DML_smoothers (2).rmd" by Knaus & Rakov):
+  - The original vignette sets these four parameters ONLY on regr.xgboost
+    learners:
+        regr_xgb <- lrn("regr.xgboost", alpha = 0, subsample = 1,
+                         max_delta_step = 0, base_score = 0)
+        classif_xgb <- lrn("classif.xgboost")   # no special params at all
+  - Purpose of the four parameters: they force XGBoost regression to behave
+    as an affine/linear smoother, which is required for the outcome-weight
+    identity (Sum(omega_i * Y_i) = point estimate) from Knaus (2024) /
+    the OutcomeWeights package to hold exactly. This is a property of
+    regression trees; it does not transfer to classification models, whose
+    output goes through a nonlinear (sigmoid/logit) link. Setting these
+    params on classif.xgboost would not achieve the identity anyway.
+  - Since PLR-IV's ml_l, ml_m, ml_r are ALL regression learners (even
+    though the underlying Z/D are binary — PLR-IV's partialling-out score
+    uses continuous conditional-expectation regressions for all three),
+    applying the base params to all three is the correct, direct extension
+    of the original rule.
+  - Since Wald-AIPW/IIVM's ml_m and ml_r are genuine classification
+    (propensity) learners, NOT giving them the four base params is also
+    correct and matches the original convention, not an oversight.
+  - CLAUDE's earlier draft had initially flagged this asymmetry as a likely
+    oversight/inconsistency before the original reference file was
+    checked; after checking it, that earlier flag was explicitly retracted
+    — both assistants now agree the asymmetry is intentional and correct.
+  - Recommendation both assistants agree on: do NOT copy base_score = 0 (or
+    the other three) onto the Wald-AIPW classif.xgboost learners just to
+    force symmetry — that would not be a "safer" or "more consistent"
+    change, it would be applying a regression-only fix to a model where it
+    doesn't apply and isn't needed.
+
+2b. Tuning measure differs — appropriately, not an inconsistency
+---------------------------------------------------------------------------
+  - PLR-IV: measure = list(ml_l = "regr.rmse", ml_m = "regr.rmse", ml_r = "regr.rmse")
+    (all three nuisances are regressions)
+  - Wald-AIPW: measure = list(ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss")
+    (g is a regression, m/r are binary propensity classifiers)
+  This reflects the different nuisance types required by the two DML score
+  functions (partialling-out vs. LATE/Wald-AIPW) and is the statistically
+  appropriate choice in each case, not a discrepancy to fix.
+
+2c. Nuisance/model architecture differs by construction
+---------------------------------------------------------------------------
+  - PLR-IV -> DoubleMLPLIV: 3 flat nuisances (ml_l, ml_m, ml_r), each tuned
+    once per outer fold.
+  - Wald-AIPW -> DoubleMLIIVM (score = "LATE"): nuisances are split by
+    instrument branch internally (ml_g0/ml_g1, ml_r0/ml_r1) plus ml_m —
+    effectively up to 5 sub-models tuned per outer fold. The Wald-AIPW file
+    has extra code to handle/extract branch-specific results
+    (get_branch_prediction(obj, "ml_g", cell$Z), etc.) that PLR-IV does not
+    need.
+  - This is an inherent consequence of the different causal estimands/score
+    functions, not an inconsistency. Both files' own runtime warnings
+    correctly document the resulting cost multiplier.
+
+===========================================================================
+3. REMAINING OPEN ITEMS / THINGS WORTH DOUBLE-CHECKING
+===========================================================================
+These do NOT affect the statistical validity of the tuning procedure itself,
+but are worth resolving for correctness of documentation/robustness:
+
+  1. INTERNAL CONTRADICTION in child_xgb_pliv_tuning.Rmd:
+     - Code sets:      EXTRACT_WEIGHTS = TRUE
+     - Explanatory note in the same file says:
+           "EXTRACT_WEIGHTS is set to FALSE by default because
+            get_outcome_weights() is currently prohibitively slow..."
+     - These disagree. Either change the code to FALSE, or update the note
+       to say it is currently TRUE. Both assistants flagged this
+       independently. This does not affect the tuning search itself, only
+       the weight-extraction/export step and the file's documentation.
+
+  2. ROBUSTNESS GAP (Claude's finding, not raised by ChatGPT): in the
+     Wald-AIPW file, `one_xgb_diag_row()` calls `extract_xgb_w(r, cell)`
+     directly with no null-check and no tryCatch. If a fit fails or
+     get_outcome_weights() errors, this will halt the whole knit. The
+     PLR-IV file, by contrast, explicitly checks `is.null(r) ||
+     is.null(r$obj)` first and wraps extraction in a `safe_extract_xgb_w`
+     tryCatch wrapper, plus reports a "Weight status" column. Consider
+     adding the same guard/tryCatch to the Wald-AIPW file for parity and
+     robustness.
+
+  3. EXPORT METADATA ASYMMETRY (Claude's finding): the PLR-IV file's
+     exported `settings` list records `untuned_base = list(alpha=0,
+     subsample=1, max_delta_step=0, base_score=0)` and
+     `extract_weights = EXTRACT_WEIGHTS` for provenance. The Wald-AIPW
+     export has neither field. If you later diff the two exported RDS
+     objects to confirm "same baseline," this field will simply be absent
+     on the Wald-AIPW side. Not a correctness bug, but worth noting if
+     provenance/reproducibility documentation matters for your purpose
+     (e.g., a thesis appendix).
+
+  4. TUNING BUDGET IS MODEST, NOT WRONG: TUNE_EVALS = 15 random-search
+     draws over a 4-dimensional space, with only 3 inner folds, is a
+     deliberately conservative budget given the runtime cost (especially
+     for Wald-AIPW's ~5 sub-models per outer fold). This is a legitimate,
+     documented design choice in both files, but it means "tuned" should be
+     understood as "searched under a small budget," not "found a
+     near-optimal configuration." This is a power/precision consideration,
+     not a validity issue.
+
+  5. XGBOOST OUTCOME-WEIGHT IDENTITY IS A KNOWN, ACKNOWLEDGED LIMITATION:
+     both files already note that XGBoost is not guaranteed to satisfy the
+     affine-smoother identity (Sum(omega*Y) = point estimate) even with the
+     four base parameters set — this is inherent to tree ensembles and not
+     something the tuning procedure can fix. Not a tuning bug, just a
+     caveat already flagged by the files' own authors.
+
+  6. VERSION CHECK NOT PERFORMED: neither assistant can verify from the
+     code alone whether the user's installed DoubleML / mlr3tuning package
+     versions behave exactly as the current CRAN documentation describes.
+     Recommended before finalizing: run `packageVersion("DoubleML")` and
+     inspect `str(results[["<cell>"]]$tuned$obj$params)` once to confirm
+     the fold-specific tuning structure looks as expected in the user's
+     actual environment.
+
+===========================================================================
+4. OVERALL / FINAL VERDICT (both assistants agree)
+===========================================================================
+  - The tuning ARCHITECTURE (search space, budget, algorithm, nested/
+    fold-specific tuning via tune_on_folds=TRUE, seeding, API usage) is
+    IDENTICAL and CORRECTLY IMPLEMENTED in both files, verified in Claude's
+    case against the current official DoubleML R documentation.
+  - The BASE/UNTUNED HYPERPARAMETERS are NOT applied symmetrically across
+    the two files (all 3 learners in PLR-IV vs. only 1 of 3 in Wald-AIPW),
+    but after checking the original Knaus & Rakov reference vignette, this
+    asymmetry is CORRECT and INTENTIONAL, not an inconsistency: the four
+    parameters are a regression-only fix for the outcome-weight identity,
+    and PLR-IV's nuisances happen to be all regression while Wald-AIPW's
+    are a mix of regression and classification.
+  - Do NOT force the Wald-AIPW classification learners (ml_m, ml_r) to
+    adopt the same four base parameters — that would misapply a
+    regression-specific fix and is not supported by the original reference
+    file's logic.
+  - The measure choice (RMSE vs. log-loss) and nuisance architecture
+    differences (3 flat nuisances vs. up to 5 branch-specific ones) are
+    both appropriate, expected consequences of using DoubleMLPLIV vs.
+    DoubleMLIIVM(score="LATE"), not flaws.
+  - The only concrete items to actually FIX are non-tuning issues: the
+    EXTRACT_WEIGHTS code/documentation contradiction in the PLR-IV file,
+    and (optionally, for robustness/parity) adding a null-check/tryCatch
+    around weight extraction in the Wald-AIPW file to match the PLR-IV
+    file's more defensive style.
+
+QUESTION FOR CODEX TO SPECIFICALLY VERIFY, GIVEN THE USER'S PURPOSE:
+  - Confirm independently that tune_on_folds=TRUE in the installed
+    DoubleML/mlr3tuning versions produces genuinely fold-specific
+    hyperparameters (e.g., by inspecting obj$params after tuning and
+    checking they differ across outer folds), rather than assuming this
+    from documentation alone.
+  - Confirm that applying the four base XGBoost parameters (alpha=0,
+    subsample=1, max_delta_step=0, base_score=0) to regression learners
+    but not classification learners is suf­ficient for the user's specific
+    outcome-weight identity check to hold in their empirical application
+    (AE98-style data), not just in principle.
+  - Sanity-check whether TUNE_EVALS=15 / INNER_FOLDS=3 is an adequate
+    budget for the user's specific sample sizes and the two-cell (Labor,
+    Income) structure, given the ~5x nuisance-model multiplier in the
+    Wald-AIPW/IIVM case.

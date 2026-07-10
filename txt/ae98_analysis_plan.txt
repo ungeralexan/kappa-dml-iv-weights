@@ -1,0 +1,174 @@
+AE98 (ANGRIST & EVANS 1998) CHILDBEARING APPLICATION — STATUS
+================================================================
+
+PURPOSE
+-------
+Translation/scale-invariance study of LATE estimators (2SLS, kappa-weighting,
+DML) applied to Angrist & Evans (1998): does the estimated effect of
+childbearing (D=morekids, Z=samesex) on labor supply change under
+mathematically irrelevant recodings of the outcome (adding a constant,
+rescaling units, flipping the reference category)? This mirrors a parallel
+analysis already done for Card (1995, schooling/wages) — same estimators,
+same diagnostics, same translation-invariance logic — adapted to AE98's own
+structure. Two things make AE98 structurally different from Card and drive
+most of the design choices below: (1) AE98 needs two different
+outcome-specific samples, not one; (2) the full AE98 samples are too large
+(394,840 / 220,502 rows) for the smoother-matrix/weight diagnostics, so
+everything runs on small stratified subsamples instead.
+
+FILES AND HOW THEY FIT TOGETHER
+--------------------------------
+- ae98_make_balanced_subsample_submission.Rmd
+  Builds two 3,000-row stratified diagnostic subsamples from the full AE98
+  data and saves them to ae98_sub.rds:
+    ae98_labor_sub  -> stratified on (samesex, morekids, workedm, race, age),
+                       for the labor-force-participation outcome (workedm).
+    ae98_income_sub -> stratified on (samesex, morekids, income decile, race,
+                       age), for the log-income outcome (lincomem), drawn
+                       from the positive-income parent population.
+  ae98_sub.rds ALSO contains a generic key `ae98_sub`, which is just an
+  alias for `ae98_labor_sub` left over from an early draft. IGNORE IT — see
+  Hard Rules.
+
+- child_test.Rmd
+  Main analysis notebook. Loads ae98_sub.rds, then:
+    Section 1: SUW Table 4 reproduction, split into a labor tab (3 outcome
+      recodings) and an income tab (4 unit recodings), since the two
+      outcome families use different samples and the full published table
+      can't be matched at N=3,000 anyway. 2SLS + 6 kappa estimators per tab.
+    Section 2: DML via dml_with_smoother() (grf honest forest), fit BOTH
+      untuned (tune.parameters="none") and tuned (tune.parameters="all"),
+      both samples -- PLR-IV and Wald-AIPW, with identity checks.
+    Section 3: mlr3-based learner comparison (LATE/Wald-AIPW-type estimate).
+      Linear+logit and Ranger are fit fresh here. XGBoost is NOT fit here --
+      it is IMPORTED from ae98_xgb_tuning_export.rds (see below and Hard
+      Rules). Combined comparison table includes kappa reference rows.
+    Section 4: weight diagnostics -- DML vs. kappa, learners vs. kappa,
+      weight-statistics bridge (Knaus summary stats + ESS Kish/modified),
+      ESS overview table + dumbbell plot. Both samples.
+    Section 5: Love plots -- DML vs. kappa (10 panels/sample), learners vs.
+      kappa (6 panels/sample). Both samples.
+
+- child_xgb_tuning.Rmd
+  Separate XGBoost tuning appendix, scoped to ONE binary outcome (workedm,
+  labor sample) and ONE continuous outcome (lincomem, income sample) only --
+  not every recoding. Fits untuned XGBoost vs. tuned XGBoost
+  (tune_on_folds=TRUE, i.e. hyperparameters are re-selected separately
+  inside each of the 5 outer cross-fitting folds via 3-fold inner CV /
+  random search on nuisance-prediction loss). Produces: estimate comparison,
+  nuisance-loss comparison, a descriptive fold-median hyperparameter
+  summary, weight/ESS diagnostics with identity checks, and an export chunk
+  that saves everything (including the raw omega weight vectors and
+  identity-check flags) to ae98_xgb_tuning_export.rds. This is the only
+  bridge between the two files -- child_test.Rmd reads this RDS, it never
+  re-tunes or re-fits XGBoost itself.
+
+- ae98_sign_convention_note.txt
+  Standalone note on the SUW Table 4 sign-flip issue (see Hard Rules, item 6).
+
+- child_translation_invariance_method_a.Rmd
+  Method-A rerun check: two workflows only (Labor: workedm vs. workedm+1, k=1;
+  Income: lincomem vs. lincomem+log(100), k=log(100)) -- NOT every SUW
+  recoding. workedm_01=1-workedm excluded (reflection, not a translation).
+  Sections: (1) kappa, all 6 estimators, cheap; (2) DML headline via
+  dml_with_smoother, TUNED honest forest only; (3a) linear+logit (6-cov) and
+  Ranger (7-cov), fresh refit both outcomes; (3b) XGBoost, gated behind
+  RUN_XGB / RUN_XGB_LABOR_ONLY switches (default OFF) -- does a FULL
+  tune_on_folds=TRUE retune+refit on both the original and shifted outcome
+  each time; never reuses ae98_xgb_tuning_export.rds for this (that export
+  is only valid for descriptive tables and the Method-B frozen-weight
+  check, not for a Method-A rerun on a different Y). Loads the exact same
+  ae98_labor_sub/ae98_income_sub, no resampling.
+
+
+1. CURRENT STATUS — DONE
+--------------------------
+- Data loading fixed: child_test.Rmd and child_xgb_tuning.Rmd both load
+  ae98_labor_sub / ae98_income_sub explicitly; neither ever touches the
+  ae98_sub alias or the full parent samples.
+- Section 1 (reproduction tables) implemented, including the SUW sign-flip
+  display fix for the labor table's third column (see Hard Rules, item 6).
+- Section 2 (grf-based DML, untuned vs. tuned honest forest) implemented
+  for both samples, with re-seeding before every stochastic call.
+- Section 3 (learner comparison estimates: linear+logit, Ranger fit fresh;
+  XGBoost imported) implemented for both samples.
+- Section 4 (weight diagnostics: DML vs. kappa, learners vs. kappa, weight
+  bridge, ESS overview + dumbbell plot) implemented for both samples.
+- Section 5 (Love plots: DML vs. kappa, learners vs. kappa) implemented for
+  both samples. XGBoost panels use the imported weight vectors from
+  ae98_xgb_tuning_export.rds when available.
+- child_xgb_tuning.Rmd implemented: tune_on_folds=TRUE, TUNE_EVALS=15,
+  INNER_FOLDS=3, random search on nuisance-prediction loss only. The
+  propensity_boundary_share() bug (was reading a flat "ml_r" prediction
+  IIVM never populates) is fixed to use branch-specific ml_r0/ml_r1. The
+  weight-diagnostics table's "Control mass" column is labeled to reflect
+  weight_bridge()'s sign-flip convention. Export chunk writes
+  ae98_xgb_tuning_export.rds with omega_vectors and identity_checks
+  included, specifically so child_test.Rmd never needs to refit XGBoost.
+- All known R syntax/library bugs fixed: \u-escape-inside-backticks
+  (R does not allow unicode escapes in backtick-quoted names, only in
+  quoted strings) fixed everywhere it occurred; missing library(cobalt)
+  and library(viridis) (required by make_love()) added.
+- child_translation_invariance_method_a.Rmd built (see file map above).
+  Runtime switches default to RUN_KAPPA/RUN_DML/RUN_LM_RF = TRUE,
+  RUN_XGB = FALSE, RUN_XGB_LABOR_ONLY = TRUE -- staged rollout, not yet
+  run end-to-end by the user.
+
+
+2. STILL PENDING
+-----------------
+- Knit child_xgb_tuning.Rmd and confirm ae98_xgb_tuning_export.rds is
+  created (Labor cell first, per the file's own runtime warning, before
+  adding Income).
+- Knit child_test.Rmd end-to-end and confirm all 5 sections render
+  correctly with the real XGBoost import in place.
+- Knit child_translation_invariance_method_a.Rmd with RUN_XGB=FALSE first;
+  confirm Sections 1-3a work; only then set RUN_XGB=TRUE (Labor first via
+  RUN_XGB_LABOR_ONLY=TRUE, then Income).
+- Optional: 6-covariate robustness check -- refit kappa and/or Ranger with
+  sex2nd dropped too, to empirically confirm (not just argue) that the
+  linear+logit restriction to 6 covariates costs no real information.
+- Optional final decision: TUNE_EVALS = 15 vs. raising to 20/30 (runtime
+  permitting, tested on the Labor cell first).
+- Optional final decision: whether to turn on n_reps > 1 (repeated
+  cross-fitting) anywhere, currently left at 1 everywhere.
+
+
+3. HARD RULES / DO NOT DO
+---------------------------
+1. Never use the full parent AE98 samples (394,840 labor / 220,502 income)
+   in child_test.Rmd or child_xgb_tuning.Rmd. Only the two 3,000-row
+   diagnostic subsamples.
+2. Never load data via the generic `ae98_sub` key in ae98_sub.rds -- it is
+   an alias for ae98_labor_sub left over from an early draft. Always load
+   `ae98_labor_sub` and `ae98_income_sub` explicitly.
+3. Never mix labor-sample rows into the income analysis, or vice versa.
+4. Never drop `sex2nd` for kappa, Ranger, XGBoost, or the grf honest forest.
+   It is dropped ONLY for the linear+logit learner's design matrix, because
+   that is the one arm-specific PARAMETRIC nuisance model where sexk/sex2nd
+   are exactly collinear within a fixed Z arm (Z=1{sexk==sex2nd} forces
+   sexk=sex2nd when Z=1 and sexk=1-sex2nd when Z=0) and a design-matrix
+   inversion breaks. Tree-based learners and pooled propensity models are
+   unaffected and keep all 7 covariates.
+5. Never tune any nuisance learner (in child_xgb_tuning.Rmd or anywhere
+   else) by looking at the treatment-effect estimate. Tuning objective is
+   nuisance-prediction loss (RMSE / log-loss) only.
+6. child_test.Rmd must NEVER take child_xgb_tuning.Rmd's median/fold-summary
+   hyperparameter table and plug those values into a fresh DoubleMLIIVM fit.
+   tune_on_folds=TRUE produces fold-specific hyperparameters -- there is no
+   single global recipe to reuse. Always import the already-fitted results
+   from ae98_xgb_tuning_export.rds instead.
+7. Never set.seed() once at the top of a script and assume it covers every
+   later stochastic call. R has one global RNG stream; reseed immediately
+   before every dml_with_smoother() / DoubleMLIIVM fit / tuning call that
+   needs to be reproducible or compared against a counterpart run.
+8. SUW's Table 4 additive-inverse sign flip (labor's "did not work" column)
+   is a DISPLAY-ONLY convention for that one reproduction-table column.
+   Never apply it in Section 2 DML, Section 3 learner comparison, or the
+   future translation-invariance file.
+9. For the future translation-invariance file: never use
+   workedm_01 = 1-workedm as a translation-invariance test -- it is a
+   reflection, not a pure translation, and does not isolate the same
+   question. Use workedm vs. workedm+1 (k=1) and lincomem vs.
+   lincomem+log(100) (k=log(100)). The sample (exact rows) must be held
+   fixed across the original and shifted fits -- no resampling between them.

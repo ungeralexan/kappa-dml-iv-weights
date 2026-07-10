@@ -1,0 +1,296 @@
+\documentclass{article}
+
+% Math support
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% For \citet, \citep, \citealp and bibliography
+\usepackage{natbib}
+
+% Nice hyperlinks (optional but harmless)
+\usepackage{hyperref}
+
+\begin{document}
+
+\subsection{Kappa and weighting estimators of the LATE}
+The previous section established Abadie's kappa representation of the LATE. For
+the empirical analysis, the relevant implication is that this representation
+identifies the population parameter, but does not by itself select a unique
+finite-sample estimator. In population, the complier share
+$P(D_i(1)>D_i(0))$ can be written as $E[\kappa_i]$, $E[\kappa_{1i}]$, or
+$E[\kappa_{0i}]$. These objects are equal under the IV assumptions, but their
+sample analogues need not be equal. As a result, the same identification result
+leads to several natural weighting estimators once the population moments are
+replaced by sample averages.
+Following \citet{sloczynski2025abadie}, I focus on five such estimators. The
+distinction that matters for the later analysis is whether the weights are
+normalized in the sample. By normalization I mean that the weights entering a
+weighted mean are rescaled to sum to one. For a treatment-effect contrast, this
+requires the two weighted components of the contrast to be normalized separately.
+The Uysal estimator $\hat\tau_u$ and the Abadie--Cattaneo estimator
+$\hat\tau_{a,10}$ have this property. The other three estimators,
+$\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$, are
+unnormalized sample analogues. This subsection defines the estimators and sets up
+the notation used in the empirical tables. The implications of the normalization
+choice for translation invariance are discussed in the next subsection.
+
+\subsubsection*{Two normalized estimators}
+For notational simplicity, the formulas below are written in terms of $p(X_i)$. In the empirical implementation, $p(X_i)$ is replaced by a fitted propensity score
+$\hat p(X_i)$.
+The first estimator, $\hat\tau_u$, is due to \citet{uysal2011three}. It is
+the ratio of two separately Hájek-normalized inverse-probability-weighted
+contrasts,
+\begin{equation}
+    \hat\tau_u =
+    \frac{
+        \left(\sum_{i=1}^N \frac{Z_i}{p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{Y_iZ_i}{p(X_i)}
+        -
+        \left(\sum_{i=1}^N \frac{1-Z_i}{1-p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{Y_i(1-Z_i)}{1-p(X_i)}
+    }{
+        \left(\sum_{i=1}^N \frac{Z_i}{p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{D_iZ_i}{p(X_i)}
+        -
+        \left(\sum_{i=1}^N \frac{1-Z_i}{1-p(X_i)}\right)^{-1}\sum_{i=1}^N \frac{D_i(1-Z_i)}{1-p(X_i)}
+    }.
+    \label{eq:tau_u}
+\end{equation}
+Both the numerator and the denominator are differences of Hájek-normalized
+IPW means. Thus, within each instrument group, the weights are rescaled before
+the difference is formed.\\
+The second normalized estimator, $\hat\tau_{a,10}$, is due to
+\citet{abadie2018econometric} (see also \citealp{sant2022covariate}). Rather than normalizing the instrument-group IPW means as in \(\hat\tau_u\),
+it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly,
+\begin{equation}
+    \hat\tau_{a,10} =
+    \left(\sum_{i=1}^N \kappa_{1i}\right)^{-1}\sum_{i=1}^N \kappa_{1i}Y_i
+    -
+    \left(\sum_{i=1}^N \kappa_{0i}\right)^{-1}\sum_{i=1}^N \kappa_{0i}Y_i.
+    \label{eq:tau_a10}
+\end{equation}
+
+\subsubsection*{Three unnormalized estimators}
+The remaining estimators start from the same population identity,
+\[
+\tau_{LATE}
+= P(D_i(1)>D_i(0))^{-1}
+E\!\left[
+Y_i\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}
+\right].
+\]
+They use the same sample numerator. What differs across them is the sample
+analogue used for the complier share in the denominator.
+\begin{align}
+    \hat\tau_a &= \left(N^{-1}\sum_{i=1}^N \kappa_i\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_a}\\
+    \hat\tau_t \;(=\hat\tau_{a,1}) &= \left(N^{-1}\sum_{i=1}^N \kappa_{1i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_t}\\
+    \hat\tau_{a,0} &= \left(N^{-1}\sum_{i=1}^N \kappa_{0i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}. \label{eq:tau_a0}
+\end{align}
+These three estimators are consistent under the same population argument, but
+their finite-sample weights are not normalized. In particular, the two components
+of the implied outcome contrast are not both forced to sum to one. This
+distinction has direct finite-sample consequences. \citet{sloczynski2025abadie}
+show that
+$\hat\tau_u$ and $\hat\tau_{a,10}$ are translation invariant, whereas
+$\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$ are not.
+Among the unnormalized estimators, $\hat\tau_t$ is the one most commonly used in
+the applied literature, following \citet{tan2006regression} and
+\citet{frolich2007nonparametric} and later applications such as
+\citet{macurdy2011flexible},
+\citet{donald2014inverse,donald2014testing}, and
+\citet{abdulkadirouglu2017research}.
+
+\subsubsection*{Estimating the propensity score}
+
+In applications, the instrument propensity score $p(X_i)$ is usually unknown.
+Following \citet{sloczynski2025abadie}, I use the parametric logit model
+\[
+F(X_i,\alpha)=\frac{\exp(X_i'\alpha)}{1+\exp(X_i'\alpha)}.
+\]
+I use two estimators of $\alpha$. The first is standard maximum likelihood,
+denoted $\hat\alpha^{ml}$. The second is the covariate balancing propensity
+score estimator of \citet{imai2014covariate}, denoted $\hat\alpha^{cb}$, which
+solves
+\begin{equation}
+    N^{-1}\sum_{i=1}^N \frac{Z_i}{F(X_i,\hat\alpha^{cb})}X_i =
+    N^{-1}\sum_{i=1}^N \frac{1-Z_i}{1-F(X_i,\hat\alpha^{cb})}X_i.
+    \label{eq:cbps_moment}
+\end{equation}
+This moment condition chooses the propensity-score parameters so that the
+reweighted covariates balance across instrument values. It therefore targets a
+different finite-sample property than the likelihood score.
+The superscript on an estimator indicates which propensity score is used. For example,
+$\hat\tau_u^{ml}$ and $\hat\tau_u^{cb}$ are obtained by plugging in
+$\hat p^{ml}(X_i)=F(X_i,\hat\alpha^{ml})$ and
+$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively. The same convention applies
+to the remaining kappa estimators.
+
+This convention matters in the empirical analysis. Under maximum likelihood, the
+finite-sample denominator ambiguity remains, and the ML versions of the
+estimators generally differ. Under covariate balancing with a constant included
+in $X_i$, \citet{sloczynski2025abadie} show the exact finite-sample identity
+\[
+\hat\tau_u^{cb}
+=
+\hat\tau_t^{cb}
+=
+\hat\tau_{a,1}^{cb}
+=
+\hat\tau_{a,0}^{cb}
+=
+\hat\tau_{a,10}^{cb}.
+\]
+Thus, reporting all these CBPS-based estimates separately would not add
+information, because they coincide by construction in the sample. I therefore report
+$\hat\tau_u^{cb}$ as the CBPS-based representative. The remaining estimators are
+reported with maximum-likelihood propensity scores. The estimator \(\hat\tau_a^{cb}\) is not covered by this equivalence. Since the
+empirical comparison follows \citet{sloczynski2025abadie} and focuses on
+\(\hat\tau_u^{cb}\) as the CBPS-based representative, I do not report
+\(\hat\tau_a^{cb}\) as a separate benchmark.
+
+
+
+
+
+
+
+\subsection{Translation invariance}
+\label{subsec:invariance_normalization}
+
+The preceding subsection introduced several weighting estimators that are all
+motivated by the same LATE identification argument. Their empirical behavior can
+nevertheless differ sharply because they do not impose the same finite-sample
+normalization. The most relevant consequence for this thesis is translation
+invariance. An estimator is translation invariant if adding a constant to every
+outcome leaves the estimated treatment effect unchanged. With \(Y\) denoting the
+outcome vector and \(W\) all non-outcome variables used by the estimator, this
+property can be written as
+\begin{equation}
+    \hat\tau(Y,W)=\hat\tau(Y+c\mathbf{1}_N,W)
+    \quad\text{for all } c\in\mathbb{R}.
+    \label{eq:ti_definition}
+\end{equation}
+\citet{sloczynski2025abadie} use this criterion to separate the normalized and
+unnormalized kappa estimators. Their Proposition 3.2 shows that
+\(\hat\tau_u\) and \(\hat\tau_{a,10}\) are translation invariant, whereas
+\(\hat\tau_a\), \(\hat\tau_t(=\hat\tau_{a,1})\), and \(\hat\tau_{a,0}\) are
+not. This result gives normalization a concrete interpretation: it is not only a
+descriptive property of the weights, but determines whether the estimate depends
+on an arbitrary additive coding choice for the outcome.
+
+The same issue appears as scale sensitivity when the outcome is logarithmic. If
+an income or wage variable \(V_i\) is measured in cents rather than dollars before
+taking logs, the transformed outcome changes by a constant:
+\begin{equation}
+    \log(100V_i)=\log(V_i)+\log(100).
+    \label{eq:log_units}
+\end{equation}
+An estimator that is not translation invariant in log outcomes can therefore
+change when the underlying monetary variable is recorded in dollars, cents, or
+larger units. This is the logic behind the cents-versus-dollars comparison in
+\citet{sloczynski2025abadie}. The same argument also applies to binary outcomes
+when one considers additive recodings such as \(Y_i+1\). By contrast, changing
+from \(Y_i\) to \(1-Y_i\) is not a pure translation, because it combines a shift
+with a sign reversal; it is therefore a different diagnostic question.
+
+More generally, \citet{sloczynski2025abadie} formulate scale equivariance as a
+requirement on how an estimator reacts to transformations of the outcome scale.
+For the present analysis, the relevant special case is scale invariance of log
+outcomes with respect to the units of the underlying variable. Multiplying the
+untransformed outcome by a positive constant only adds a constant after the log
+transformation. Hence, in this setting, the practical scale problem is captured
+by the translation-invariance condition in \eqref{eq:ti_definition}.
+
+The outcome-weight representation makes the translation-invariance condition
+transparent. Suppose that, for a given fitted estimator, the point estimate can be
+written as a weighted sum of observed outcomes,
+\begin{equation}
+    \hat\tau(Y)=\sum_{i=1}^N \omega_iY_i=\omega'Y,
+    \label{eq:ow_rep_ch2}
+\end{equation}
+where \(\omega_i\) are the final outcome weights. These are not the same object
+as Abadie's \(\kappa\)-weights. The \(\kappa\)-weights identify complier moments;
+the outcome weights describe how a particular finite-sample estimator combines
+the observed outcomes after all nuisance estimation and implementation choices
+have been made. This distinction is central in \citet{knaus2024treatment}, who
+shows how outcome weights can be derived and used to inspect DML and generalized
+random forest estimators.
+
+For a fixed vector of outcome weights, shifting all outcomes by \(c\) gives
+\begin{align}
+    \hat\tau(Y+c\mathbf{1}_N)
+    &= \sum_{i=1}^N \omega_i(Y_i+c) \nonumber\\
+    &= \hat\tau(Y)+c\sum_{i=1}^N\omega_i .
+    \label{eq:ti_shift}
+\end{align}
+Thus, within a fixed weighted representation,
+\begin{equation}
+    \hat\tau(Y+c\mathbf{1}_N)=\hat\tau(Y)
+    \quad\Longleftrightarrow\quad
+    \sum_{i=1}^N\omega_i=0.
+    \label{eq:ti_sumzero_ch2}
+\end{equation}
+The total weight sum is therefore the key finite-sample diagnostic. If
+\(\sum_i\omega_i\neq0\), an additive shift of size \(c\) changes the estimate by
+\(c\sum_i\omega_i\). For the log unit change in \eqref{eq:log_units}, the
+predicted change is \(\log(100)\sum_i\omega_i\).
+
+This condition is weaker than full normalization of treated and untreated outcome
+weights. In a binary-treatment setting, full normalization requires
+\begin{equation}
+    \sum_{i=1}^N\omega_iD_i=1
+    \quad\text{and}\quad
+    \sum_{i=1}^N\omega_i(1-D_i)=-1.
+    \label{eq:full_normalization}
+\end{equation}
+Full normalization implies \(\sum_i\omega_i=0\), and therefore implies
+translation invariance. The reverse is not generally true: an estimator can have
+total weight zero while the treated and untreated components do not separately
+sum to \(1\) and \(-1\). Knaus refers to this weaker case as scale-normalization.
+This distinction matters for the later diagnostics. Translation invariance asks
+whether the estimate is stable to additive outcome recodings; full normalization
+additionally asks whether the outcome-weight representation has the stronger
+interpretation of a normalized treated mean minus a normalized untreated mean.
+
+The empirical analysis uses two complementary checks. The first is an algebraic
+frozen-weight check. After fitting the estimator once on an original outcome
+\(Y\), I extract the outcome weights and keep them fixed. For the shifted outcome
+\(Y+c\mathbf{1}_N\), the predicted shift is
+\begin{equation}
+    \Delta_B(c)
+    =
+    \sum_{i=1}^N\omega_i(Y_i+c)-\sum_{i=1}^N\omega_iY_i
+    =
+    c\sum_{i=1}^N\omega_i .
+    \label{eq:method_b}
+\end{equation}
+This is the Method-B diagnostic in the empirical section. It is exact for the
+extracted weights and directly measures the sensitivity implied by the fitted
+outcome-weight representation.
+
+The second check reruns the full estimation pipeline on the shifted outcome:
+\begin{equation}
+    \Delta_A(c)
+    =
+    \hat\tau(Y+c\mathbf{1}_N,W)-\hat\tau(Y,W).
+    \label{eq:method_a}
+\end{equation}
+This is Method A. It is the main diagnostic in the later analysis because it asks
+whether the estimator as actually implemented is invariant, including nuisance
+training, cross-fitting, and tuning. For simple kappa estimators, the weights do
+not depend on the outcome, so Method A and Method B coincide up to numerical
+precision. For DML and forest-based estimators, the distinction is more
+substantive. \citet{knaus2024treatment} shows that the availability and
+properties of outcome weights depend on implementation choices. Standard
+implementations of PLR-IV, instrumental forests, and Wald-AIPW are typically
+scale-normalized rather than fully normalized; boosted-tree learners may also
+fail the affine-smoother conditions used to obtain clean weighted
+representations. Consequently, Method B is useful as a weight-based diagnostic,
+but Method A is the more direct check for the estimator that is actually
+reported.
+
+Because Method A reruns an estimator, algorithmic randomness has to be controlled.
+The same sample, random seed, cross-fitting folds, learner class, and tuning rule
+are kept fixed across the original and shifted outcomes. This is especially
+important for random forests, Ranger, and XGBoost, where sample splitting, tree
+construction, and nested tuning can otherwise introduce unrelated variation. The
+purpose of the rerun check is not to compare two independently randomized fits,
+but to isolate the effect of the additive outcome shift.
+\end{document}
