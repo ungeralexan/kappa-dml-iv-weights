@@ -1,0 +1,761 @@
+---
+title: "Card (1995) — Outcome Weights & Kappa Estimators"
+subtitle: "College Proximity Instrument: SUW Table 3 Replication, DML & Learner Comparison"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body   { font-size: 15px; color: #2c2c2c; }
+h1     { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2     { color: #2c7bb6; margin-top: 28px; }
+h3     { color: #444; margin-top: 20px; }
+
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 12,
+  fig.height = 6
+)
+```
+
+---
+
+# Setup
+
+## Packages & Functions
+
+```{r packages-and-source}
+# Core
+library(haven)
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+# DML smoother + balance plots
+library(OutcomeWeights)
+library(cobalt)
+library(viridis)
+library(gridExtra)
+library(ggplot2)
+# DoubleML learners
+library(DoubleML)
+library(mlr3verse)
+
+source("functions_all.R")   # all estimators, weight diagnostics (incl. ESS_mod),
+                               # get_dml_coef / get_dml_se, make_X, make_love, etc.
+cat("functions_all.R sourced.\n")
+```
+
+## Data & Design
+
+<div class="note-box">
+**Setting.** Card (1995) NLSYM subsample (N = 3,010). Instrument Z = `nearc4` (grew up near a 4-year college). Two binary treatments: **somecol** = 1{educ > 12} and **educ16** = 1{educ ≥ 16}. Outcome: log wages, reported in two units (dollars / cents) only because SUW Table 3 is laid out that way. Two covariate specs: **Card** (exper, expersq, black, south, smsa, smsa66, reg661–668) and **Kitagawa** (black, south, smsa, smsa66, south66).
+</div>
+
+```{r data}
+card       <- read_dta("card.dta")
+
+# Sample restriction: N = 3,010
+card_clean <- card[!is.na(card$wage) & !is.na(card$educ), ]
+
+# Outcomes in two units: lwage_cnt = lwage + log(100)
+card_clean$lwage_cnt <- log(card_clean$wage)         # cents
+card_clean$lwage     <- log(card_clean$wage / 100)   # dollars
+
+# Binary treatments
+card_clean$somecol <- as.integer(card_clean$educ > 12)
+card_clean$educ16  <- as.integer(card_clean$educ >= 16)
+
+# Instrument
+card_clean$Z_inst <- as.integer(card_clean$nearc4)
+
+# expersq if missing
+if (!"expersq" %in% names(card_clean)) {
+  card_clean$expersq <- card_clean$exper^2
+}
+
+cat(sprintf("N = %d (should be 3,010)\n", nrow(card_clean)))
+cat(sprintf("somecol mean = %.4f | educ16 mean = %.4f | nearc4 mean = %.4f\n",
+            mean(card_clean$somecol), mean(card_clean$educ16),
+            mean(card_clean$Z_inst)))
+```
+
+```{r design-matrices}
+# Kappa design matrices — WITH intercept (for logit / CBPS)
+X_card_kappa <- model.matrix(
+  ~ exper + expersq + black + south + smsa + smsa66 +
+    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
+  data = card_clean
+)
+X_card_df <- as.data.frame(X_card_kappa[, -1, drop = FALSE])
+
+X_kit_kappa <- model.matrix(
+  ~ black + south + smsa + smsa66 + south66,
+  data = card_clean
+)
+X_kit_df <- as.data.frame(X_kit_kappa[, -1, drop = FALSE])
+
+# DML design matrices — no intercept, attributes stripped for grf (make_X)
+X_dml_card <- make_X(
+  ~ 0 + exper + expersq + black + south + smsa + smsa66 +
+    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
+  data = card_clean
+)
+X_dml_kit <- make_X(
+  ~ 0 + black + south + smsa + smsa66 + south66,
+  data = card_clean
+)
+
+# Core vectors
+Y_cnt <- card_clean$lwage_cnt   # cents  (used only for the SUW Table 3 layout)
+Y_dol <- card_clean$lwage       # dollars (the working outcome everywhere else)
+Z     <- card_clean$Z_inst
+D1    <- card_clean$somecol
+D2    <- card_clean$educ16
+
+cat(sprintf("Kappa: Card %d / Kitagawa %d covariates | DML: Card %dx%d / Kitagawa %dx%d\n",
+            ncol(X_card_kappa) - 1, ncol(X_kit_kappa) - 1,
+            nrow(X_dml_card), ncol(X_dml_card), nrow(X_dml_kit), ncol(X_dml_kit)))
+```
+
+---
+
+# 1. Reproduction — SUW Table 3
+
+<div class="note-box">
+**Layout.** SUW Table 3 has 8 columns: 2 treatments × 2 specifications × 2 outcome units, split here into two tabs by treatment. Within each tab the four columns are spec × unit. Normalized estimators (τ_cb_u, τ_ml_u, τ_ml_a10) are translation invariant — cents and dollars columns match; unnormalized ones (τ_ml_a, τ_ml_t, τ_ml_a0) do not.
+</div>
+
+```{r build-columns, cache=TRUE}
+# One full column = 2SLS + all six kappa estimators with analytical SEs.
+run_card_column <- function(Y, D, X_kappa, X_df) {
+  list(
+    tsls  = run_2sls(Y, D, Z, X_df, endog_name = "D"),
+    kappa = kappa_analytic_se_all(Y, Z, D, X_kappa)
+  )
+}
+
+# Treatment 1: somecol (cols 1-4)
+col1 <- run_card_column(Y_cnt, D1, X_card_kappa, X_card_df)  # cents,   Card
+col2 <- run_card_column(Y_dol, D1, X_card_kappa, X_card_df)  # dollars, Card
+col3 <- run_card_column(Y_cnt, D1, X_kit_kappa,  X_kit_df)   # cents,   Kitagawa
+col4 <- run_card_column(Y_dol, D1, X_kit_kappa,  X_kit_df)   # dollars, Kitagawa
+
+# Treatment 2: educ16 (cols 5-8)
+col5 <- run_card_column(Y_cnt, D2, X_card_kappa, X_card_df)  # cents,   Card
+col6 <- run_card_column(Y_dol, D2, X_card_kappa, X_card_df)  # dollars, Card
+col7 <- run_card_column(Y_cnt, D2, X_kit_kappa,  X_kit_df)   # cents,   Kitagawa
+col8 <- run_card_column(Y_dol, D2, X_kit_kappa,  X_kit_df)   # dollars, Kitagawa
+
+cat("All 8 columns computed.\n")
+```
+
+```{r table-builder, echo=FALSE}
+cell_fmt <- function(est, se, digits = 3) {
+  if (is.na(est)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0)
+    return(sprintf("%.3f<br><span style='color:#888'>(NA)</span>", est))
+  pval  <- 2 * pnorm(-abs(est / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s<br><span style='color:#888'>(%.3f)</span>", est, stars, se)
+}
+
+build_treatment_table <- function(cA_cnt, cB_dol, cC_cnt, cD_dol) {
+  ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+  labels <- c("τ_cb_u","τ_ml_u","τ_ml_a10","τ_ml_a","τ_ml_t","τ_ml_a0")
+
+  rows <- list(data.frame(
+    Estimator = "2SLS",
+    `Card / cents`       = cell_fmt(cA_cnt$tsls$coef, cA_cnt$tsls$se),
+    `Card / dollars`     = cell_fmt(cB_dol$tsls$coef, cB_dol$tsls$se),
+    `Kitagawa / cents`   = cell_fmt(cC_cnt$tsls$coef, cC_cnt$tsls$se),
+    `Kitagawa / dollars` = cell_fmt(cD_dol$tsls$coef, cD_dol$tsls$se),
+    check.names = FALSE, stringsAsFactors = FALSE
+  ))
+
+  for (i in seq_along(ests)) {
+    e <- ests[i]
+    rows[[length(rows) + 1]] <- data.frame(
+      Estimator = labels[i],
+      `Card / cents`       = cell_fmt(cA_cnt$kappa$estimates[e], cA_cnt$kappa$se[e]),
+      `Card / dollars`     = cell_fmt(cB_dol$kappa$estimates[e], cB_dol$kappa$se[e]),
+      `Kitagawa / cents`   = cell_fmt(cC_cnt$kappa$estimates[e], cC_cnt$kappa$se[e]),
+      `Kitagawa / dollars` = cell_fmt(cD_dol$kappa$estimates[e], cD_dol$kappa$se[e]),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }
+  do.call(rbind, rows)
+}
+```
+
+## Results {.tabset}
+
+### Treatment: Some College (educ > 12)
+
+```{r table-somecol}
+build_treatment_table(col1, col2, col3, col4) %>%
+  kbl(escape = FALSE, align = c("l","c","c","c","c"),
+      caption = "SUW Table 3 — Treatment: somecol (educ > 12). Effect of some college on log wages.") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",           1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",  2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators",5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant). Orange = unnormalized. Card spec: exper, expersq, black, south, smsa, smsa66, reg661–668. Kitagawa spec: black, south, smsa, smsa66, south66. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+### Treatment: College Completion (educ ≥ 16)
+
+```{r table-educ16}
+build_treatment_table(col5, col6, col7, col8) %>%
+  kbl(escape = FALSE, align = c("l","c","c","c","c"),
+      caption = "SUW Table 3 — Treatment: educ16 (educ ≥ 16). Effect of college completion on log wages.") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Panel A: 2SLS (HC1-robust)",           1, 1) %>%
+  pack_rows("Panel B: Normalized kappa estimators",  2, 4) %>%
+  pack_rows("Panel C: Unnormalized kappa estimators",5, 7) %>%
+  row_spec(2:4, background = "#eef6ff") %>%
+  row_spec(5:7, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant). Orange = unnormalized. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 2. Double ML — PLR-IV & Wald-AIPW
+
+```{r dml-fit-all, cache=TRUE}
+# Two DML fits: Card/some college and Kitagawa/college completion.
+set.seed(42); dml_card_d1 <- dml_with_smoother(Y_dol, D1, X_dml_card, Z, n_cf_folds = 5, tune.parameters = "all")
+set.seed(42); dml_kit_d2  <- dml_with_smoother(Y_dol, D2, X_dml_kit,  Z, n_cf_folds = 5, tune.parameters = "all")
+
+res_card_d1 <- summary(dml_card_d1)
+res_kit_d2  <- summary(dml_kit_d2)
+
+# Extract PLR-IV and Wald-AIPW outcome weights for every fit.
+extract_w <- function(dml_obj) {
+  om <- get_outcome_weights(dml_obj)
+  check_omega_rows(om)
+  list(plriv    = as.vector(om$omega["PLR-IV",    ]),
+       waldaipw = as.vector(om$omega["Wald-AIPW", ]))
+}
+w_card_d1 <- extract_w(dml_card_d1)
+w_kit_d2  <- extract_w(dml_kit_d2)
+
+cat("All 2 specification-specific DML fits complete.\n")
+```
+
+## Estimates {.tabset}
+
+```{r dml-cell-display, echo=FALSE}
+# PLR-IV + Wald-AIPW rows for one fit, with the algebraic identity check inline.
+show_dml_cell <- function(res, wlist, Y, cap) {
+  ids <- c(
+    check_weight_identity(wlist$plriv,    Y, get_estimate(res, "PLR-IV")),
+    check_weight_identity(wlist$waldaipw, Y, get_estimate(res, "Wald-AIPW"))
+  )
+  df <- as.data.frame(res[c("PLR-IV", "Wald-AIPW"), , drop = FALSE])
+  df$Estimator  <- rownames(df)
+  df$`ΣωY = τ̂` <- as.character(ids)
+  df <- df[, c("Estimator", setdiff(names(df), c("Estimator","ΣωY = τ̂")), "ΣωY = τ̂")]
+  df %>%
+    kbl(caption = cap, digits = 4, row.names = FALSE,
+        align = c("l", rep("r", ncol(df) - 2), "c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "ΣωY = τ̂: algebraic identity check (must be TRUE).")
+}
+```
+
+### Card — somecol
+
+```{r dml-card-d1}
+show_dml_cell(res_card_d1, w_card_d1, Y_dol,
+              "DML — Card spec, somecol, Y = log wages (dollars)")
+```
+
+### Kitagawa — educ16
+
+```{r dml-kit-d2}
+show_dml_cell(res_kit_d2, w_kit_d2, Y_dol,
+              "DML — Kitagawa spec, educ16, Y = log wages (dollars)")
+```
+
+## DML vs. Kappa — Point Estimates
+
+```{r dml-summary-table}
+# Kappa estimates for the two literature-aligned specifications.
+kappa_card_d1 <- kappa_analytic_se_all(Y_dol, Z, D1, X_card_kappa)
+kappa_kit_d2  <- kappa_analytic_se_all(Y_dol, Z, D2, X_kit_kappa)
+
+cell <- function(coef, se) {
+  if (is.na(coef)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
+  pval  <- 2 * pnorm(-abs(coef / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s (%.3f)", coef, stars, se)
+}
+
+dml_cell <- function(res, est) {
+  coef_val <- get_estimate(res, est)
+  se_val   <- if ("SE" %in% colnames(res)) as.numeric(res[est, "SE"])
+              else if ("Std. Error" %in% colnames(res)) as.numeric(res[est, "Std. Error"])
+              else NA_real_
+  cell(coef_val, se_val)
+}
+
+dml_rows <- rbind(
+  data.frame(Estimator = "PLR-IV (DML)",
+             `somecol / Card`     = dml_cell(res_card_d1, "PLR-IV"),
+             `educ16 / Kitagawa`  = dml_cell(res_kit_d2,  "PLR-IV"),
+             check.names = FALSE, stringsAsFactors = FALSE),
+  data.frame(Estimator = "Wald-AIPW (DML)",
+             `somecol / Card`     = dml_cell(res_card_d1, "Wald-AIPW"),
+             `educ16 / Kitagawa`  = dml_cell(res_kit_d2,  "Wald-AIPW"),
+             check.names = FALSE, stringsAsFactors = FALSE)
+)
+
+ests   <- c("tau_cb_u","tau_ml_u","tau_ml_a10","tau_ml_a","tau_ml_t","tau_ml_a0")
+labels <- c("τ_cb_u","τ_ml_u","τ_ml_a10","τ_ml_a","τ_ml_t","τ_ml_a0")
+kappa_rows <- do.call(rbind, lapply(seq_along(ests), function(i) {
+  e <- ests[i]
+  data.frame(
+    Estimator = labels[i],
+    `somecol / Card`     = cell(kappa_card_d1$estimates[e], kappa_card_d1$se[e]),
+    `educ16 / Kitagawa`  = cell(kappa_kit_d2$estimates[e],  kappa_kit_d2$se[e]),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}))
+
+rbind(dml_rows, kappa_rows) %>%
+  kbl(align = c("l","c","c"),
+      caption = "DML vs. Kappa — Point Estimates (SE), Y = log wages (dollars)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("Double ML", 1, 2) %>%
+  pack_rows("Kappa — normalized", 3, 5) %>%
+  pack_rows("Kappa — unnormalized", 6, 8) %>%
+  row_spec(1:2, background = "#eef6ff") %>%
+  row_spec(6:8, background = "#fffbf0") %>%
+  footnote(general = "Each cell: estimate (SE). Blue = DML. Orange = unnormalized kappa. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 3. Learner Comparison — Linear / Ranger / XGBoost
+
+```{r ext-setup}
+# DoubleMLData objects — one per cell. d and z must be numeric 0/1.
+make_dml_data <- function(D, X_dml) {
+  df <- as.data.frame(X_dml)
+  df$y <- as.numeric(Y_dol)
+  df$d <- as.numeric(D)
+  df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                   x_cols = colnames(X_dml))
+}
+
+dat_card_d1 <- make_dml_data(D1, X_dml_card)
+dat_kit_d2  <- make_dml_data(D2, X_dml_kit)
+
+cat("DoubleML data objects built for both specifications.\n")
+```
+
+```{r ext-fit-helpers, echo=FALSE}
+# Three learner spec lists, reused across cells.
+ml_lm  <- function() list(g = lrn("regr.lm"),
+                          m = lrn("classif.log_reg"),
+                          r = lrn("classif.log_reg"))
+ml_rf  <- function() list(g = lrn("regr.ranger",    keep.inbag = TRUE),
+                          m = lrn("classif.ranger", keep.inbag = TRUE),
+                          r = lrn("classif.ranger", keep.inbag = TRUE))
+ml_xgb <- function() list(
+  g = lrn("regr.xgboost",    alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+  m = lrn("classif.xgboost", predict_type = "prob"),
+  r = lrn("classif.xgboost", predict_type = "prob"))
+
+# Fit one IIVM model and return list(obj, w, ok). get_dml_se now lives in functions_all_v4.R.
+fit_iivm <- function(dml_data, learners, Y) {
+  set.seed(42)
+  obj <- DoubleMLIIVM$new(data = dml_data,
+                          ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+                          n_folds = 5, score = "LATE")
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  om  <- get_outcome_weights(object = obj, dml_data = dml_data)
+  w   <- as.vector(om$omega)
+  ok  <- check_doubleml_identity(om, Y, obj$coef)
+  list(obj = obj, w = w, ok = ok)
+}
+
+# Compact two-specification estimate table for one learner.
+learner_estimate_table <- function(f_card_d1, f_kit_d2, cap) {
+  data.frame(
+    Cell      = c("Card / some college","Kitagawa / college completion"),
+    Estimate  = round(c(get_dml_coef(f_card_d1$obj), get_dml_coef(f_kit_d2$obj)), 4),
+    SE        = round(c(get_dml_se(f_card_d1$obj), get_dml_se(f_kit_d2$obj)), 4),
+    `ΣωY = τ̂` = c(f_card_d1$ok, f_kit_d2$ok),
+    check.names = FALSE
+  ) %>%
+    kbl(caption = cap, align = c("l","r","r","c")) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = FALSE, font_size = 13) %>%
+    footnote(general = "ΣωY = τ̂: algebraic identity check (must be TRUE).")
+}
+```
+
+## Estimates {.tabset}
+
+### Linear + Logistic
+
+```{r ext-fit-lm, cache=TRUE}
+lm_card_d1 <- fit_iivm(dat_card_d1, ml_lm(), Y_dol)
+lm_kit_d2  <- fit_iivm(dat_kit_d2,  ml_lm(), Y_dol)
+
+learner_estimate_table(lm_card_d1, lm_kit_d2,
+                       "Wald-AIPW — Linear + Logistic")
+```
+
+### Ranger
+
+```{r ext-fit-rf, cache=TRUE}
+rf_card_d1 <- fit_iivm(dat_card_d1, ml_rf(), Y_dol)
+rf_kit_d2  <- fit_iivm(dat_kit_d2,  ml_rf(), Y_dol)
+
+learner_estimate_table(rf_card_d1, rf_kit_d2,
+                       "Wald-AIPW — Ranger")
+```
+
+### XGBoost
+
+```{r ext-xgb-import}
+wald_xgb <- readRDS("card_xgb_tuning_export.rds")
+pliv_xgb <- readRDS("card_xgb_pliv_tuning_export.rds")
+
+get_xgb_row <- function(export, cell_name, tuned_label = "tuned") {
+  tab <- export$estimate_comparison
+  hit <- grepl(tuned_label, tab$Learner, ignore.case = TRUE) &
+    !grepl("untuned", tab$Learner, ignore.case = TRUE) & tab$Cell == cell_name
+  if (sum(hit) != 1L) stop(sprintf("Expected one tuned XGBoost row for '%s'.", cell_name))
+  tab[hit, , drop = FALSE]
+}
+get_xgb_weight <- function(export, cell_name) export$omega_vectors[[cell_name]]$tuned
+get_xgb_identity <- function(export, cell_name) export$identity_checks[[cell_name]]$tuned
+
+xgb_card_d1 <- list(
+  w = get_xgb_weight(wald_xgb, "Card / some college"),
+  ok = get_xgb_identity(wald_xgb, "Card / some college"))
+xgb_kit_d2 <- list(
+  w = get_xgb_weight(wald_xgb, "Kitagawa / college completion"),
+  ok = get_xgb_identity(wald_xgb, "Kitagawa / college completion"))
+xgb_pliv_card_d1 <- get_xgb_weight(pliv_xgb, "Card / some college")
+xgb_pliv_kit_d2  <- get_xgb_weight(pliv_xgb, "Kitagawa / college completion")
+
+rbind(
+  transform(get_xgb_row(wald_xgb, "Card / some college"), Estimator = "Wald-AIPW"),
+  transform(get_xgb_row(wald_xgb, "Kitagawa / college completion"), Estimator = "Wald-AIPW"),
+  transform(get_xgb_row(pliv_xgb, "Card / some college"), Estimator = "PLR-IV"),
+  transform(get_xgb_row(pliv_xgb, "Kitagawa / college completion"), Estimator = "PLR-IV")
+) %>%
+  select(Estimator, everything()) %>%
+  kbl(caption = "Imported tuned-on-folds XGBoost estimates") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE)
+```
+
+## Comparison Table
+
+```{r ext-comparison}
+ext_cell <- function(coef, se) {
+  if (is.na(coef) || !is.finite(coef)) return("—")
+  if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
+  pval  <- 2 * pnorm(-abs(coef / se))
+  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
+                  ifelse(pval < 0.10, "*", "")))
+  sprintf("%.3f%s (%.3f)", coef, stars, se)
+}
+
+learner_row <- function(label, f_card_d1, f_kit_d2) {
+  data.frame(
+    Estimator = label,
+    `somecol / Card`     = ext_cell(get_dml_coef(f_card_d1$obj), get_dml_se(f_card_d1$obj)),
+    `educ16 / Kitagawa`  = ext_cell(get_dml_coef(f_kit_d2$obj),  get_dml_se(f_kit_d2$obj)),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+kappa_ref_row <- function(label, key) {
+  data.frame(
+    Estimator = label,
+    `somecol / Card`     = ext_cell(kappa_card_d1$estimates[key], kappa_card_d1$se[key]),
+    `educ16 / Kitagawa`  = ext_cell(kappa_kit_d2$estimates[key],  kappa_kit_d2$se[key]),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+}
+
+rbind(
+  learner_row("Wald-AIPW (linear+logit)", lm_card_d1, lm_kit_d2),
+  learner_row("Wald-AIPW (ranger)",       rf_card_d1, rf_kit_d2),
+  kappa_ref_row("τ_cb_u (kappa, ref)",  "tau_cb_u"),
+  kappa_ref_row("τ_ml_u (kappa, ref)",  "tau_ml_u")
+) %>%
+  kbl(align = c("l","c","c"),
+      caption = "Wald-AIPW Learner Comparison — DoubleML vs. Kappa (Y = log wages, dollars)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  pack_rows("DoubleML learners", 1, 2) %>%
+  pack_rows("Kappa reference",   3, 4) %>%
+  row_spec(1:2, background = "#eef6ff") %>%
+  footnote(general = "Each cell: estimate (SE). Blue = DoubleML. All score='LATE', n_folds=5. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+```
+
+---
+
+# 4. Weight Diagnostics
+
+<div class="note-box">
+**Reading the tables.** `Sum_w ≈ 0` confirms translation invariance. **`ESS_mod`** = modified effective sample size `(Σ|ωᵢ|)²/Σωᵢ²` (Chattopadhyay & Zubizarreta 2023) — the headline number, valid under negative weights and bounded in `[1, n]`. The old Kish `ESS = 1/Σωᵢ²` is shown alongside for reference but is unreliable for signed weights. `Pct_neg` and `Max_abs_w` flag weight concentration. Compare DML/learners vs. kappa, and Card vs. Kitagawa (the weak-instrument Kitagawa cells drive ESS down).
+</div>
+
+```{r diag-builders, echo=FALSE}
+# Kappa weight bundles for the two specification cells.
+kw_card_d1 <- kappa_weights_bundle(Z, D1, X_card_kappa)
+kw_kit_d2  <- kappa_weights_bundle(Z, D2, X_kit_kappa)
+
+# weight_diag() now returns 6 columns (… ESS, ESS_mod …): align has 5 "r".
+DIAG_ALIGN <- c("l","r","r","r","r","r")
+
+dml_diag_cell <- function(wlist, kw) {
+  rbind(
+    weight_diag(wlist$plriv,    "PLR-IV     (DML)"),
+    weight_diag(wlist$waldaipw, "Wald-AIPW  (DML)"),
+    weight_diag(kw$tau_cb_u,    "τ_cb_u     (kappa)"),
+    weight_diag(kw$tau_ml_u,    "τ_ml_u     (kappa)"),
+    weight_diag(kw$tau_ml_a10,  "τ_ml_a10   (kappa)"),
+    weight_diag(kw$tau_ml_a,    "τ_ml_a     (kappa)"),
+    weight_diag(kw$tau_ml_a1,   "τ_ml_t/a1  (kappa)"),
+    weight_diag(kw$tau_ml_a0,   "τ_ml_a0    (kappa)")
+  )
+}
+style_dml_diag <- function(df, cap) {
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(1:2, background = "#eef6ff") %>%
+    footnote(general = "Blue = DML. Sum_w ≈ 0 ⟺ translation invariant. ESS_mod = (Σ|ω|)²/Σω² (report this); ESS = 1/Σω² (reference only).")
+}
+
+ext_diag_block <- function(D, X_kappa, w_lm, w_rf, w_pliv_xgb, w_wald_xgb) {
+  kw <- kappa_weights_bundle(Z, D, X_kappa)
+  rbind(
+    weight_diag(w_lm,          "Wald-AIPW (linear+logit)"),
+    weight_diag(w_rf,          "Wald-AIPW (ranger)"),
+    weight_diag(w_pliv_xgb,    "PLR-IV (XGBoost tuned)"),
+    weight_diag(w_wald_xgb,    "Wald-AIPW (XGBoost tuned)"),
+    weight_diag(kw$tau_cb_u,   "τ_cb_u    (kappa, CBPS)"),
+    weight_diag(kw$tau_ml_u,   "τ_ml_u    (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a10, "τ_ml_a10  (kappa, MLE)"),
+    weight_diag(kw$tau_ml_a,   "τ_ml_a    (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a1,  "τ_ml_t    (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_a0,  "τ_ml_a0   (kappa, unnorm)")
+  )
+}
+style_ext_diag <- function(df, cap) {
+  df %>%
+    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 13) %>%
+    row_spec(1:4, background = "#eef6ff") %>%
+    footnote(general = "Blue = DoubleML learners. ESS_mod = (Σ|ω|)²/Σω² (report this); ESS = 1/Σω² (reference only).")
+}
+```
+
+## DML vs. Kappa {.tabset}
+
+### Card — somecol
+
+```{r dml-diag-card-d1}
+style_dml_diag(dml_diag_cell(w_card_d1, kw_card_d1), "Weight Diagnostics — DML vs. Kappa | Card, somecol")
+```
+
+### Kitagawa — educ16
+
+```{r dml-diag-kit-d2}
+style_dml_diag(dml_diag_cell(w_kit_d2, kw_kit_d2), "Weight Diagnostics — DML vs. Kappa | Kitagawa, educ16")
+```
+
+## Learners vs. Kappa {.tabset}
+
+### Card — somecol
+
+```{r ext-diag-card-d1}
+style_ext_diag(ext_diag_block(D1, X_card_kappa, lm_card_d1$w, rf_card_d1$w,
+                              xgb_pliv_card_d1, xgb_card_d1$w),
+               "Weight Diagnostics — Learners | Card, somecol")
+```
+
+### Kitagawa — educ16
+
+```{r ext-diag-kit-d2}
+style_ext_diag(ext_diag_block(D2, X_kit_kappa, lm_kit_d2$w, rf_kit_d2$w,
+                              xgb_pliv_kit_d2, xgb_kit_d2$w),
+               "Weight Diagnostics — Learners | Kitagawa, educ16")
+```
+
+## Weight-Statistics Bridge — RQ1 {.tabset}
+
+<div class="note-box">
+**What this is.** For every estimator, `weight_bridge()` reports the outcome weights **Overall / Treated / Control** (control sign-flipped, matching Knaus's convention), putting the two diagnostic vocabularies side by side: his six `summary()` statistics (Min, Max, %Neg, Σ of the largest 10%, Σω, Σ|ω|) next to the two effective-sample-size measures (Kish vs. modified). The headline is **ESS mod** — where the weak Kitagawa instrument drives Kish toward 1, the modified ESS shows the true usable mass. The Knaus block is computed in plain R, so the kappa estimators get his statistics too, which his package never produces for them.
+</div>
+
+```{r bridge-helpers, echo=FALSE}
+# One named list of weight vectors per cell (DML + learners + key kappa).
+cell_weight_list <- function(wdml, lm_w, rf_w, pliv_xgb_w, wald_xgb_w, kw) {
+  list(
+    "PLR-IV (DML)"     = wdml$plriv,
+    "Wald-AIPW (DML)"  = wdml$waldaipw,
+    "Linear+Logit"     = lm_w,
+    "Ranger"           = rf_w,
+    "PLR-IV XGBoost tuned"    = pliv_xgb_w,
+    "Wald-AIPW XGBoost tuned" = wald_xgb_w,
+    "τ_cb_u (kappa)"   = kw$tau_cb_u,
+    "τ_ml_u (kappa)"   = kw$tau_ml_u,
+    "τ_ml_t (kappa)"   = kw$tau_ml_a1
+  )
+}
+
+bridge_cells <- list(
+  "Card · somecol" = list(D = D1, w = cell_weight_list(
+    w_card_d1, lm_card_d1$w, rf_card_d1$w, xgb_pliv_card_d1, xgb_card_d1$w, kw_card_d1)),
+  "Kitagawa · educ16" = list(D = D2, w = cell_weight_list(
+    w_kit_d2, lm_kit_d2$w, rf_kit_d2$w, xgb_pliv_kit_d2, xgb_kit_d2$w, kw_kit_d2))
+)
+
+# Full bridge table for one cell: estimators as row-groups, scopes as rows,
+# columns split into "Knaus summary()" vs. "ESS" via a spanning header.
+bridge_table <- function(wlist, D, cap) {
+  ests <- names(wlist)
+  df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
+  disp <- df[, c("Scope","Min","Max","Pct_neg","Sum_top10","Sum_w","Sum_abs_w","ESS_kish","ESS_mod")]
+
+  kk <- disp %>%
+    kbl(caption = cap, row.names = FALSE,
+        col.names = c("Scope","Min","Max","%Neg","ΣTop10%","Σω","Σ|ω|","ESS Kish","ESS mod"),
+        align = c("l", rep("r", 8))) %>%
+    kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                  full_width = TRUE, font_size = 12) %>%
+    add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
+                       "Effective sample size" = 2)) %>%
+    column_spec(9, bold = TRUE, background = "#eef6ff")
+  for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
+  kk %>% footnote(general = "Control rows use Knaus's sign-flipped −ω convention. ESS mod = (Σ|ω|)²/Σω² is the number to report; ESS Kish = 1/Σω² is reference only.")
+}
+```
+
+### Card · somecol
+
+```{r bridge-card-d1}
+bridge_table(bridge_cells[["Card · somecol"]]$w, bridge_cells[["Card · somecol"]]$D,
+             "Weight-statistics bridge — Card, somecol")
+```
+
+### Kitagawa · educ16
+
+```{r bridge-kit-d2}
+bridge_table(bridge_cells[["Kitagawa · educ16"]]$w, bridge_cells[["Kitagawa · educ16"]]$D,
+             "Weight-statistics bridge — Kitagawa, educ16")
+```
+
+---
+
+# 5. Love Plots
+
+## DML vs. Kappa {.tabset}
+
+### Card — somecol (all 8 estimators)
+
+```{r love-card-d1, fig.height=9, fig.width=13}
+grid.arrange(grobs = list(
+  make_love("PLR-IV (DML)",     w_card_d1$plriv,       D1, X_dml_card),
+  make_love("Wald-AIPW (DML)",  w_card_d1$waldaipw,    D1, X_dml_card),
+  make_love("τ_cb_u (CBPS)",    kw_card_d1$tau_cb_u,   D1, X_dml_card),
+  make_love("τ_ml_u",           kw_card_d1$tau_ml_u,   D1, X_dml_card),
+  make_love("τ_ml_a10",         kw_card_d1$tau_ml_a10, D1, X_dml_card),
+  make_love("τ_ml_a (unnorm)",  kw_card_d1$tau_ml_a,   D1, X_dml_card),
+  make_love("τ_ml_t (unnorm)",  kw_card_d1$tau_ml_a1,  D1, X_dml_card),
+  make_love("τ_ml_a0 (unnorm)", kw_card_d1$tau_ml_a0,  D1, X_dml_card)
+), nrow = 2, top = "Love Plots — Card spec, somecol: DML vs. Kappa")
+```
+
+### Kitagawa — college completion (all 8 estimators)
+
+```{r love-kit-d2, fig.height=9, fig.width=13}
+grid.arrange(grobs = list(
+  make_love("PLR-IV (DML)",     w_kit_d2$plriv,       D2, X_dml_kit),
+  make_love("Wald-AIPW (DML)",  w_kit_d2$waldaipw,    D2, X_dml_kit),
+  make_love("τ_cb_u (CBPS)",    kw_kit_d2$tau_cb_u,   D2, X_dml_kit),
+  make_love("τ_ml_u",           kw_kit_d2$tau_ml_u,   D2, X_dml_kit),
+  make_love("τ_ml_a10",         kw_kit_d2$tau_ml_a10, D2, X_dml_kit),
+  make_love("τ_ml_a (unnorm)",  kw_kit_d2$tau_ml_a,   D2, X_dml_kit),
+  make_love("τ_ml_t (unnorm)",  kw_kit_d2$tau_ml_a1,  D2, X_dml_kit),
+  make_love("τ_ml_a0 (unnorm)", kw_kit_d2$tau_ml_a0,  D2, X_dml_kit)
+), nrow = 2, top = "Love Plots — Kitagawa spec, college completion: DML vs. Kappa")
+```
+
+## Learners vs. Kappa {.tabset}
+
+### Card — somecol (learners + kappa)
+
+```{r ext-love-card-d1, fig.height=5.5, fig.width=14}
+grid.arrange(grobs = list(
+  make_love("Linear+Logit\nCard, somecol", lm_card_d1$w,        D1, X_dml_card),
+  make_love("Ranger\nCard, somecol",       rf_card_d1$w,        D1, X_dml_card),
+  make_love("PLR-IV XGBoost tuned\nCard, somecol", xgb_pliv_card_d1, D1, X_dml_card),
+  make_love("Wald-AIPW XGBoost tuned\nCard, somecol", xgb_card_d1$w, D1, X_dml_card),
+  make_love("τ_cb_u\nCard, somecol",       kw_card_d1$tau_cb_u, D1, X_dml_card),
+  make_love("τ_ml_u\nCard, somecol",       kw_card_d1$tau_ml_u, D1, X_dml_card)
+), nrow = 2, top = "Love Plots — DoubleML learners vs. kappa | Card, somecol")
+```
+
+### Kitagawa — college completion (learners + kappa)
+
+```{r ext-love-kit-d2, fig.height=5.5, fig.width=14}
+grid.arrange(grobs = list(
+  make_love("Linear+Logit\nKitagawa, completion", lm_kit_d2$w,        D2, X_dml_kit),
+  make_love("Ranger\nKitagawa, completion",       rf_kit_d2$w,        D2, X_dml_kit),
+  make_love("PLR-IV XGBoost tuned\nKitagawa, completion", xgb_pliv_kit_d2, D2, X_dml_kit),
+  make_love("Wald-AIPW XGBoost tuned\nKitagawa, completion", xgb_kit_d2$w, D2, X_dml_kit),
+  make_love("τ_cb_u\nKitagawa, completion",       kw_kit_d2$tau_cb_u, D2, X_dml_kit),
+  make_love("τ_ml_u\nKitagawa, completion",       kw_kit_d2$tau_ml_u, D2, X_dml_kit)
+), nrow = 2, top = "Love Plots — DoubleML learners vs. kappa | Kitagawa, college completion")
+```
