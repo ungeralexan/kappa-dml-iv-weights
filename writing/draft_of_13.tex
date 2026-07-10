@@ -465,8 +465,8 @@ distinction that matters for the later analysis is whether the weights are
 normalized in the sample. By normalization I mean that the weights entering a
 weighted mean are rescaled to sum to one. For a treatment-effect contrast, this
 requires the two weighted components of the contrast to be normalized separately.
-The Uysal estimator $\hat\tau_u$ and the Abadie--Cattaneo estimator
-$\hat\tau_{a,10}$ have this property. The other three estimators,
+The estimator $\hat\tau_u$ based on \citet{uysal2011three} and the estimator
+$\hat\tau_{a,10}$ proposed by \citet{abadie2018econometric} have this property. The other three estimators,
 $\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$, are
 unnormalized sample analogues. This subsection defines the estimators and sets up
 the notation used in the empirical tables. The implications of the normalization
@@ -630,6 +630,37 @@ local perturbation of the nuisance functions has no first-order effect on the
 population moment. Consequently, sufficiently accurate nuisance estimates may
 converge more slowly than the target parameter without their errors necessarily
 dominating its first-order sampling behaviour. \\
+The distinction between first- and second-order sensitivity is central to this
+argument. For a non-orthogonal score, nuisance-estimation error may enter the
+moment linearly. If $\|\hat\eta-\eta_0\|=O_p(a_N)$, its contribution to the
+moment may therefore also be of order $O_p(a_N)$. When the score is Neyman
+orthogonal, the derivative in \eqref{eq:neyman_orthogonality} eliminates this
+leading linear term. In the simplest case, the remaining contribution takes the
+form
+\begin{equation}
+    E\!\left[\psi(W_i;\theta_0,\hat\eta)\right]
+    -E\!\left[\psi(W_i;\theta_0,\eta_0)\right]
+    =O_p\!\left(\|\hat\eta-\eta_0\|^2\right).
+    \label{eq:dml_second_order}
+\end{equation}
+With several nuisance functions, second-order sensitivity more commonly appears
+as a product of estimation errors. For two nuisance components, for example, a
+remainder may be of order
+\begin{equation}
+    O_p\!\left(
+      \|\hat\eta_1-\eta_{1,0}\|
+      \|\hat\eta_2-\eta_{2,0}\|
+    \right).
+    \label{eq:dml_product_rate}
+\end{equation}
+Thus, orthogonality does not eliminate nuisance-estimation error. It removes its
+leading linear contribution to the moment, making sufficiently small nuisance
+errors less consequential for the first-order distribution of the target
+estimator. As a familiar benchmark, if both nuisance components in
+\eqref{eq:dml_product_rate} converge faster than $N^{-1/4}$, their product is
+$o_p(N^{-1/2})$. This can permit root-$N$ inference for $\theta_0$, subject to
+the remaining regularity conditions. The precise rate requirement depends on
+the score and on which nuisance-error products enter its remainder.\\
 Orthogonality should not be interpreted as making nuisance estimation
 unimportant. It is a local robustness property of the score, not a guarantee
 against arbitrary misspecification, poor overlap, weak instruments, or severely
@@ -650,6 +681,346 @@ orthogonal scores and cross-fitted nuisance predictions, they impose different
 model structures and should not be assumed to identify the same causal
 parameter without additional restrictions. This distinction provides the
 organizing principle for the estimator-specific subsections that follow.
+
+\subsubsection{The partially linear IV estimator}
+
+The first DML-based IV procedure used in this thesis is the partially linear
+instrumental variables (PLR-IV) estimator. Following
+\citet[Section~4.2]{chernozhukov2018double}, consider the model
+\begin{align}
+    Y_i &= D_i\theta_0+g_0(X_i)+U_i,
+    & E[U_i\mid X_i,Z_i]&=0, \label{eq:pliv_model}\\
+    Z_i &= m_0(X_i)+V_i,
+    & E[V_i\mid X_i]&=0. \label{eq:pliv_instrument}
+\end{align}
+Here, $\theta_0$ is the low-dimensional structural coefficient of interest,
+whereas $g_0(\cdot)$ and $m_0(\cdot)$ are unknown nuisance functions. The
+covariate contribution to the outcome is left unrestricted, but the treatment
+enters the structural equation through the constant coefficient $\theta_0$.
+Treatment may be endogenous: equation~\eqref{eq:pliv_model} does not require
+$E[U_i\mid X_i,D_i]=0$. Identification instead uses the conditional validity of
+$Z_i$. Equation~\eqref{eq:pliv_instrument} isolates
+$V_i=Z_i-m_0(X_i)$, the component of the instrument that cannot be predicted
+from $X_i$.
+
+One orthogonal score for this model is
+\begin{equation}
+    \psi_a(W_i;\theta,\eta)
+    =\big(Y_i-D_i\theta-g(X_i)\big)\big(Z_i-m(X_i)\big),
+    \qquad \eta=(g,m).
+    \label{eq:pliv_score_structural}
+\end{equation}
+At the true values, the conditional moment restriction in
+\eqref{eq:pliv_model} implies
+$E[\psi_a(W_i;\theta_0,\eta_0)]=0$. In practice, however, estimating
+$g_0(X)=E[Y-D\theta_0\mid X]$ directly is inconvenient because it depends on
+the unknown target parameter. The empirical implementation therefore uses the
+equivalent Robinson-style partialling-out score. Define
+\begin{equation}
+    \ell_0(X_i)=E[Y_i\mid X_i],\qquad
+    r_0(X_i)=E[D_i\mid X_i],\qquad
+    m_0(X_i)=E[Z_i\mid X_i],
+    \label{eq:pliv_nuisances}
+\end{equation}
+and the residualized variables
+\begin{equation}
+    \widetilde Y_i=Y_i-\ell_0(X_i),\qquad
+    \widetilde D_i=D_i-r_0(X_i),\qquad
+    \widetilde Z_i=Z_i-m_0(X_i).
+    \label{eq:pliv_residuals}
+\end{equation}
+The corresponding score is
+\begin{equation}
+    \psi_{\mathrm{PLR-IV}}(W_i;\theta,\eta)
+    =
+    \big[Y_i-\ell(X_i)-\theta\{D_i-r(X_i)\}\big]
+    \big[Z_i-m(X_i)\big],
+    \qquad \eta=(\ell,r,m).
+    \label{eq:pliv_score}
+\end{equation}
+At the true nuisance functions, this reduces to
+\begin{equation}
+    \psi_{\mathrm{PLR-IV}}(W_i;\theta_0,\eta_0)
+    =\big(\widetilde Y_i-\theta_0\widetilde D_i\big)
+      \widetilde Z_i.
+\end{equation}
+All three nuisance components in \eqref{eq:pliv_nuisances} are conditional
+means and can therefore be estimated directly with regression learners. This
+also explains the learner architecture used later: the outcome, treatment, and
+instrument nuisance components of PLR-IV are all fitted as regression
+problems, even when $D_i$ and $Z_i$ are binary.
+
+The score in \eqref{eq:pliv_score} satisfies both the identifying moment
+condition and the Neyman-orthogonality condition introduced above. To see the
+source of orthogonality, perturbing $\ell$ or $r$ generates terms multiplied by
+$Z_i-m_0(X_i)$, whose conditional expectation given $X_i$ is zero. Perturbing
+$m$ generates a term multiplied by
+$Y_i-\ell_0(X_i)-\theta_0\{D_i-r_0(X_i)\}$, which also has conditional mean zero
+under \eqref{eq:pliv_model}. Hence the derivative of the population moment with
+respect to each nuisance direction vanishes at $\eta_0$. The relevant remainder
+therefore contains products involving the instrument-regression error and the
+outcome- or treatment-regression errors, rather than their leading linear
+effects.
+
+Solving the population moment yields
+\begin{equation}
+    \theta_0
+    =\frac{E[\widetilde Z_i\widetilde Y_i]}
+           {E[\widetilde Z_i\widetilde D_i]},
+    \label{eq:pliv_population_ratio}
+\end{equation}
+provided that
+\begin{equation}
+    E[\widetilde Z_i\widetilde D_i]\neq0.
+    \label{eq:pliv_relevance}
+\end{equation}
+Condition~\eqref{eq:pliv_relevance} is the first-stage relevance condition after
+partialling out $X_i$. Its magnitude also matters in practice: orthogonality
+protects against small nuisance-estimation errors, but it does not solve a weak
+instrument problem.
+
+Replacing the nuisance functions by cross-fitted predictions gives the sample
+analogue
+\begin{equation}
+    \widehat\theta_{\mathrm{PLR-IV}}
+    =
+    \frac{\sum_{i=1}^N
+      \{Z_i-\widehat m_{-k(i)}(X_i)\}
+      \{Y_i-\widehat\ell_{-k(i)}(X_i)\}}
+    {\sum_{i=1}^N
+      \{Z_i-\widehat m_{-k(i)}(X_i)\}
+      \{D_i-\widehat r_{-k(i)}(X_i)\}},
+    \label{eq:pliv_dml_estimator}
+\end{equation}
+where $k(i)$ denotes the fold containing observation $i$ and the subscript
+$-k(i)$ indicates training on observations outside that fold. Thus, PLR-IV can
+be read as an IV regression of the residualized outcome on the residualized
+treatment, using the residualized instrument. The cross-fitting construction is
+described formally below.\\
+The ratio in \eqref{eq:pliv_population_ratio} resembles a Wald estimand, but it
+should not automatically be interpreted as the LATE defined earlier. Under the
+maintained partially linear model, $\theta_0$ is the constant coefficient that
+solves the residualized IV moment. By contrast, the LATE permits heterogeneous
+treatment effects and averages those effects over the complier population.
+Constant treatment effects are a sufficient condition for these parameters to
+coincide, but they are not a necessary condition for numerical equality in a
+particular population.
+
+The distinction can be made more explicit for a binary instrument. Let
+$p(X)=P(Z=1\mid X)$ and define the conditional reduced form and first stage as
+\begin{align}
+    \Delta_Y(X)&=E[Y\mid Z=1,X]-E[Y\mid Z=0,X],\\
+    \Delta_D(X)&=E[D\mid Z=1,X]-E[D\mid Z=0,X].
+\end{align}
+Then the residualized ratio can be written as
+\begin{equation}
+    \theta_{\mathrm{PLR-IV}}
+    =
+    \frac{E[p(X)\{1-p(X)\}\Delta_Y(X)]}
+         {E[p(X)\{1-p(X)\}\Delta_D(X)]}.
+    \label{eq:pliv_conditional_wald_aggregation}
+\end{equation}
+Under the conditional IV assumptions and monotonicity, whenever
+$\Delta_D(X)>0$, the conditional Wald ratio
+$\Delta_Y(X)/\Delta_D(X)$ identifies a conditional complier effect. Equation
+\eqref{eq:pliv_conditional_wald_aggregation} therefore aggregates these
+conditional effects with weights proportional to
+$p(X)\{1-p(X)\}\Delta_D(X)$. The overall LATE instead aggregates conditional
+complier effects according to the distribution of compliers. The additional
+factor $p(X)\{1-p(X)\}$ means that the two aggregations generally differ when
+instrument propensities or conditional effects vary with $X$. They coincide
+under stronger restrictions, for example constant conditional complier effects,
+and may also coincide in special designs such as a constant instrument
+propensity. PLR-IV is therefore reported in this thesis as a structural and
+residualized-IV benchmark, while Wald-AIPW and the kappa estimators are used for
+the direct LATE comparison.
+
+\subsubsection{The Wald-AIPW estimator}
+
+The second DML-based IV procedure used in this thesis is the Wald augmented
+inverse-probability-weighted (Wald-AIPW) estimator. In contrast to PLR-IV, it
+does not begin from a partially linear outcome equation with a constant
+treatment coefficient. It instead combines two orthogonal AIPW moments: one
+for the reduced-form effect of the instrument on the outcome and one for the
+first-stage effect of the instrument on treatment. Their ratio identifies the
+LATE under the conditional IV assumptions stated above. The augmented Wald
+construction follows the doubly robust IV logic of \citet{tan2006regression}.
+Its DML formulation is the interactive IV model studied by
+\citet[Section~5.2]{chernozhukov2018double} and
+implemented by \texttt{DoubleMLIIVM} with the score option \texttt{LATE}.
+
+Because both the treatment and the instrument are binary in this model, define
+the nuisance functions
+\begin{align}
+    g_z(X_i)&=E[Y_i\mid Z_i=z,X_i], &&z\in\{0,1\},
+    \label{eq:wald_g_nuisance}\\
+    r_z(X_i)&=E[D_i\mid Z_i=z,X_i], &&z\in\{0,1\},
+    \label{eq:wald_r_nuisance}\\
+    m(X_i)&=P(Z_i=1\mid X_i).
+    \label{eq:wald_m_nuisance}
+\end{align}
+This notation matches the empirical implementation: $g_z$ is the
+branch-specific outcome regression, $r_z$ is the branch-specific treatment
+regression, and $m$ is the instrument propensity score. In the notation of
+\citet{chernozhukov2018double}, the same objects are denoted by $\mu(z,X)$,
+$m(z,X)$, and $p(X)$, respectively.
+
+Conditional instrument independence implies that the average reduced form and
+first stage can be expressed as
+\begin{align}
+    \rho_Y&=E[g_1(X_i)-g_0(X_i)],
+    \label{eq:wald_reduced_form}\\
+    \rho_D&=E[r_1(X_i)-r_0(X_i)].
+    \label{eq:wald_first_stage}
+\end{align}
+Under exclusion, monotonicity, and a non-zero first stage, their ratio is
+\begin{equation}
+    \tau_{\mathrm{LATE}}=\frac{\rho_Y}{\rho_D}
+    =\frac{E[g_1(X_i)-g_0(X_i)]}
+           {E[r_1(X_i)-r_0(X_i)]}.
+    \label{eq:wald_late_ratio}
+\end{equation}
+Under monotonicity, $\rho_D=E[D_i(1)-D_i(0)]$ equals the population share of
+compliers. The ratio in \eqref{eq:wald_late_ratio} consequently averages
+individual treatment effects over the complier population rather than imposing
+a common effect.
+
+Simply replacing $g_z$ and $r_z$ by flexible regression estimates would give a
+regression-adjustment estimator whose errors can enter at first order. The AIPW
+construction adds an inverse-probability correction to each conditional-mean
+contrast. Define the reduced-form pseudo-outcome
+\begin{align}
+    \Gamma_{Y,i}(\eta)
+    ={}&g_1(X_i)-g_0(X_i)
+      +\frac{Z_i\{Y_i-g_1(X_i)\}}{m(X_i)}
+      -\frac{(1-Z_i)\{Y_i-g_0(X_i)\}}{1-m(X_i)},
+    \label{eq:wald_gamma_y}
+\end{align}
+and the first-stage pseudo-outcome
+\begin{align}
+    \Gamma_{D,i}(\eta)
+    ={}&r_1(X_i)-r_0(X_i)
+      +\frac{Z_i\{D_i-r_1(X_i)\}}{m(X_i)}
+      -\frac{(1-Z_i)\{D_i-r_0(X_i)\}}{1-m(X_i)},
+    \label{eq:wald_gamma_d}
+\end{align}
+where $\eta=(g_0,g_1,r_0,r_1,m)$. The first terms in
+\eqref{eq:wald_gamma_y} and \eqref{eq:wald_gamma_d} are regression-adjustment
+contrasts. The remaining terms correct these contrasts with residuals from the
+observed instrument branch, scaled by the inverse probability of observing that
+branch. At the true nuisance functions,
+\begin{equation}
+    E[\Gamma_{Y,i}(\eta_0)]=\rho_Y,
+    \qquad
+    E[\Gamma_{D,i}(\eta_0)]=\rho_D.
+\end{equation}
+
+The Wald-AIPW score combines the two pseudo-outcomes in a single moment,
+\begin{equation}
+    \psi_{\mathrm{Wald-AIPW}}(W_i;\tau,\eta)
+    =\Gamma_{Y,i}(\eta)-\tau\Gamma_{D,i}(\eta).
+    \label{eq:wald_aipw_score}
+\end{equation}
+It is linear in $\tau$, and
+$E[\psi_{\mathrm{Wald-AIPW}}(W_i;\tau_{\mathrm{LATE}},\eta_0)]=0$.
+Solving this population moment reproduces \eqref{eq:wald_late_ratio}.
+
+The score is Neyman orthogonal. For example, a local perturbation of $g_1(X)$
+enters \eqref{eq:wald_gamma_y} multiplied by $1-Z/m(X)$, whose conditional
+expectation given $X$ is zero at the true $m$. Conversely, a perturbation of
+$m(X)$ is multiplied by branch-specific residuals such as $Y-g_z(X)$ and
+$D-r_z(X)$, whose conditional expectations are zero in their respective
+instrument branches at the true regression functions. Analogous arguments
+apply to $g_0$, $r_0$, and $r_1$. The leading effects of nuisance errors
+therefore cancel, leaving remainder terms that involve products of the
+instrument-propensity error with the branch-specific regression errors. A
+representative rate requirement is
+\begin{equation}
+    \|\widehat m-m\|_{P,2}
+    \left(
+      \|\widehat g-g\|_{P,2}
+      +\|\widehat r-r\|_{P,2}
+    \right)
+    =o_p(N^{-1/2}),
+    \label{eq:wald_aipw_product_rate}
+\end{equation}
+where the norms for $g$ and $r$ collect both instrument branches. This schematic
+condition is supplemented by the overlap, moment, first-stage, and consistency
+conditions required for DML inference.
+
+\paragraph{Double robustness.}
+The same augmentation that produces orthogonality also yields a useful
+robustness property. The mean of $\Gamma_Y$ identifies $\rho_Y$ if either the
+instrument propensity $m$ is correctly specified or both outcome branches
+$(g_0,g_1)$ are correctly specified. Similarly, the mean of $\Gamma_D$
+identifies $\rho_D$ if either $m$ is correct or both treatment branches
+$(r_0,r_1)$ are correct. For the ratio as a whole, the clean joint statement is
+therefore
+\begin{equation}
+    \widehat\tau_{\mathrm{Wald-AIPW}}\text{ is consistent if }
+    m\text{ is correct, or if both }g\text{ and }r\text{ are correct},
+    \label{eq:wald_aipw_double_robustness}
+\end{equation}
+provided that the limiting first stage is non-zero. It would be imprecise to
+state that any one of the five nuisance functions may be correct while all
+others are arbitrary: numerator and denominator must both be consistently
+estimated. In the DML analysis of this thesis, the emphasis is not on choosing
+one parametric model to be exactly correct, but on using orthogonality,
+cross-fitting, and sufficiently accurate flexible nuisance learners.
+
+Let $\widehat g_{z,-k(i)}$, $\widehat r_{z,-k(i)}$, and
+$\widehat m_{-k(i)}$ denote nuisance predictions obtained without using the
+fold containing observation $i$. Replacing the nuisance functions in
+\eqref{eq:wald_gamma_y}--\eqref{eq:wald_gamma_d} by these predictions gives
+cross-fitted pseudo-outcomes $\widehat\Gamma_{Y,i}$ and
+$\widehat\Gamma_{D,i}$. The DML2 estimator used in the empirical analysis is
+\begin{equation}
+    \widehat\tau_{\mathrm{Wald-AIPW}}
+    =\frac{N^{-1}\sum_{i=1}^N\widehat\Gamma_{Y,i}}
+           {N^{-1}\sum_{i=1}^N\widehat\Gamma_{D,i}}.
+    \label{eq:wald_aipw_estimator}
+\end{equation}
+Thus, the estimator retains the familiar Wald logic: an adjusted reduced form
+is divided by an adjusted first stage. The difference is that each component is
+constructed from an orthogonal AIPW score evaluated with out-of-fold nuisance
+predictions.
+
+\paragraph{Overlap and numerical stability.}
+The inverse factors in \eqref{eq:wald_gamma_y} and
+\eqref{eq:wald_gamma_d} require the conditional instrument propensity to be
+bounded away from zero and one. This is not merely a technical restriction.
+When $\widehat m(X_i)$ is close to a boundary, a small number of observations
+can receive very large residual corrections, making the estimate sensitive to
+nuisance regularization and limited overlap. Orthogonality does not protect
+against such denominator instability. This is why the empirical analysis
+examines near-boundary instrument propensities, nuisance-prediction losses, and
+outcome-weight concentration, and why XGBoost is tuned by predictive loss
+inside the outer cross-fitting folds rather than by the resulting LATE
+estimate.
+
+The distinction from the ordinary AIPW estimator should also be clear. Standard
+AIPW for an average treatment effect treats $D$ as conditionally unconfounded
+and uses the treatment propensity $P(D=1\mid X)$. Wald-AIPW allows $D$ to be
+endogenous. It applies the augmented construction to the binary instrument $Z$,
+uses $P(Z=1\mid X)$ as the propensity score, and divides the augmented effect of
+$Z$ on $Y$ by the augmented effect of $Z$ on $D$. Under the conditional IV
+assumptions, exclusion, monotonicity, overlap, and relevance, the resulting
+target is the complier LATE.
+
+Compared with PLR-IV, Wald-AIPW therefore changes both the model and the
+estimand. It permits the conditional outcome and treatment relationships to
+vary freely across the two instrument branches and directly targets the LATE,
+at the cost of estimating five nuisance components and relying on instrument
+overlap. The following subsections describe the cross-fitting and nuisance
+training procedures shared by the two DML estimators.
+
+
+
+
+
+
+
+
 
 
 \subsubsection{Cross Fitting}
