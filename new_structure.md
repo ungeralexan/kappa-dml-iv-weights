@@ -62,7 +62,7 @@ estimators but does not apply it empirically. This thesis fills that gap.
 ---
 
 
-### Chapter 2 — Econometric Framework (8–10 pages) 🔲
+### Chapter 2 The Econometric Framework 
 
 **Section 2.1 — IV, LATE, and compliers**
 - Potential outcomes notation: Yᵢ(0), Yᵢ(1), Dᵢ(0), Dᵢ(1)
@@ -82,14 +82,18 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - Remark 2.2: E(κ) = E(κ₁) = E(κ₀) = P(D₁ > D₀) in population; why they
   diverge in finite samples
 
-**Section 2.3 — Kappa-based LATE estimators**
+
+### Chapter 3 The Estimators
+
+
+**Section 3.1 — Kappa-based LATE estimators**
 - The five estimators: τ̂ᵤ (Uysal 2011), τ̂ₐ,₁₀ (Abadie & Cattaneo 2018),
   unnormalized τ̂ₐ, τ̂ₜ (= τ̂ₐ,₁, Frölich/Tan), τ̂ₐ,₀
 - Normalized vs. unnormalized: what the distinction means mechanically
 - Propensity score estimation: MLE logit (τ̂ᵤᵐˡ) vs. CBPS (τ̂ᵤᶜᵇ);
   Proposition 3.5: with CBPS all normalized estimators coincide
 
-**Section 2.4 — DML-based IV estimators**
+**Section 3.2 — DML-based IV estimators**
 - DML framework (Chernozhukov et al. 2018): PLR-IV and Wald-AIPW estimator
 - Set PLR-IV apart clearly: it is a partially linear IV estimator and does not
   automatically target the same LATE object unless the structural assumptions
@@ -102,25 +106,37 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - The tuning criterion is predictive nuisance loss, not the causal estimand
 
 
-**Section 2.5 — Outcome weights and Knaus normalization**
+### Chapter 4  Connecting the Frameworks
+**Section 4.1 — Outcome weights and Knaus normalization**
 - Introduce outcome weights conceptually: τ̂ = Σᵢ ωᵢYᵢ
+- The distinction between Abadie’s Ki and and Knaus’s ωᵢ
+  - ki identification weights derived from the population complier representation;
+  - ωᵢ final sample-level weights that reproduce the fitted estimator numerically.
 - The two-step: (i) form pseudo-instrument Z̃ and transformation matrix T;
   (ii) ω' = (Z̃'D̃)⁻¹Z̃'T
-- Outcome weights are final sample-level diagnostic weights, not Abadie κ-weights
-- Distinguish explicitly from SUW/Wooldridge normalization:
-  - SUW normalization = estimator construction via normalized weighted means
-  - Knaus normalization = property of final outcome weights after fitting
 - Knaus classes:
   - translation/scale-normalized: Σᵢωᵢ = 0
   - fully normalized: Σ_{D=1}ωᵢ = +1 and Σ_{D=0}ωᵢ = −1
-- Boundary sentence: derivations and classification for kappa estimators are
-  deferred to Chapter 3
+- Full derivation: normalized IPW contrast → diagonal T^u → closed-form ωᵢᵘ
+  (eq:u_omega_scalar, boxed)
+- Three normalization conditions verified algebraically:
+  Σωᵢ = 0 (via equal-mass property), ΣωᵢDᵢ = 1, Σωᵢ(1−Dᵢ) = −1
+- Remark (rem:hajek_contrast): why τ̂ₐ,₁ fails where τ̂ᵤ succeeds, the Hájek
+  normalization is the single algebraic step that determines translation
+  invariance if this could go into Appendix
+- **From Derivation to Diagnostics: Computational Implementation** 
+- kappa_outcome_weights(Z, D, p) described: returns all five ωᵢ vectors in
+  closed form, no numerical optimisation
+- check_weight_identity() and weight_diag() described as companion functions
+- Pipeline: propensity score → weights → verify identity → Love plots 
 
-**Section 2.6 — Translation and scale invariance**
-- Definition TI: τ̂(Y, W) = τ̂(Y+k, W) for all k
-- Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
-- Definition SE / scale issue: brief statement, linked to log-unit sensitivity
+
+
+**Section 4.2 — Translation and scale invariance**
+- Definition TI: τ̂(Y, W) = τ̂(Y+k, W) for all k (translation invariance) (Also think about the binary recoding case in the last framework)
 - Outcome-weight proof: τ̂(Y+k) − τ̂(Y) = kΣᵢωᵢ
+- Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
+- Explain scale equivariance differently Definition SE / scale issue: brief statement, linked to log-unit sensitivity
 - Concrete example: cents vs. dollars is an additive shift after logs
 - Separate clearly:
   - Method B = frozen-weight algebraic check using extracted ωᵢ
@@ -128,61 +144,23 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - Emphasize that Method A is the later empirical contribution because it includes
   nuisance training, cross-fitting, tuning, and algorithmic randomness
 
-**Section 2.7 — Covariate balance diagnostics**
-- Standardized Mean Difference (SMD): |X̄ₜᵣₑₐₜₑ_ₖ − X̄_cₒₙₜᵣₒₗ_ₖ| / SD(Xₖ),
+**Section 4.3 — Outcome weights diagnostics**
+- Covariate Balance: Standardized Mean Difference (SMD): |X̄ₜᵣₑₐₜₑ_ₖ − X̄_cₒₙₜᵣₒₗ_ₖ| / SD(Xₖ),
   computed with outcome weights ωᵢ
 - Love plots: one dot per covariate, unadjusted vs. weighted SMD; threshold at
   |SMD| ≤ 0.1
 - Effective Sample Size (ESS): standard Kish-style ESS and the modified ESS used
   in the thesis diagnostics
 - Negative weight share: % of observations with ωᵢ < 0
+- Extreme weights concentration
+ - maximum absolute weight;
+ - upper quantiles of wi
+ - top -1% share of absolute weight mass 
 
 ---
 
 
-### Chapter 3 — Connecting the Frameworks 
-
-
-**Section 3.1 — Kappa weights vs. outcome weights** ✅
-- Distinction between κᵢ (identification objects, Abadie 2003) and ωᵢ
-  (sample-level PIVE weights, Knaus 2024) clearly established
-- Subsection 3.1.1 (Two notions of normalization): SUW normalization (estimator
-  construction) vs. Knaus normalization
-- Motivate outcome weights directly: Love plots, SMDs, ESS, and negative-weight
-  diagnostics use ωᵢ, not κᵢ
-
-**Section 3.2 — PIVE framework** 
-- Proposition 1 (Knaus 2024) stated formally with label 
-- Diagonal T matrix structure for kappa estimators established — no smoother
-  condition needed; existence of ωᵢ is purely algebraic
-
-
-**Section 3.3 — Outcome weights for τ̂ᵤ** 
-- Full derivation: normalized IPW contrast → diagonal T^u → closed-form ωᵢᵘ
-  (eq:u_omega_scalar, boxed)
-- Three normalization conditions verified algebraically:
-  Σωᵢ = 0 (via equal-mass property), ΣωᵢDᵢ = 1, Σωᵢ(1−Dᵢ) = −1
-- Remark (rem:hajek_contrast): why τ̂ₐ,₁ fails where τ̂ᵤ succeeds, the Hájek
-  normalization is the single algebraic step that determines translation
-  invariance; connects to Appendix E derivation
-
-
-**Section 3.4 — Normalization classification and summary** 
-- Subsection 3.4.1: how SUW normalization and Knaus normalization align for the
-  kappa family — co-occurrence is algebraic, not a general theorem
-- Subsection 3.4.2: Table 1 (tab:normalization) — all six estimators classified
-  by SUW norm., Σωᵢ=0, ΣωᵢDᵢ, Σωᵢ(1−Dᵢ), Knaus class
-
-
-**Section 3.5 — From Derivation to Diagnostics: Computational Implementation** 
-- kappa_outcome_weights(Z, D, p) described: returns all five ωᵢ vectors in
-  closed form, no numerical optimisation
-- check_weight_identity() and weight_diag() described as companion functions
-- Pipeline: propensity score → weights → verify identity → Love plots 
----
-
-
-### Chapter 4 — Empirical Application: Angrist (1990) Vietnam Draft Lottery
+### Chapter 5 — Empirical Application: Angrist (1990) Vietnam Draft Lottery
 
 1. Data and the design
 
@@ -211,9 +189,7 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 
-
-
-### Chapter 5 — Empirical Application: Card (1995)
+### Chapter 6 — Empirical Application: Card (1995)
 
 1. Data 
 
@@ -228,7 +204,7 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 
-### Chapter 6 — Empirical Application: Angrist & Evans (1998) Childbearing
+### Chapter 7 — Empirical Application: Angrist & Evans (1998) Childbearing
 
 1. Data and sample construction
 
@@ -282,7 +258,7 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - Interpretation of results belongs in the findings chapter; this chapter reports
   the diagnostic structure and main checks
 
-### Chapter 7 — Discussion 
+### Chapter 8 — Discussion 
 
 1. Cross-application summary, with a comparative design-diagnostic table across
    all empirical applications
