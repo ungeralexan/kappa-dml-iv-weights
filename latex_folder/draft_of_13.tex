@@ -449,7 +449,7 @@ analogues, however, need not coincide in finite samples, whether $p(X_i)$ is kno
 estimated. This finite-sample ambiguity in the denominator is the source of the different
 weighting estimators of $\tau_{LATE}$ developed in the next section.
 
-
+\section{The estimators}
 \subsection{Kappa and weighting estimators of the LATE}
 The previous section established Abadie's kappa representation of the LATE. For
 the empirical analysis, the relevant implication is that this representation
@@ -979,30 +979,155 @@ four or five are also recommended by
 
 \subsubsection{Nuisance Training}
 
-The cross-fitting procedure determines on which observations the nuisance functions are trained and evaluated.
-As is common in machine learning, I also tune the hyperparameters of selected nuisance learners. In all tuned specifications, tuning is based on nuisance-prediction performance and not on the resulting treatment-effect estimate.\\
-The purpose of tuning is to control the complexity of the nuisance learners according to their out-of-sample predictive performance. This is particularly important for the Wald-AIPW specifications. The Wald-AIPW score contains inverse-propensity terms based on the fitted instrument propensity, for example terms involving $\hat m(X)$ and $1-\hat m(X)$ in the denominator. If a flexible learner produces fitted instrument propensities very close to zero or one, individual observations can receive very large score contributions. The resulting estimate may then become highly sensitive to a small number of observations. This is a standard instability of inverse-propensity and AIPW-type estimators under limited overlap or poorly regularized nuisance estimation, rather than a feature of the causal parameter itself.
-Gradient-boosted trees are a relevant case in this thesis because, if insufficiently regularized, they can generate highly concentrated fitted probabilities. Tuning the XGBoost nuisance learners by held-out prediction loss is therefore used to select a more appropriate level of learner complexity for the nuisance functions. The tuning criterion is fixed before the treatment-effect estimate is computed and does not use the Wald-AIPW point estimate or its standard error. In the empirical sections, I assess the diagnostic implications of this mechanism by reporting nuisance losses and the share of near-boundary fitted probabilities. This diagnostic is reported for both binary nuisance components, the instrument propensity $\hat m(X)$ and the treatment-regression probabilities $\hat r(0,X)$ and $\hat r(1,X)$, although the direct inverse-propensity denominator in the IIVM score is based on $\hat m(X)$. The movement of the treatment-effect estimate after tuning is interpreted only in light of these nuisance diagnostics, not as the criterion by which tuning is justified.
-The partially linear IV score is less exposed to this specific inverse-propensity mechanism, because it is based on residualized moments rather than the same AIPW re-weighting structure. For this reason, the near-boundary propensity concern is most relevant for the Wald-AIPW learner comparisons, especially for XGBoost. In the PLR-IV XGBoost specification, the nuisance functions are instead treated as regression problems for the outcome, instrument, and treatment residualizations. The relevant tuning concern is therefore the predictive regularization of these residualization steps, not the stabilization of inverse-propensity denominators.\\
-The PLR-IV and Wald-AIPW headline estimators based on outcome weights are implemented using the honest random forest smoother from the \textsc{OutcomeWeights} package \citep{knaus2024treatment}, which builds on the generalized random forest implementation in \texttt{grf} \citep{athey2019generalized}. In this case, tuning is native to the forest implementation. Setting \texttt{tune.parameters = "all"} passes the tuning request to \texttt{grf} and triggers an internal search over the forest's tunable hyperparameters: the subsample fraction, the number of variables considered at each split (\texttt{mtry}), the minimum node size, the honesty fraction, honesty leaf pruning, the split-balance parameter \texttt{alpha}, and the imbalance penalty.
-The tuning procedure can be described schematically as follows. The algorithm draws a number of candidate configurations $\lambda_1,\ldots,\lambda_R$ from the hyperparameter space and fits a smaller ``mini-forest'' at each candidate configuration. For each candidate, it computes a debiased estimate of the out-of-bag prediction error. This debiasing is used because the mini-forests contain fewer trees than the final production forest, so their raw out-of-bag errors contain additional Monte Carlo noise. The resulting pairs of candidate configurations and debiased errors are then smoothed, and the selected configuration is chosen by minimizing the predicted smoothed error over an additional set of randomly drawn candidate configurations. The final forest used for each nuisance component and cross-fitting fold is then grown with the selected tuning parameters. Since the empirical implementation uses five-fold cross-fitting, the nuisance forests are trained separately for the corresponding cross-fitting folds.\\
-For the XGBoost learner specifications, hyperparameters are selected through the \textsc{DoubleML} interface to \texttt{mlr3tuning}. In contrast to the honest forest case, the tuning procedure is not an internal XGBoost tuning path but an external nuisance-learner tuning step managed by \textsc{DoubleML}. For each nuisance learner, a random search evaluates a finite number $E$ of candidate hyperparameter configurations,
-$\lambda^{(1)},\ldots,\lambda^{(E)}$, over the number of boosting rounds, the maximum tree depth, the learning rate, and the minimum child-node weight. In the empirical implementation, $E=15$ and the candidates are evaluated by three-fold inner cross-validation.
+Compared to the cross-fitting procedure which determines on which observations the nuisance functions are trained and evaluated.
+ Hyperparameter tuning determines the complexity of selected
+learners within the corresponding training samples.
+For this purpose in all tuned specifications, tuning is based on nuisance-prediction performance.\\
+Tuning is applied in two parts of the empirical analysis. First, the honest
+forest smoothers used for the headline outcome-weight estimators are tuned
+internally by the \texttt{grf} implementation. Second, the XGBoost nuisance
+learners used in the \textsc{DoubleML} learner comparison are tuned by nested
+cross-validation. Linear and logistic regression are retained as fixed
+parametric benchmarks, while the \texttt{ranger} specifications are used as
+fixed off-the-shelf forest benchmarks. 
+Thus, only XGBoost receives an explicit
+external tuning exercise in the learner comparison; the separate GRF-based
+headline estimators already use the package's native tuning procedure.\\
+The motivation for tuning is strongest for flexible learners whose complexity
+can materially affect nuisance predictions. This is particularly relevant for
+Wald-AIPW because its score contains inverse instrument-propensity terms
+involving \(m(X)\) and \(1-m(X)\). Predictions close to zero or one can amplify
+individual score contributions and make the estimate sensitive to a small
+number of observations. Tuning does not remove limited overlap, but it can
+reduce instability caused by poorly regularized nuisance models. For PLR-IV,
+the same inverse-propensity mechanism is absent.
+In this framework, tuning instead aims to
+improve the regression functions used to residualize the outcome, treatment,
+and instrument.\\
+The headline PLR-IV and Wald-AIPW outcome-weight estimators use honest
+forest-based smoothers from the generalized random forest framework
+\citep{athey2019generalized,knaus2024treatment}. Setting
+\texttt{tune.parameters = "all"} activates the internal GRF tuning procedure.
+For a regression forest, the tunable parameters are the subsample fraction,
+\texttt{mtry}, minimum node size, honesty fraction, honesty leaf pruning,
+the split-balance parameter \texttt{alpha}, and the imbalance penalty.
+GRF draws random hyperparameter configurations and fits a small
+mini-forests for each configuration. It then computes a debiased
+out-of-bag prediction error, smooths the relationship between the candidate
+parameters and these error estimates, and selects the configuration with the
+lowest predicted smoothed error. The final nuisance forest is grown using the
+selected parameters. Because the DML estimators use five-fold cross-fitting,
+this tuning and fitting procedure is repeated separately within the relevant
+outer training samples.\\
 
-For nuisance component $j$, the selected configuration is
+The XGBoost specifications are tuned through the
+\textsc{DoubleML}/\texttt{mlr3tuning} interface. Within each outer
+cross-fitting training sample, a random search evaluates
+\(E=15\) candidate configurations using three-fold inner cross-validation.
+The search covers the number of boosting rounds, maximum tree depth, learning
+rate, and minimum child weight.
+For nuisance component \(j\), the selected parameter vector is
+\begin{equation}
+    \widehat{\lambda}_j
+    =
+    \arg\min_{\lambda \in \Lambda_E}
+    \frac{1}{K_{\mathrm{inner}}}
+    \sum_{k=1}^{K_{\mathrm{inner}}}
+    L_j(\lambda;k),
+\end{equation}
+where \(\Lambda_E\) is the set of randomly drawn candidate configurations and
+\(K_{\mathrm{inner}}=3\).\\
+For Wald-AIPW, the outcome regressions are tuned by root mean squared error,
+while the binary instrument propensity and treatment regressions are tuned by
+log-loss. For PLR-IV, all three nuisance functions are implemented as
+regression learners and are therefore tuned by root mean squared error.\\
+Tuning is performed with \texttt{tune\_on\_folds = TRUE}. Consequently,
+hyperparameters are selected separately within each outer training fold, and
+the observations used to evaluate the orthogonal score are excluded from both
+nuisance fitting and hyperparameter selection. This preserves the separation
+between nuisance training and score evaluation. It also implies that the tuned
+XGBoost specification does not have one global parameter vector; reported
+hyperparameters summarize the values selected across folds.
 
-\[
-\hat\lambda_j
-=
-\arg\min_{\lambda \in \{\lambda^{(1)},\ldots,\lambda^{(E)}\}}
-\frac{1}{K_{\mathrm{inner}}}
-\sum_{k=1}^{K_{\mathrm{inner}}}
-L_j(\lambda; k),
-\]
 
-where $K_{\mathrm{inner}}=3$. For the Wald-AIPW/IIVM XGBoost specification, the loss \(L_j\) is the root mean squared error for the outcome regression and the log-loss for the binary instrument propensity and the branch-specific treatment-regression probabilities. For the PLR-IV XGBoost specification, all three nuisance components are implemented as regression learners, so the corresponding tuning losses are root mean squared errors for the outcome, instrument, and treatment residualization steps. The search is therefore over a finite set of randomly drawn candidates rather than over the full continuous hyperparameter space.
-The tuning is performed with \texttt{tune\_on\_folds = TRUE}. Hence, the inner cross-validation search is carried out separately inside each outer cross-fitting training fold. Observations that form the held-out fold for evaluating the final orthogonal score are therefore not used either for fitting the nuisance functions or for selecting the XGBoost hyperparameters used to predict them. This avoids the hyperparameter-selection leakage that would arise from tuning once on the full sample and then reusing the same selected configuration in all outer folds.\\
-Both tuning procedures follow the same principle. Hyperparameters are selected using out-of-sample nuisance-prediction performance and never by optimizing the treatment-effect estimate itself. They differ in implementation. Honest random forest tuning is handled internally by \texttt{grf} through \texttt{tune.parameters = "all"}, whereas XGBoost tuning is conducted through the \textsc{DoubleML}/\texttt{mlr3tuning} interface using random search and inner cross-validation. Because the XGBoost tuning is fold-specific, there is no single global hyperparameter configuration for the tuned XGBoost specification. Reported XGBoost hyperparameter values are therefore descriptive summaries of the values selected across folds, not a single recipe that is subsequently plugged into all folds.
+
+
+
+
+% ==============================================================================
+\section{Connecting the Frameworks}
+\label{sec:connecting_frameworks}
+% ==============================================================================
+
+\subsection{Outcome weights and the Knaus framework}
+\label{subsec:knaus_framework}
+
+The estimators introduced in the preceding chapter approach the conditional
+instrumental-variables problem through markedly different sample constructions.
+The kappa estimators are explicit weighting estimators whose formulas depend on
+the conditional instrument propensity score. PLR-IV instead estimates a
+residualized instrumental-variables moment, whereas Wald-AIPW forms a ratio of
+augmented reduced-form and first-stage moments using cross-fitted nuisance
+estimates. These differences make a direct comparison of the estimators' defining
+formulas difficult. A comparison of their point estimates reveals whether they
+disagree in a particular sample, but it does not show how the observations in
+that sample are combined to produce the disagreement. \\
+The purpose of this chapter is therefore to place the estimators in a common
+finite-sample diagnostic framework. The central object is a representation of a
+fitted estimator as a weighted sum of the observed outcomes,
+\begin{equation}
+    \widehat{\tau}
+    = \sum_{i=1}^{N}\omega_iY_i
+    = \boldsymbol{\omega}'\mathbf{Y},
+    \label{eq:outcome_weight_representation}
+\end{equation}
+where \(\boldsymbol{\omega}=(\omega_1,\ldots,\omega_N)'\) denotes the final
+outcome-weight vector. For the realized fitted procedure, each \(\omega_i\) records the coefficient
+placed on observation \(i\)'s realized outcome in reproducing the numerical
+estimate. Depending on the estimator and learner, the resulting weight vector
+may itself depend on the observed outcomes and on algorithmic randomness.Equation
+\eqref{eq:outcome_weight_representation} consequently converts estimators with
+different mathematical and computational forms into the same sample-level
+object.\\
+Weighted-outcome representations are not specific to causal machine learning.
+They have a long tradition in weighting and matching estimators, regression,
+synthetic-control methods, and instrumental-variables estimation. The
+contribution of \citet{knaus2024treatment} is to provide a general framework for
+deriving such representations from pseudo-instrumental-variables estimators
+(PIVEs), to state the conditions under which the representation exists and is
+unique, and to obtain previously unavailable outcome weights for prominent DML
+and generalized-random-forest estimators. In the PIVE framework, the estimator
+is first written in terms of a pseudo-outcome, pseudo-treatment, and
+pseudo-instrument. If the pseudo-outcome can be expressed as a unique linear
+transformation of the observed outcome vector and the empirical first-stage
+denominator is nonzero, the corresponding outcome weights can be recovered in
+closed form. This construction provides the bridge used here between the
+kappa-based estimators and the DML estimators.\\
+It is important to distinguish these outcome weights from Abadie's kappa
+weights. The quantities \(\kappa_i\), \(\kappa_{1i}\), and \(\kappa_{0i}\) are
+identification objects: under the conditional IV assumptions, they transform
+observed-data moments into moments of the latent complier population
+\citep{abadie2003semiparametric}. The coefficients \(\omega_i\), by contrast,
+are properties of a particular fitted estimator in a realized sample. They are
+defined by the requirement that their weighted sum reproduces the numerical
+estimate in \eqref{eq:outcome_weight_representation}. Raw kappa weights may enter
+the construction of a kappa estimator, but they are not generally identical to
+its final outcome weights because the latter also incorporate the estimator's
+sample normalization and denominator.\\
+Once the final \(\boldsymbol{\omega}\) vectors have been obtained, all
+estimator families can be examined using the same diagnostic pipeline. Their
+total and treatment-specific weight sums describe normalization and, for a
+fixed extracted weight vector, the estimator's algebraic response to an
+additive shift of the outcome. Weighted standardized mean differences and Love
+plots assess balance in observed covariates; appropriately defined
+effective-sample-size measures summarize weight dispersion and concentration;
+and the incidence and concentration of negative or extreme weights indicate
+non-convex comparisons, potential extrapolation, and the observations that
+disproportionately drive the estimate. These diagnostics are computed from
+\(\boldsymbol{\omega}\), not from the raw kappa weights. The objective is
+therefore not only to document that two estimators produce different point
+estimates, but to determine whether their divergence can be understood from
+the weighted comparisons that they construct in the realized sample.
 
 
 
