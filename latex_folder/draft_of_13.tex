@@ -1208,16 +1208,20 @@ here, depends on the nuisance learner and its concrete implementation.
 
 This distinction is operational in the empirical analysis. The kappa outcome
 weights are computed directly from their closed-form expressions. For PLR-IV
-and Wald-AIPW, outcome weights are extracted only from implementations for
-which the required smoother representation is available. In every case, the
-identity$
-    \boldsymbol{\omega}'\mathbf Y=\widehat{\tau}$
-is verified numerically before the weights are used for diagnostics. The
-empirical chapters therefore compare only weight vectors that reproduce the
-corresponding fitted estimator to numerical tolerance. This
-keeps the comparison across the Vietnam draft lottery, the Card college-
-proximity design, and the Angrist--Evans fertility design tied to the estimators
-that are actually fitted in this thesis.
+and Wald-AIPW, candidate outcome weights are extracted whenever the fitted
+implementation makes the required representation available. The identity
+\(
+    \boldsymbol{\omega}'\mathbf Y=\widehat{\tau}
+\)
+is then verified numerically. Weight vectors that reproduce the corresponding
+estimate to numerical tolerance form the main diagnostic comparison. For some
+XGBoost implementations, an extracted vector is available but fails this
+identity check. Such vectors are retained only as explicitly flagged
+learner-sensitivity diagnostics and are not interpreted on the same footing as
+exact outcome-weight representations. This distinction keeps the comparison
+across the Vietnam draft lottery, the Card college-proximity design, and the
+Angrist--Evans fertility design tied to the estimators that are actually fitted
+in this thesis while making the limits of the extracted representation visible.
 
 
 \subsubsection{Knaus's normalization classes and the empirical comparison}
@@ -1255,6 +1259,9 @@ untreated-unnormalized class has \(C_1=1\) but \(C_0\neq-1\), whereas the
 treated-unnormalized class has \(C_0=-1\) but \(C_1\neq1\). If neither component
 has its target mass, the weights are fully unnormalized
 \citep[Section~4.1]{knaus2024treatment}.
+The complete classification is reported in Appendix
+Table~\ref{tab:knaus_weight_classes}, adapted from
+\citet[Table~4]{knaus2024treatment}.
 
 These distinctions are not merely terminological for the present comparison.
 Knaus derives sufficient implementation conditions determining the weight
@@ -1280,9 +1287,188 @@ the formula used in the subsequent empirical diagnostics.
 
 
 
+\subsubsection{Outcome weights of the normalized Uysal estimator}
+\label{subsec:omega_u}
+
+The derivation applies the PIVE construction above directly to the estimator in
+Equation~\eqref{eq:tau_u}. Let \(\widehat p_i=\widehat p(X_i)\) and define the
+instrument-group normalizing constants
+\begin{equation}
+    s_1=\sum_{j=1}^{N}\frac{Z_j}{\widehat p_j},
+    \qquad
+    s_0=\sum_{j=1}^{N}\frac{1-Z_j}{1-\widehat p_j}.
+    \label{eq:u_s1_s0}
+\end{equation}
+The corresponding normalized instrument inverse-probability weights are
+\begin{equation}
+    \lambda_{1i}^{z,n}
+    =\frac{N Z_i/\widehat p_i}{s_1},
+    \qquad
+    \lambda_{0i}^{z,n}
+    =\frac{N(1-Z_i)/(1-\widehat p_i)}{s_0}.
+    \label{eq:u_norm_lambda}
+\end{equation}
+Both vectors have total mass \(N\), that is,
+\(\sum_i\lambda_{1i}^{z,n}=\sum_i\lambda_{0i}^{z,n}=N\). This is precisely
+the separate H\'ajek normalization imposed on the two instrument groups in
+\(\widehat\tau_u\).
+
+Define the diagonal matrix
+\begin{equation}
+    \mathbf T^u
+    =\operatorname{diag}\!\left(
+      \lambda_{11}^{z,n}-\lambda_{01}^{z,n},\ldots,
+      \lambda_{1N}^{z,n}-\lambda_{0N}^{z,n}
+    \right).
+    \label{eq:u_T_matrix}
+\end{equation}
+Then the normalized reduced form and first stage in
+Equation~\eqref{eq:tau_u} can be collected in the ratio
+\begin{equation}
+    \widehat\tau_u
+    =\frac{N^{-1}\mathbf 1_N'\mathbf T^u\mathbf Y}
+           {N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D}.
+    \label{eq:u_wald_matrix}
+\end{equation}
+Thus, \(\widehat\tau_u\) is a PIVE with
+\begin{equation}
+    \widetilde{\mathbf Y}=\mathbf T^u\mathbf Y,
+    \qquad
+    \widetilde{\mathbf D}=\mathbf T^u\mathbf D,
+    \qquad
+    \widetilde{\mathbf Z}=\mathbf 1_N.
+    \label{eq:u_pive_components}
+\end{equation}
+No outcome-regression smoother is required: conditional on the fitted
+propensity scores, \(\mathbf T^u\) is an explicit diagonal transformation that
+does not depend on \(\mathbf Y\). This applies to both the maximum-likelihood
+and CBPS versions of the estimator used in the empirical analysis.
+
+For compactness, denote the normalized IPW first stage by
+\begin{align}
+    \widehat\Delta_D^u
+    &:=N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D \notag\\
+    &=\frac{\sum_{j=1}^{N}Z_jD_j/\widehat p_j}{s_1}
+      -\frac{\sum_{j=1}^{N}(1-Z_j)D_j/(1-\widehat p_j)}{s_0}.
+    \label{eq:u_delta_scalar}
+\end{align}
+Provided that \(s_1\) and \(s_0\) are finite and nonzero and that
+\(\widehat\Delta_D^u\neq0\), Equation~\eqref{eq:pive_outcome_weights_thesis}
+gives
+\begin{equation}
+    \boldsymbol\omega^{u\prime}
+    =\left(N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D\right)^{-1}
+      N^{-1}\mathbf 1_N'\mathbf T^u
+    =\left(\widehat\Delta_D^u\right)^{-1}
+      N^{-1}\mathbf 1_N'\mathbf T^u.
+    \label{eq:u_omega_matrix}
+\end{equation}
+Consequently, the final coefficient attached to observation \(i\)'s outcome is
+\begin{equation}
+    \boxed{
+    \omega_i^u
+    =\frac{1}{\widehat\Delta_D^u}
+      \left[
+        \frac{Z_i}{\widehat p_i s_1}
+        -\frac{1-Z_i}{(1-\widehat p_i)s_0}
+      \right].}
+    \label{eq:u_omega_scalar}
+\end{equation}
+It follows immediately that
+\(\widehat\tau_u=\sum_{i=1}^{N}\omega_i^uY_i\). The formula also coincides
+with the vector returned for \(\widehat\tau_u\) by the
+\texttt{kappa\_outcome\_weights()} function used below: each observation's
+signed normalized instrument weight is divided by the same estimated first
+stage.
+
+Under these existence conditions, the three outcome-weight masses follow
+directly from the separate instrument-group normalization. First,
+the equal total mass of the two normalized instrument-weight vectors implies
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^u
+    =\frac{1}{\widehat\Delta_D^u}
+      \left(\frac{1}{s_1}\sum_i\frac{Z_i}{\widehat p_i}
+            -\frac{1}{s_0}\sum_i\frac{1-Z_i}{1-\widehat p_i}\right)
+    =0.
+    \label{eq:u_omega_sum}
+\end{equation}
+Second, the definition of \(\widehat\Delta_D^u\) yields
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^uD_i=1.
+    \label{eq:u_omega_treated_sum}
+\end{equation}
+Finally,
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^u(1-D_i)
+    =\sum_i\omega_i^u-\sum_i\omega_i^uD_i=-1.
+    \label{eq:u_omega_untreated_sum}
+\end{equation}
+Hence \(\widehat\tau_u\) is fully normalized in the classification of
+\citet{knaus2024treatment}: its total outcome-weight mass is zero, while the
+treated and untreated masses are exactly \(+1\) and \(-1\). Importantly, this
+result concerns the final outcome weights, not merely the two inverse-probability
+weight vectors appearing in the estimator's numerator.
+
+\citet{uysal2011three} proposed the normalized estimator, while
+\citet{sloczynski2025abadie} study its finite-sample properties.
+\citet[Table~3, Section~4.2.4, and Appendix~A.4]{knaus2024treatment}
+identifies \(\widehat\tau_u\) with the normalized Wald-IPW case and shows that
+normalization of the instrument IPW components yields fully normalized outcome
+weights. The derivation above specializes this general result to the notation
+of the kappa estimators and records the corresponding observation-level
+coefficient explicitly. It thereby provides the exact weight vector used in
+the subsequent normalization, balance, effective-sample-size, and
+weight-concentration diagnostics.
+The precise role of the separate H\'ajek normalization relative to
+\(\widehat\tau_{a,1}\), including the special case in which covariate
+balancing already equalizes the two instrument-weight masses, is discussed in
+Appendix~\ref{app:omega_a1}, Remark~\ref{rem:hajek_contrast}.
 
 
+\subsubsection{From derivation to implementation}
+\label{subsubsec:weight_implementation}
 
+\begin{sloppypar}
+
+The preceding algebra is implemented in a common R workflow that constructs or
+extracts an observation-level outcome-weight vector for each fitted estimator
+for which the required representation is available. For the kappa estimators,
+\texttt{kappa\_outcome\_weights(Z, D, p)} maps the observed instrument,
+treatment, and fitted instrument propensity scores into the five
+outcome-weight vectors used in the analysis. Conditional on the supplied
+propensity scores, these weights are evaluated from closed-form expressions. No additional numerical optimization or outcome-regression model is required
+at the weight-construction stage. Propensity-score estimation remains a
+separate preceding step. In the empirical applications, the function is
+evaluated using maximum-likelihood propensity scores for all five kappa
+estimators; the CBPS propensity scores provide the additional
+\(\widehat\tau_u^{cb}\) specification.\\
+The DML outcome weights are obtained using the \texttt{OutcomeWeights} package
+accompanying \citet{knaus2024treatment}. The headline PLR-IV and Wald-AIPW
+specifications are fitted with \texttt{dml\_with\_smoother()} using five-fold
+cross-fitting and honest forest smoothers implemented through \texttt{grf}.
+Their observation-level outcome weights are then extracted with
+\texttt{get\_outcome\_weights()}. Alternative specifications are fitted as
+\texttt{DoubleMLPLIV} and \texttt{DoubleMLIIVM} objects using the parametric,
+\texttt{ranger}, and XGBoost nuisance learners. Where supported by the learner and package implementation,
+the stored nuisance models and predictions are passed to the
+\texttt{DoubleML} method of \texttt{get\_outcome\_weights()}.\\
+The analysis uses the development
+version 0.2.0.9000 of \texttt{OutcomeWeights} at GitHub commit
+\href{https://github.com/MCKnaus/OutcomeWeights/commit/0c94f940b04c14d0247b46842af37752e306b79e}{\texttt{0c94f940b04c}}, thereby
+recording the implementation used for learner-specific extraction.
+Finally, every constructed or extracted vector is subjected to the numerical
+identity check described above. The companion function
+\texttt{check\_weight\_identity()} with the corresponding fitted estimate, while
+\texttt{check\_doubleml\_identity()} applies the same check to weight objects
+extracted from \texttt{DoubleML}. The tolerance is set to \(10^{-8}\). The
+kappa vectors satisfy the identity algebraically and reproduce their estimates
+to numerical precision. For the learner-based estimators, the check determines
+whether the extracted vector is an exact outcome-weight representation of the
+realized fit. Only vectors passing this check are treated as exact
+representations in the main comparison. Extracted vectors that fail the
+identity may be reported separately as learner-sensitivity evidence, but they
+are not interpreted on the same footing.
+\end{sloppypar}
 
 
 
@@ -2451,7 +2637,7 @@ $\hat\tau_{a,0}^{ml}$ & $0.011$ \newline $(0.854)$ & $-0.050$ \newline $(0.802)$
 \section{Normalization of the Weighting Estimators}
 \label{app:normalization_estimators}
 This appendix shows explicitly how the weights entering
-$\widehat{\tau}_u$ and $\widehat{\tau}_{a,10}$ are normalized. x
+$\widehat{\tau}_u$ and $\widehat{\tau}_{a,10}$ are normalized. 
 
 
 \subsection{Normalization of \texorpdfstring{$\widehat{\tau}_u$}{tau-u}}
@@ -2677,10 +2863,12 @@ covariate values. They coincide, for example, when the conditional LATE is
 constant or when \(p(X)\) is constant across \(X\).
 
 
-\section{Knaus Outcome weights classification}
+\section{Outcome-Weight Classification}
+Table~\ref{tab:knaus_weight_classes} reproduces the classification introduced
+by \citet[Table~4]{knaus2024treatment} using the notation of this thesis.
 \begin{table}[htbp]
 \centering
-\caption{Knaus's outcome-weight classification}
+\caption{Outcome-weight classification of Knaus (2024)}
 \label{tab:knaus_weight_classes}
 \begin{tabular}{lccc}
 \toprule
@@ -2725,7 +2913,9 @@ Fully normalized
 
 This section derives the outcome weights of $\hat\tau_{a,1}$ (also written $\hat\tau_t$
 in \citealt{sloczynski2025abadie}) in the PIVE framework of
-\citet{knaus2024treatment}, and establishes that it is untreated-unnormalized.
+\citet{knaus2024treatment}. For a generic propensity-score estimate that does
+not impose the required balancing equality, the estimator is
+untreated-unnormalized.
 
 \paragraph{Setup.}
 Define the raw instrument IPW contrast for observation $i$ as
@@ -2761,7 +2951,7 @@ and the estimator can be written as
 which is a PIVE with $\widetilde{\mathbf{Z}} = \mathbf{1}_N$,
 $\widetilde{\mathbf{D}} = \boldsymbol{\kappa}_1$,
 $\widetilde{\mathbf{Z}}'\widetilde{\mathbf{D}} = \sum_i\kappa_{i1}$.
-By Proposition~\ref{prop:pive_weights}, the outcome weights are
+Applying Equation~\eqref{eq:pive_outcome_weights_thesis}, the outcome weights are
 \begin{equation}
   \boldsymbol{\omega}^{a,1\prime}
   = \left(\sum_i\kappa_{i1}\right)^{-1} \mathbf{1}_N' \mathbf{T}^{a,1},
@@ -2788,10 +2978,10 @@ Then $\sum_i r_i = s_1 - s_0$, so
   = \frac{s_1 - s_0}{\sum_j\kappa_{j1}},
   \label{eq:a1_sum}
 \end{equation}
-which is zero only if $s_1 = s_0$, a coincidental data-dependent condition with no
-structural guarantee. Hence $\sum_i\omega_i^{a,1} \neq 0$ in general, and
-$\hat\tau_{a,1}$ is not translation invariant.
-
+Thus, $\sum_i\omega_i^{a,1}=0$ if and only if $s_1=s_0$. This equality is
+not imposed by a generic propensity-score estimator, so
+$\sum_i\omega_i^{a,1}\neq0$ in general. The CBPS exception relevant for this
+thesis is stated in Remark~\ref{rem:hajek_contrast} below.
 \noindent\textit{(ii) Treated weight sum.}
 Using $D_i r_i = \kappa_{i1}$ from \eqref{eq:a1_kappa_decomp}:
 \begin{equation}
@@ -2812,9 +3002,9 @@ Using $(1-D_i)r_i = -\kappa_{i0}$ from \eqref{eq:a1_kappa_decomp}:
   = \frac{-\sum_i \kappa_{i0}}{\sum_j\kappa_{j1}},
   \label{eq:a1_untreated}
 \end{equation}
-which equals $-1$ only if $\sum_i\kappa_{i0} = \sum_i\kappa_{i1}$. Since there is no
-structural reason for the complier shares from the treated and untreated sides to be
-equal in any given sample, $\sum_i\omega_i^{a,1}(1-D_i) \neq -1$ in general.
+which equals $-1$ only if $\sum_i\kappa_{i0}=\sum_i\kappa_{i1}$. A generic
+propensity-score estimate does not enforce this finite-sample equality, and
+therefore $\sum_i\omega_i^{a,1}(1-D_i)\neq-1$ in general.
 
 \paragraph{Classification.}
 Collecting the three results:
@@ -2826,13 +3016,44 @@ Collecting the three results:
   \sum_{i=1}^N \omega_i^{a,1}(1-D_i) = -\frac{\sum_i\kappa_{i0}}{\sum_i\kappa_{i1}} \neq -1.
   \label{eq:a1_classification}
 \end{equation}
-Therefore $\hat\tau_{a,1}$ is \emph{untreated-unnormalized} in the sense of
+Therefore, in the generic case, $\hat\tau_{a,1}$ is
+\emph{untreated-unnormalized} in the sense of$\sum_i\kappa_{i0}$ for the two sides, forcing both to sum to their target values;
+$\hat\tau_{a,1}$ uses only the treated-side denominator, leaving the untreated side
+without its own rescaling.
 \citet[Table~4]{knaus2024treatment}: the treated side is normalized by construction
 but the untreated side is not. The contrast with $\hat\tau_{a,10}$ is instructive:
 the normalized estimator uses separate denominators $\sum_i\kappa_{i1}$ and
 $\sum_i\kappa_{i0}$ for the two sides, forcing both to sum to their target values;
 $\hat\tau_{a,1}$ uses only the treated-side denominator, leaving the untreated side
 without its own rescaling.
+
+\begin{remark}[Role of the separate H\'ajek normalization]
+\label{rem:hajek_contrast}
+Equation~\eqref{eq:a1_sum} shows that the total outcome-weight mass of
+\(\widehat\tau_{a,1}\) remains proportional to the difference
+\(s_1-s_0\). By contrast, \(\widehat\tau_u\) normalizes the two instrument
+groups separately, so Equation~\eqref{eq:u_omega_sum} reduces its total mass
+to \((\widehat\Delta_D^u)^{-1}(1-1)=0\). For this pair of Wald-IPW
+estimators, separate H\'ajek normalization is therefore the algebraic step that
+guarantees translation invariance without requiring an additional balancing
+restriction.
+
+This comparison changes when the propensity-score procedure itself imposes
+that restriction. With an intercept included in the CBPS balancing equation
+\eqref{eq:cbps_moment},
+\begin{equation}
+    s_1-s_0
+    =\sum_{i=1}^{N}
+      \frac{Z_i-\widehat p_i}
+           {\widehat p_i(1-\widehat p_i)}
+    =0
+    \label{eq:cbps_equal_ipw_masses}
+\end{equation}
+up to numerical tolerance. In this case,
+\(\widehat\tau_{a,1}^{cb}\) also has zero total outcome-weight mass and
+coincides with \(\widehat\tau_u^{cb}\), consistently with the finite-sample
+equivalence discussed in Chapter~3.
+\end{remark}
 
 \newpage
 
