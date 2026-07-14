@@ -1054,13 +1054,15 @@ hyperparameters summarize the values selected across folds.
 
 
 
-% ==============================================================================
+
 \section{Connecting the Frameworks}
 \label{sec:connecting_frameworks}
-% ==============================================================================
+
 
 \subsection{Outcome weights and the Knaus framework}
 \label{subsec:knaus_framework}
+
+\subsubsection{A common representation of the estimators}
 
 The estimators introduced in the preceding chapter approach the conditional
 instrumental-variables problem through markedly different sample constructions.
@@ -1071,7 +1073,7 @@ augmented reduced-form and first-stage moments using cross-fitted nuisance
 estimates. These differences make a direct comparison of the estimators' defining
 formulas difficult. A comparison of their point estimates reveals whether they
 disagree in a particular sample, but it does not show how the observations in
-that sample are combined to produce the disagreement. \\
+that sample are combined to produce the disagreement.\\
 The purpose of this chapter is therefore to place the estimators in a common
 finite-sample diagnostic framework. The central object is a representation of a
 fitted estimator as a weighted sum of the observed outcomes,
@@ -1082,11 +1084,11 @@ fitted estimator as a weighted sum of the observed outcomes,
     \label{eq:outcome_weight_representation}
 \end{equation}
 where \(\boldsymbol{\omega}=(\omega_1,\ldots,\omega_N)'\) denotes the final
-outcome-weight vector. For the realized fitted procedure, each \(\omega_i\) records the coefficient
-placed on observation \(i\)'s realized outcome in reproducing the numerical
-estimate. Depending on the estimator and learner, the resulting weight vector
-may itself depend on the observed outcomes and on algorithmic randomness.Equation
-\eqref{eq:outcome_weight_representation} consequently converts estimators with
+outcome-weight vector. For the realized fitted procedure, each \(\omega_i\) denotes the coefficient
+attached to observation \(i\)'s outcome in the exact numerical representation
+of the estimate. Depending on the estimator and learner, the weight vector may itself
+depend on the observed outcomes and on algorithmic randomness. Equation
+\eqref{eq:outcome_weight_representation} nevertheless converts estimators with
 different mathematical and computational forms into the same sample-level
 object.\\
 Weighted-outcome representations are not specific to causal machine learning.
@@ -1096,13 +1098,11 @@ contribution of \citet{knaus2024treatment} is to provide a general framework for
 deriving such representations from pseudo-instrumental-variables estimators
 (PIVEs), to state the conditions under which the representation exists and is
 unique, and to obtain previously unavailable outcome weights for prominent DML
-and generalized-random-forest estimators. In the PIVE framework, the estimator
-is first written in terms of a pseudo-outcome, pseudo-treatment, and
-pseudo-instrument. If the pseudo-outcome can be expressed as a unique linear
-transformation of the observed outcome vector and the empirical first-stage
-denominator is nonzero, the corresponding outcome weights can be recovered in
-closed form. This construction provides the bridge used here between the
-kappa-based estimators and the DML estimators.\\
+and generalized-random-forest estimators. This construction provides the bridge
+used here between the kappa-based estimators and the DML estimators.
+
+\subsubsection{Identification weights, outcome weights, and effect weights}
+
 It is important to distinguish these outcome weights from Abadie's kappa
 weights. The quantities \(\kappa_i\), \(\kappa_{1i}\), and \(\kappa_{0i}\) are
 identification objects: under the conditional IV assumptions, they transform
@@ -1114,238 +1114,176 @@ estimate in \eqref{eq:outcome_weight_representation}. Raw kappa weights may ente
 the construction of a kappa estimator, but they are not generally identical to
 its final outcome weights because the latter also incorporate the estimator's
 sample normalization and denominator.\\
-Once the final \(\boldsymbol{\omega}\) vectors have been obtained, all
-estimator families can be examined using the same diagnostic pipeline. Their
-total and treatment-specific weight sums describe normalization and, for a
-fixed extracted weight vector, the estimator's algebraic response to an
-additive shift of the outcome. Weighted standardized mean differences and Love
-plots assess balance in observed covariates; appropriately defined
-effective-sample-size measures summarize weight dispersion and concentration;
-and the incidence and concentration of negative or extreme weights indicate
-non-convex comparisons, potential extrapolation, and the observations that
-disproportionately drive the estimate. These diagnostics are computed from
-\(\boldsymbol{\omega}\), not from the raw kappa weights. The objective is
-therefore not only to document that two estimators produce different point
-estimates, but to determine whether their divergence can be understood from
-the weighted comparisons that they construct in the realized sample.
+Outcome weights must also be distinguished from effect weights. Outcome weights
+multiply observed outcomes and reproduce the fitted estimate numerically, without
+requiring a causal interpretation of that estimate. Effect weights instead
+describe how an estimator aggregates heterogeneous, and therefore generally
+unobserved, treatment effects across covariate values or population groups,
+usually as a population or expectation-based representation. The two objects
+answer different questions: effect weights concern the causal estimand to which
+an estimator gives emphasis, whereas outcome weights reveal how the realized
+sample is processed to obtain the reported estimate
+\citep[Section~1.1]{knaus2024treatment}. 
 
 
 
+\subsubsection{The pseudo-IV representation}
 
-
-
-
-
-
-\subsection{Translation invariance}
-\label{subsec:invariance_normalization}
-
-The outcome-weight representation makes it possible to distinguish several
-finite-sample properties that are closely related but conceptually different.
-Throughout this section, consider an estimator that admits the representation
+The PIVE framework of \citet{knaus2024treatment} begins from the empirical
+moment condition
 \begin{equation}
-    \hat\tau = \sum_{i=1}^N \omega_i Y_i = \omega'Y,
-    \label{eq:ow_rep_ch2}
+    \mathbb{E}_N\!\left[
+      \bigl(\widetilde{Y}_i-\widehat{\tau}\widetilde{D}_i\bigr)
+      \widetilde{Z}_i
+    \right]=0.
+    \label{eq:pive_moment_thesis}
 \end{equation}
-where the weights \(\omega_i\) are the final outcome weights of the estimator.
-These weights should be distinguished from identification weights such as
-Abadie's \(\kappa\)-weights. The latter identify moments of the complier
-population, whereas the former describe how the finite-sample estimator combines
-the observed outcomes.\\
-Translation invariance requires that adding a constant to all outcomes does not
-change the treatment effect estimate. Formally, for any constant \(c\),
-\begin{equation}
-    \hat\tau(Y+c\mathbf{1}_N) = \hat\tau(Y).
-    \label{eq:ti_definition}
-\end{equation}
-Using the outcome-weight representation in \eqref{eq:ow_rep_ch2}, the effect of
-such a shift is
-\begin{align}
-    \hat\tau(Y+c\mathbf{1}_N)
-    &= \sum_{i=1}^N \omega_i (Y_i+c) \nonumber \\
-    &= \sum_{i=1}^N \omega_i Y_i
-       + c \sum_{i=1}^N \omega_i \nonumber \\
-    &= \hat\tau(Y) + c \sum_{i=1}^N \omega_i .
-    \label{eq:ti_shift}
-\end{align}
-Hence,
-\begin{equation}
-    \hat\tau(Y+c\mathbf{1}_N)=\hat\tau(Y)
-    \quad\Longleftrightarrow\quad
-    \sum_{i=1}^N \omega_i=0.
-    \label{eq:ti_sumzero_ch2}
-\end{equation}
-The total sum of the outcome weights is therefore an exact finite-sample
-criterion for translation invariance. If \(\sum_i\omega_i\neq0\), the estimator
-changes by \(c\sum_i\omega_i\) under an additive shift of size \(c\). Thus,
-\(\sum_i\omega_i\) measures the per-unit sensitivity of the estimator to
-additive recodings of the outcome.
-This property is particularly relevant for log outcomes. If wages are measured
-in cents instead of dollars before taking logs, then
-\begin{equation}
-    \log(100Y_i) = \log(Y_i) + \log(100).
-    \label{eq:log_units}
-\end{equation}
-Changing the unit of the untransformed wage variable therefore corresponds to an
-additive shift of the log outcome. A translation-invariant estimator is unaffected
-by this transformation, whereas an estimator with \(\sum_i\omega_i\neq0\) changes
-by \(\log(100)\sum_i\omega_i\).
+Here, \(\widetilde{Y}_i\) is a pseudo-outcome, \(\widetilde{D}_i\) is a
+pseudo-treatment, and \(\widetilde{Z}_i\) is a pseudo-instrument. The prefix
+``pseudo'' indicates that these variables need not coincide with the observed
+outcome, treatment, and instrument. They may contain residualization,
+inverse-probability adjustment, augmentation terms, or estimated nuisance
+functions specific to the estimator under consideration. This formulation
+isolates the part of the procedure that transforms the observed outcomes from
+the part that supplies the identifying first-stage variation.
 
-Scale equivariance refers to the behavior of the estimator under transformations
-of the scale of the outcome variable. In the context of log outcomes, the most
-important implication is invariance to multiplicative changes in the
-untransformed outcome. Since multiplying the original outcome by a positive
-constant \(a>0\) changes the log outcome by an additive constant,
+Solving \eqref{eq:pive_moment_thesis} gives
 \begin{equation}
-    \log(aY_i) = \log(Y_i) + \log(a),
-    \label{eq:scale_log}
-\end{equation}
-translation invariance of the estimator in log outcomes implies invariance to
-the units in which the original outcome is measured. Thus, for log outcomes,
-scale invariance with respect to the original variable is closely connected to
-translation invariance of the transformed outcome.
-It is important, however, not to confuse scale equivariance with normalization of
-the outcome weights. Scale equivariance concerns transformations of the outcome
-variable. Normalization concerns the total mass of the final outcome weights
-assigned to treated and untreated observations.
-
-A stronger property than translation invariance is full normalization of the
-outcome weights. In treatment-effect settings with binary treatment \(D_i\), the
-weights are fully normalized if
-\begin{equation}
-    \sum_{i=1}^N \omega_i D_i = 1
-    \quad\text{and}\quad
-    \sum_{i=1}^N \omega_i(1-D_i) = -1.
-    \label{eq:full_normalization}
-\end{equation}
-The first condition says that the total weight assigned to treated observations
-equals one. The second says that the total weight assigned to untreated
-observations equals minus one. Under these two conditions,
-\begin{equation}
-    \sum_{i=1}^N \omega_i
+    \widehat{\tau}
     =
-    \sum_{i=1}^N \omega_iD_i
-    +
-    \sum_{i=1}^N \omega_i(1-D_i)
+    \frac{\widetilde{\mathbf Z}'\widetilde{\mathbf Y}}
+         {\widetilde{\mathbf Z}'\widetilde{\mathbf D}}
     =
-    1-1
-    =
-    0.
-    \label{eq:fullnorm_implies_ti}
+    \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+      \widetilde{\mathbf Z}'\widetilde{\mathbf Y},
+    \label{eq:pive_solution_thesis}
 \end{equation}
-Full normalization therefore implies translation invariance. The converse does
-not generally hold.\\
-The interpretation of full normalization is straightforward. If
-\eqref{eq:full_normalization} holds, the estimator can be viewed as a normalized
-weighted treated mean minus a normalized weighted untreated mean:
+provided that
+\(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\neq0\). If there exists a
+unique \(N\times N\) transformation matrix \(\mathbf T\) satisfying
 \begin{equation}
-    \hat\tau
+    \widetilde{\mathbf Y}=\mathbf T\mathbf Y,
+    \label{eq:pive_transformation_thesis}
+\end{equation}
+then substitution into \eqref{eq:pive_solution_thesis} yields
+\begin{equation}
+    \widehat{\tau}
     =
-    \sum_{D_i=1}\omega_iY_i
-    +
-    \sum_{D_i=0}\omega_iY_i,
+    \underbrace{
+      \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+      \widetilde{\mathbf Z}'\mathbf T
+    }_{\boldsymbol{\omega}'}
+    \mathbf Y,
+\end{equation}
+and hence
+\begin{equation}
+    \boxed{
+    \boldsymbol{\omega}'
+    =
+    \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+    \widetilde{\mathbf Z}'\mathbf T.}
+    \label{eq:pive_outcome_weights_thesis}
+\end{equation}
+Equation~\eqref{eq:pive_outcome_weights_thesis} is Proposition~1 of
+\citet{knaus2024treatment}. It gives a constructive two-step procedure: first,
+express the estimator as a PIVE; second, identify the transformation matrix
+\(\mathbf T\) that maps the observed outcome vector into the pseudo-outcome.
+Under Knaus's condition that a unique transformation matrix \(\mathbf T\)
+generates the pseudo-outcome, together with
+\(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\neq0\), the resulting
+closed-form outcome-weight representation is well defined.
+
+For the kappa estimators, the transformation matrix is diagonal. Their
+pseudo-outcomes are obtained by multiplying each observed \(Y_i\) directly by
+an observation-specific scalar constructed from \(Z_i\), \(D_i\), and the
+estimated instrument propensity score. Their outcome weights can therefore be
+derived algebraically without estimating an outcome-regression smoother. For
+PLR-IV and Wald-AIPW, the situation is different. Their pseudo-outcomes contain
+estimated conditional outcome functions, so a closed-form outcome-weight vector
+requires those predictions to admit a smoother-matrix representation. In the
+notation of \citet{knaus2024treatment}, the fitted outcome nuisance vector must
+be reproducible by multiplying a unique smoother matrix by \(\mathbf Y\). Thus,
+the availability of DML outcome weights, unlike that of the kappa weights used
+here, depends on the nuisance learner and its concrete implementation.
+
+This distinction is operational in the empirical analysis. The kappa outcome
+weights are computed directly from their closed-form expressions. For PLR-IV
+and Wald-AIPW, outcome weights are extracted only from implementations for
+which the required smoother representation is available. In every case, the
+identity$
+    \boldsymbol{\omega}'\mathbf Y=\widehat{\tau}$
+is verified numerically before the weights are used for diagnostics. The
+empirical chapters therefore compare only weight vectors that reproduce the
+corresponding fitted estimator to numerical tolerance. This
+keeps the comparison across the Vietnam draft lottery, the Card college-
+proximity design, and the Angrist--Evans fertility design tied to the estimators
+that are actually fitted in this thesis.
+
+
+\subsubsection{Knaus's normalization classes and the empirical comparison}
+
+Once \(\boldsymbol{\omega}\) has been obtained, its total mass and its masses
+within the treated and untreated subsamples provide a common classification of
+otherwise different estimators. Following \citet[Table~4]{knaus2024treatment},
+define
+\begin{equation}
+    C=\boldsymbol{\omega}'\mathbf 1_N,
     \qquad
-    \sum_{D_i=1}\omega_i=1,
-    \quad
-    \sum_{D_i=0}\omega_i=-1.
-    \label{eq:fullnorm_interpretation}
-\end{equation}
-Thus, full normalization gives the outcome-weight representation the intuitive
-structure of a treated-control contrast.
-
-Partial normalization and the relation to translation invariance.
-Some estimators normalize only one side of the comparison. For example, an
-estimator may satisfy
-\begin{equation}
-    \sum_{i=1}^N \omega_iD_i = 1,
+    C_1=\boldsymbol{\omega}'\mathbf D,
     \qquad
-    \sum_{i=1}^N \omega_i(1-D_i) \neq -1.
-    \label{eq:partial_treated_norm}
+    C_0=\boldsymbol{\omega}'(\mathbf 1_N-\mathbf D).
+    \label{eq:knaus_weight_masses}
 \end{equation}
-In this case, the treated part of the estimator has the interpretation of a
-proper weighted treated mean, but the untreated part does not have the
-corresponding normalized control-mean interpretation. Moreover,
+Because \(C=C_1+C_0\), weights with zero total mass assign equal and opposite
+aggregate mass to treated and untreated observations. Knaus refers to weights
+with \(C=0\) as normalized. They are \emph{fully normalized} when, in addition,
 \begin{equation}
-    \sum_{i=1}^N \omega_i
-    =
-    1+\sum_{i=1}^N \omega_i(1-D_i),
-    \label{eq:partial_norm_sum}
+    C_1=1
+    \qquad\text{and}\qquad
+    C_0=-1.
+    \label{eq:knaus_full_normalization}
 \end{equation}
-so translation invariance generally fails unless the untreated weights happen to
-sum to \(-1\). Analogously, if the untreated weights sum to \(-1\) but the treated
-weights do not sum to \(1\), translation invariance also generally fails.
+In that case, the treated outcomes receive aggregate weight \(+1\), while
+the untreated outcomes receive aggregate weight \(-1\), placing the final
+contrast on the conventional treated-minus-untreated scale. Individual
+weights within either group may nevertheless be negative.
+A normalized estimator need not
+be fully normalized: it may instead satisfy \(C_1=c\) and \(C_0=-c\) for some
+\(c\neq1\). Knaus calls this case scale-normalized. If \(C\neq0\), one or both
+sides of the comparison remain unnormalized. In particular, the
+untreated-unnormalized class has \(C_1=1\) but \(C_0\neq-1\), whereas the
+treated-unnormalized class has \(C_0=-1\) but \(C_1\neq1\). If neither component
+has its target mass, the weights are fully unnormalized
+\citep[Section~4.1]{knaus2024treatment}.
 
-A different case arises when the total weight sum is zero but the treated and
-untreated components are not separately normalized. For example, it may be that
-\begin{equation}
-    \sum_{i=1}^N \omega_iD_i = a,
-    \qquad
-    \sum_{i=1}^N \omega_i(1-D_i) = -a,
-    \qquad
-    a\neq1.
-    \label{eq:ti_without_fullnorm}
-\end{equation}
-Then \(\sum_i\omega_i=0\), so the estimator is translation invariant. However,
-the treated and untreated components do not separately correspond to normalized
-weighted means. Such an estimator is stable to additive recodings of the outcome,
-but it lacks the stronger interpretation of a fully normalized treated-control
-contrast.
+These distinctions are not merely terminological for the present comparison.
+Knaus derives sufficient implementation conditions determining the weight
+classes of PLR-IV and Wald-AIPW. Affine outcome smoothers are sufficient for
+zero total weight mass, while full normalization additionally requires
+particular alignment between the smoother matrices used for the outcome and
+treatment nuisance functions. Standard flexible implementations need not
+satisfy this stronger requirement
+\citep[Sections~4.2.2 and 4.2.4]{knaus2024treatment}. The empirical analysis
+therefore does not infer normalization from an estimator label. Instead,
+\(C\), \(C_1\), and \(C_0\) are calculated for every available outcome-weight
+vector and learner specification.
 
-Table~\ref{tab:normalization_properties_ch2} summarizes the distinction between
-these properties.
+Appendix~A.4 of \citet{knaus2024treatment} places the kappa estimators studied
+by \citet{sloczynski2025abadie} within the PIVE framework and relates
+\(\widehat{\tau}_u\) to normalized Wald-IPW. The next subsection specializes
+this result to the notation used in this thesis by deriving the explicit
+observation-level outcome weights of \(\widehat{\tau}_u\). This makes
+transparent how the separate H\'ajek normalization of the instrument groups
+determines the total, treated, and untreated outcome-weight masses and provides
+the formula used in the subsequent empirical diagnostics.
 
-\begin{table}[htbp]
-\centering
-\caption{Outcome-weight properties and their interpretation}
-\label{tab:normalization_properties_ch2}
-\begin{tabular}{p{0.25\textwidth}p{0.35\textwidth}p{0.32\textwidth}}
-\toprule
-Property & Algebraic condition & Interpretation \\
-\midrule
-Translation invariance
-&
-\(\sum_i \omega_i = 0\)
-&
-The estimator is invariant to additive shifts of the outcome, \(Y_i\mapsto
-Y_i+c\). \\
-\addlinespace
-Treated-side normalization
-&
-\(\sum_i \omega_iD_i = 1\)
-&
-The treated component has the scale of a normalized weighted treated mean. \\
-\addlinespace
-Untreated-side normalization
-&
-\(\sum_i \omega_i(1-D_i) = -1\)
-&
-The untreated component has the scale of minus a normalized weighted untreated
-mean. \\
-\addlinespace
-Full normalization
-&
-\(\sum_i \omega_iD_i = 1\) and
-\(\sum_i \omega_i(1-D_i) = -1\)
-&
-The estimator can be interpreted as a normalized weighted treated mean minus a
-normalized weighted untreated mean. This implies translation invariance. \\
-\addlinespace
-Translation invariance without full normalization
-&
-\(\sum_i\omega_i=0\), but treated and untreated sums are not \(1\) and \(-1\)
-&
-The estimator is stable to additive outcome shifts but does not have the full
-treated-control weighted-mean interpretation. \\
-\addlinespace
-Scale invariance in log outcomes
-&
-\(\hat\tau(\log(aY))=\hat\tau(\log Y)\)
-&
-The estimate in logs is invariant to the unit of measurement of the original
-outcome. This follows from translation invariance in log outcomes. \\
-\bottomrule
-\end{tabular}
-\end{table}
+
+
+
+
+
+
+
 
 
 \newpage
@@ -2738,6 +2676,46 @@ differ when \(p(X)\) and the conditional complier effect vary across
 covariate values. They coincide, for example, when the conditional LATE is
 constant or when \(p(X)\) is constant across \(X\).
 
+
+\section{Knaus Outcome weights classification}
+\begin{table}[htbp]
+\centering
+\caption{Knaus's outcome-weight classification}
+\label{tab:knaus_weight_classes}
+\begin{tabular}{lccc}
+\toprule
+Weight class
+& \(C=\sum_i\omega_i\)
+& \(C_1=\sum_i\omega_iD_i\)
+& \(C_0=\sum_i\omega_i(1-D_i)\) \\
+\midrule
+Fully unnormalized
+& \(\neq 0\)
+& \(\neq 1\)
+& \(\neq -1\) \\
+
+Untreated unnormalized
+& \(\neq 0\)
+& \(=1\)
+& \(\neq -1\) \\
+
+Treated unnormalized
+& \(\neq 0\)
+& \(\neq 1\)
+& \(=-1\) \\
+
+Scale-normalized
+& \(=0\)
+& \(=c\neq1\)
+& \(=-c\neq-1\) \\
+
+Fully normalized
+& \(=0\)
+& \(=1\)
+& \(=-1\) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 
 
