@@ -1,0 +1,335 @@
+---
+title: "Angrist (1990) — Translation Invariance: Rerun Check (Method A)"
+subtitle: "Vietnam draft lottery: kappa, honest forest, DoubleML learners, and nested XGBoost"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size:15px; color:#2c2c2c; }
+h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
+h2 { color:#2c7bb6; margin-top:28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size:13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,fig.width=12,fig.height=6)
+```
+
+# Purpose
+
+This notebook implements the rerun definition of translation invariance. For
+every estimator, the complete pipeline is fitted to the original log-wage
+outcome and to
+
+\[
+Y_i^{\mathrm{shift}}=Y_i+\log(100),
+\]
+
+which is the cents recoding used in the SUW reproduction. Method A compares
+the two refitted estimates directly. Method B predicts the change from the
+original outcome weights, `log(100) * sum(omega)`. `gap_AB` records whether
+the rerun and frozen-weight calculations agree.
+
+<div class="note-box">
+**Two workflows.** The same pure additive shift is applied to the cubic-age
+and saturated-age specifications. These are the two feature designs used by
+the DML and learner analyses. Repeating additional constants would not test a
+different algebraic condition: translation invariance is equivalent to zero
+total outcome-weight mass for every additive constant.
+</div>
+
+# Setup
+
+```{r packages-and-source}
+library(haven)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+source("functions_all.R")
+
+ti_vietnam_row <- function(name,w_original,tau_original,tau_shifted,k,digits=12) {
+  row <- ti_unified_row(name=name,w_dollars=w_original,
+                        tau_dollars=tau_original,tau_cents=tau_shifted,
+                        k=k,digits=digits)
+  names(row)[names(row)=="tau_dollars"] <- "tau_original"
+  names(row)[names(row)=="tau_cents"] <- "tau_shifted"
+  row$Shift_k <- round(k,digits)
+  row[,c("Estimator","Shift_k","tau_original","tau_shifted","sum_w",
+         "diff_B","diff_A","gap_AB","invariant_B","invariant_A")]
+}
+```
+
+## Runtime switches
+
+```{r switches}
+RUN_KAPPA <- TRUE
+RUN_DML <- TRUE
+RUN_LM_RF <- TRUE
+RUN_XGB_METHOD_A <- TRUE
+RUN_XGB_WALD_AIPW <- TRUE
+RUN_XGB_PLIV <- TRUE
+USE_XGB_ORIGINAL_EXPORT <- TRUE
+
+SEED <- 42
+N_CF <- 5
+TUNE_EVALS <- 15
+INNER_FOLDS <- 3
+```
+
+<div class="warn-box">
+**XGBoost rule.** Original-outcome tuned estimates and outcome weights are
+imported from the two tuning exports. For the shifted outcome, nested tuning
+is rerun with the same seed, five outer folds, three inner folds, fifteen
+random-search evaluations, and `tune_on_folds = TRUE`. Reusing median
+hyperparameters would define a different estimator and is deliberately not
+done.
+</div>
+
+## Data — the exact main-analysis sample
+
+```{r data}
+stopifnot(file.exists("sipp.dta"))
+sipp <- read_dta("sipp.dta")
+sipp <- sipp[sipp$rsncode!=999 & !is.na(sipp$educ) & !is.na(sipp$kwage),]
+sipp$age <- sipp$age_5
+sipp$age2 <- sipp$age_5^2
+sipp$age3 <- sipp$age_5^3
+sipp$age_fac <- factor(sipp$age_5)
+
+Y_orig <- as.numeric(log(sipp$kwage))
+k_shift <- log(100)
+Y_shift <- Y_orig+k_shift
+D <- as.integer(sipp$nvstat)
+Z <- as.integer(sipp$rsncode)
+
+X_kappa_cub <- model.matrix(~age+age2+age3,data=sipp)
+X_kappa_sat <- model.matrix(~age_fac,data=sipp)
+X_dml_cub <- make_X(~0+age+I(age^2)+I(age^3),data=sipp)
+X_dml_sat_full <- make_X(~0+age_fac,data=sipp)
+X_dml_sat <- X_dml_sat_full[,-1,drop=FALSE]
+
+workflows <- list(
+  "Cubic age"=list(label="Cubic age",Y_orig=Y_orig,Y_shift=Y_shift,k=k_shift,
+    D=D,Z=Z,X_kappa=X_kappa_cub,X_dml=X_dml_cub),
+  "Saturated age"=list(label="Saturated age",Y_orig=Y_orig,Y_shift=Y_shift,k=k_shift,
+    D=D,Z=Z,X_kappa=X_kappa_sat,X_dml=X_dml_sat))
+cat(sprintf("N=%d | shift=log(100)=%.8f | workflows=%s\n",
+            nrow(sipp),k_shift,paste(names(workflows),collapse=", ")))
+```
+
+# 1. Kappa estimators
+
+<div class="note-box">
+Kappa weights depend on the instrument, treatment, covariates, and propensity
+score, but not on the outcome. Consequently, Method A and Method B should
+agree to numerical precision. The normalized estimators should remain
+unchanged; the unnormalized estimators are expected to move.
+</div>
+
+```{r kappa-builders}
+kappa_key_map <- c(tau_cb_u="tau_cb_u",tau_ml_u="tau_ml_u",
+  tau_ml_a10="tau_ml_a10",tau_ml_a="tau_ml_a",tau_ml_t="tau_ml_a1",
+  tau_ml_a0="tau_ml_a0")
+build_kappa_rows <- function(wf) {
+  est_o <- kappa_analytic_se_all(wf$Y_orig,wf$Z,wf$D,wf$X_kappa)$estimates
+  est_s <- kappa_analytic_se_all(wf$Y_shift,wf$Z,wf$D,wf$X_kappa)$estimates
+  W <- kappa_weights_bundle(wf$Z,wf$D,wf$X_kappa)
+  do.call(rbind,lapply(names(kappa_key_map),function(est){
+    row <- ti_vietnam_row(est,W[[kappa_key_map[[est]]]],est_o[[est]],est_s[[est]],wf$k)
+    row$Specification <- wf$label; row
+  }))
+}
+```
+
+```{r kappa-run, cache=TRUE}
+if(RUN_KAPPA)kappa_ti_all<-do.call(rbind,lapply(workflows,build_kappa_rows))
+```
+
+```{r kappa-table}
+if(RUN_KAPPA)kappa_ti_all[,c("Specification",setdiff(names(kappa_ti_all),c("Specification","gap_AB")))]%>%
+  kbl(caption="Kappa estimators — original versus shifted log wage",digits=8,row.names=FALSE)%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
+  row_spec(which(!kappa_ti_all$invariant_A),background="#fffbf0")%>%
+  footnote(general="Orange rows fail Method A, as expected for the unnormalized kappa estimators. For kappa, gap_AB should be approximately zero because the weights do not depend on Y.")
+```
+
+# 2. Headline DML: tuned honest forest
+
+```{r dml-headline-builder}
+build_dml_headline_rows <- function(wf) {
+  set.seed(SEED); fit_o <- dml_with_smoother(wf$Y_orig,wf$D,wf$X_dml,wf$Z,
+    n_cf_folds=N_CF,tune.parameters="all")
+  set.seed(SEED); fit_s <- dml_with_smoother(wf$Y_shift,wf$D,wf$X_dml,wf$Z,
+    n_cf_folds=N_CF,tune.parameters="all")
+  ro <- summary(fit_o); rs <- summary(fit_s); om <- get_outcome_weights(fit_o)
+  check_omega_rows(om)
+  do.call(rbind,lapply(c("PLR-IV","Wald-AIPW"),function(est){
+    row <- ti_vietnam_row(est,as.vector(om$omega[est,]),get_estimate(ro,est),
+                          get_estimate(rs,est),wf$k)
+    row$Specification <- wf$label; row
+  }))
+}
+```
+
+```{r dml-headline-run, cache=TRUE}
+if(RUN_DML)dml_headline_ti_all<-do.call(rbind,lapply(workflows,build_dml_headline_rows))
+```
+
+```{r dml-headline-table}
+if(RUN_DML)dml_headline_ti_all[,c("Specification",setdiff(names(dml_headline_ti_all),c("Specification","gap_AB")))]%>%
+  kbl(caption="Tuned honest forest — original versus shifted log wage",digits=8,row.names=FALSE)%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
+  row_spec(which(!dml_headline_ti_all$invariant_A),background="#fffbf0")
+```
+
+# 3. OLS/logit and Ranger learners
+
+<div class="note-box">
+“OLS/logit” describes the nuisance learner, not the linear-age feature
+specification. Every row is evaluated once with cubic-age features and once
+with saturated-age features. PLR-IV uses OLS for all three nuisances;
+Wald-AIPW uses OLS for the outcome nuisance and logistic regression for the
+binary instrument and treatment nuisances.
+</div>
+
+```{r learner-setup}
+make_dml_data <- function(Y,D,Z,X){df<-as.data.frame(X);df$y<-Y;df$d<-D;df$z<-Z
+  DoubleMLData$new(data=df,y_col="y",d_cols="d",z_cols="z",x_cols=colnames(X))}
+ml_lm_iivm<-function()list(g=lrn("regr.lm"),m=lrn("classif.log_reg"),r=lrn("classif.log_reg"))
+ml_rf_iivm<-function()list(g=lrn("regr.ranger",keep.inbag=TRUE),m=lrn("classif.ranger",keep.inbag=TRUE),r=lrn("classif.ranger",keep.inbag=TRUE))
+ml_lm_pliv<-function()list(l=lrn("regr.lm"),m=lrn("regr.lm"),r=lrn("regr.lm"))
+ml_rf_pliv<-function()list(l=lrn("regr.ranger",keep.inbag=TRUE),m=lrn("regr.ranger",keep.inbag=TRUE),r=lrn("regr.ranger",keep.inbag=TRUE))
+omega_vec<-function(om,row){w<-om$omega;if(is.null(dim(w)))return(as.vector(w))
+  if(!is.null(rownames(w))&&row%in%rownames(w))return(as.vector(w[row,]));as.vector(w[1,])}
+fit_iivm<-function(dat,L,Y){set.seed(SEED);o<-DoubleMLIIVM$new(data=dat,ml_g=L$g,ml_m=L$m,ml_r=L$r,n_folds=N_CF,score="LATE")
+  o$fit(store_models=TRUE,store_predictions=TRUE);om<-get_outcome_weights(object=o,dml_data=dat)
+  w<-omega_vec(om,"Wald-AIPW");list(obj=o,w=w,ok=check_weight_identity(w,Y,get_dml_coef(o)))}
+fit_pliv<-function(dat,L,Y){set.seed(SEED);o<-DoubleMLPLIV$new(data=dat,ml_l=L$l,ml_m=L$m,ml_r=L$r,n_folds=N_CF)
+  o$fit(store_models=TRUE,store_predictions=TRUE);om<-get_outcome_weights(object=o,dml_data=dat)
+  w<-omega_vec(om,"PLR-IV");list(obj=o,w=w,ok=check_weight_identity(w,Y,get_dml_coef(o)))}
+build_learner_row<-function(wf,label,Lfun,fitfun){
+  fo<-fitfun(make_dml_data(wf$Y_orig,wf$D,wf$Z,wf$X_dml),Lfun(),wf$Y_orig)
+  fs<-fitfun(make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml),Lfun(),wf$Y_shift)
+  row<-ti_vietnam_row(label,fo$w,get_dml_coef(fo$obj),get_dml_coef(fs$obj),wf$k)
+  row$Specification<-wf$label;row$identity_ok<-fo$ok;row}
+```
+
+```{r learner-run, cache=TRUE}
+if(RUN_LM_RF)learner_ti_all<-do.call(rbind,lapply(workflows,function(wf)rbind(
+  build_learner_row(wf,"PLR-IV (OLS nuisances)",ml_lm_pliv,fit_pliv),
+  build_learner_row(wf,"Wald-AIPW (OLS/logit nuisances)",ml_lm_iivm,fit_iivm),
+  build_learner_row(wf,"PLR-IV (Ranger)",ml_rf_pliv,fit_pliv),
+  build_learner_row(wf,"Wald-AIPW (Ranger)",ml_rf_iivm,fit_iivm))))
+```
+
+```{r learner-table}
+if(RUN_LM_RF)learner_ti_all[,c("Specification",setdiff(names(learner_ti_all),c("Specification","gap_AB","identity_ok")))]%>%
+  kbl(caption="DoubleML learners — original versus shifted log wage",digits=8,row.names=FALSE)%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
+  row_spec(which(!learner_ti_all$invariant_A),background="#fffbf0")%>%
+  footnote(general="OLS/logit labels the nuisance learner class; cubic and saturated labels identify the feature specification. Orange rows fail the full rerun invariance check.")
+```
+
+# 4. Tuned XGBoost Method A
+
+```{r xgb-setup}
+if(RUN_XGB_METHOD_A){
+  if(!USE_XGB_ORIGINAL_EXPORT)stop("USE_XGB_ORIGINAL_EXPORT must be TRUE.")
+  req<-c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds")
+  if(!all(file.exists(req)))stop("Run both Vietnam XGBoost tuning notebooks before Method A.")
+  xgb_wald_export<-readRDS(req[1]);xgb_pliv_export<-readRDS(req[2])
+  for(ex in list(xgb_wald_export,xgb_pliv_export)){
+    if(!isTRUE(ex$settings$tune_on_folds))stop("Export is not a tune_on_folds=TRUE fit.")
+    if(!all(names(workflows)%in%names(ex$omega_vectors)))stop("Export cells do not match Method-A workflows.")
+    if(!identical(as.integer(ex$settings$seed),as.integer(SEED))||
+       !identical(as.integer(ex$settings$n_cf),as.integer(N_CF))||
+       !identical(as.integer(ex$settings$tune_evals),as.integer(TUNE_EVALS))||
+       !identical(as.integer(ex$settings$inner_folds),as.integer(INNER_FOLDS)))
+      stop("Export tuning settings do not match the Method-A rerun settings.")
+  }
+}
+
+xgb_ps<-function()ps(nrounds=p_int(50,400),max_depth=p_int(2,5),eta=p_dbl(0.02,0.20),min_child_weight=p_int(1,8))
+make_xgb_iivm<-function()list(g=lrn("regr.xgboost",alpha=0,subsample=1,max_delta_step=0,base_score=0),m=lrn("classif.xgboost",predict_type="prob"),r=lrn("classif.xgboost",predict_type="prob"))
+make_xgb_pliv<-function(){b<-list(alpha=0,subsample=1,max_delta_step=0,base_score=0);list(l=do.call(lrn,c(list("regr.xgboost"),b)),m=do.call(lrn,c(list("regr.xgboost"),b)),r=do.call(lrn,c(list("regr.xgboost"),b)))}
+tune_set_iivm<-function()list(ml_g=xgb_ps(),ml_m=xgb_ps(),ml_r=xgb_ps())
+tune_set_pliv<-function()list(ml_l=xgb_ps(),ml_m=xgb_ps(),ml_r=xgb_ps())
+tune_settings_iivm<-function()list(n_folds_tune=INNER_FOLDS,rsmp_tune=rsmp("cv",folds=INNER_FOLDS),measure=list(ml_g="regr.rmse",ml_m="classif.logloss",ml_r="classif.logloss"),terminator=trm("evals",n_evals=TUNE_EVALS),algorithm=tnr("random_search"))
+tune_settings_pliv<-function()list(n_folds_tune=INNER_FOLDS,rsmp_tune=rsmp("cv",folds=INNER_FOLDS),measure=list(ml_l="regr.rmse",ml_m="regr.rmse",ml_r="regr.rmse"),terminator=trm("evals",n_evals=TUNE_EVALS),algorithm=tnr("random_search"))
+
+get_original_xgb<-function(export,cell,learner_label){
+  row<-export$weight_diagnostics%>%filter(.data$Cell==cell,.data$Learner==learner_label)
+  if(nrow(row)!=1)stop(sprintf("Expected one diagnostic row for %s / %s.",cell,learner_label))
+  w<-export$omega_vectors[[cell]]$tuned
+  if(is.null(w)||!length(w))stop(sprintf("Tuned outcome weights are unavailable for %s / %s.",cell,learner_label))
+  tau<-as.numeric(row$Estimate[1])
+  if(!is.finite(tau))stop(sprintf("Tuned estimate is unavailable for %s / %s.",cell,learner_label))
+  list(tau=tau,w=as.vector(w),identity_ok=isTRUE(export$identity_checks[[cell]]$tuned))}
+fit_shifted_wald<-function(wf){dat<-make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml);L<-make_xgb_iivm()
+  o<-DoubleMLIIVM$new(data=dat,ml_g=L$g,ml_m=L$m,ml_r=L$r,n_folds=N_CF,score="LATE")
+  o$tune(param_set=tune_set_iivm(),tune_settings=tune_settings_iivm(),tune_on_folds=TRUE)
+  o$fit(store_models=TRUE,store_predictions=TRUE);get_dml_coef(o)}
+fit_shifted_pliv<-function(wf){dat<-make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml);L<-make_xgb_pliv()
+  o<-DoubleMLPLIV$new(data=dat,ml_l=L$l,ml_m=L$m,ml_r=L$r,n_folds=N_CF)
+  o$tune(param_set=tune_set_pliv(),tune_settings=tune_settings_pliv(),tune_on_folds=TRUE)
+  o$fit(store_models=TRUE,store_predictions=TRUE);get_dml_coef(o)}
+build_xgb_rows<-function(wf){out<-list()
+  if(RUN_XGB_WALD_AIPW){orig<-get_original_xgb(xgb_wald_export,wf$label,"XGB tuned");set.seed(SEED);ts<-fit_shifted_wald(wf)
+    r<-ti_vietnam_row("Wald-AIPW (XGBoost tuned)",orig$w,orig$tau,ts,wf$k);r$Specification<-wf$label;r$identity_ok<-orig$identity_ok;out$wald<-r}
+  if(RUN_XGB_PLIV){orig<-get_original_xgb(xgb_pliv_export,wf$label,"PLR-IV XGB tuned");set.seed(SEED);ts<-fit_shifted_pliv(wf)
+    r<-ti_vietnam_row("PLR-IV (XGBoost tuned)",orig$w,orig$tau,ts,wf$k);r$Specification<-wf$label;r$identity_ok<-orig$identity_ok;out$pliv<-r}
+  do.call(rbind,out)}
+```
+
+```{r xgb-run, cache=TRUE, cache.extra=list(RUN_XGB_METHOD_A,RUN_XGB_WALD_AIPW,RUN_XGB_PLIV,TUNE_EVALS,INNER_FOLDS)}
+if(RUN_XGB_METHOD_A){
+  xgb_ti_all<-do.call(rbind,lapply(workflows,build_xgb_rows))
+  saveRDS(list(results=xgb_ti_all,settings=list(seed=SEED,n_cf=N_CF,
+    tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,tune_on_folds=TRUE,
+    original_exports=c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds"))),
+    "vietnam_translation_xgb_method_a_export.rds")
+}
+```
+
+```{r xgb-table}
+if(RUN_XGB_METHOD_A)xgb_ti_all[,c("Specification",setdiff(names(xgb_ti_all),c("Specification","gap_AB","identity_ok")))]%>%
+  kbl(caption="Tuned XGBoost Method A — original export versus shifted nested-tuning rerun",digits=8,row.names=FALSE)%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
+  row_spec(which(!xgb_ti_all$invariant_A),background="#fffbf0")%>%
+  footnote(general="Original estimates and weights are imported from the exact tuned exports. Shifted estimates rerun the complete nested tuning procedure. Orange indicates failure of the full rerun invariance check.")
+```
+
+```{r xgb-identity-table}
+if(RUN_XGB_METHOD_A)xgb_ti_all%>%select(Specification,Estimator,identity_ok,sum_w,diff_B,diff_A,gap_AB)%>%
+  kbl(caption="XGBoost outcome-weight identity and Method-A/Method-B gap",digits=8,row.names=FALSE)%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
+  footnote(general="identity_ok refers to the imported original-outcome weight representation. When FALSE, Method B is only an approximate learner-sensitivity diagnostic; Method A remains the relevant rerun result.")
+```
+
+<div class="note-box">
+**Interpretation.** Kappa and the honest forest are affine-smoother cases for
+which Methods A and B should agree closely. For adaptive Ranger and XGBoost
+fits, a nonzero `gap_AB` can arise because the learner is re-estimated after
+the outcome shift. Large discrepancies require investigation; unnormalized
+kappa failures are expected by construction.
+</div>
