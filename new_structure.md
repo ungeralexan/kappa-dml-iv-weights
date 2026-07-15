@@ -134,7 +134,7 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 **Section 4.2 — Translation and scale invariance**
 - Definition TI: τ̂(Y, W) = τ̂(Y+k, W) for all k (translation invariance) (Also think about the binary recoding case in the last framework)
-- Outcome-weight proof: τ̂(Y+k) − τ̂(Y) = kΣᵢωᵢ
+- Outcome-weight proof: τ̂(Y+k) − τ̂(Y) = kΣᵢωᵢ ? 
 - Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
 - Explain scale equivariance differently Definition SE / scale issue: brief statement, linked to log-unit sensitivity
 - Concrete example: cents vs. dollars is an additive shift after logs

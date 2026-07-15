@@ -1,0 +1,75 @@
+% Insertion-ready note for the Vietnam application or its appendix.
+% Requires the notation and bibliography definitions used in draft_of_13.tex.
+
+\subsubsection{Numerical replication of the cubic-age CBPS specification}
+\label{subsubsec:vietnam_cbps_replication}
+
+The replication of Table~2 in \citet{sloczynski2025abadie} is exact at the
+reported precision except for the CBPS-based Uysal estimator under the cubic
+age specification. The published estimate and standard error are
+\(0.208\) and \(0.232\), respectively, whereas the R implementation yields
+\(0.210\) and \(0.233\). This difference does not originate from the sample,
+the construction of the covariates, the definition of the normalized
+estimator, or the variance formula. It arises entirely in the numerical
+estimation of the CBPS propensity scores.
+
+Both implementations target the sample analogue of the balancing condition
+\begin{equation}
+    \frac{1}{N}\sum_{i=1}^{N}
+    \frac{Z_i-p(X_i;\alpha)}
+         {p(X_i;\alpha)\{1-p(X_i;\alpha)\}}X_i=0,
+    \label{eq:vietnam_cbps_numerical_moment}
+\end{equation}
+where \(X_i=(1,\text{age}_i,\text{age}_i^2,\text{age}_i^3)'\) in the cubic
+specification. In the R workflow, \texttt{fit\_cbps\_alpha()} standardizes the
+nonconstant columns of \(X\), initializes the coefficients at the logit
+maximum-likelihood estimate, and applies Newton steps with backtracking until
+the largest absolute sample moment in
+\eqref{eq:vietnam_cbps_numerical_moment} is smaller than \(10^{-9}\). The
+resulting propensity scores are passed to \texttt{tau\_u()}, which evaluates
+the separately normalized Wald--IPW estimator in closed form. Finally,
+\texttt{kappa\_analytic\_se\_one()} stacks the CBPS moments with the moments
+defining the four normalized group means and \(\widehat\tau_u\), and computes
+the robust sandwich standard error from this joint M-estimation system.
+
+The authors' Stata replication instead calls \texttt{kappalate} with
+\texttt{zmodel(cbps)}. In the currently installed \texttt{kappalate} version
+1.1.0, the CBPS first step is implemented by Stata's \texttt{gmm} command.
+For the cubic specification, the default Gauss--Newton algorithm does not
+converge, while \texttt{technique(nr)} returns
+\[
+    \widehat\tau_u^{cb}=0.2083305,
+    \qquad
+    \widehat{\operatorname{se}}
+    \bigl(\widehat\tau_u^{cb}\bigr)=0.2322452,
+\]
+which reproduces the published values after rounding. At this solution, the
+largest absolute balancing moment is approximately \(5.45\times10^{-4}\).
+The R solver instead reaches a maximum moment of approximately
+\(4.41\times10^{-14}\) and produces
+\[
+    \widehat\tau_u^{cb}=0.2099954,
+    \qquad
+    \widehat{\operatorname{se}}
+    \bigl(\widehat\tau_u^{cb}\bigr)=0.2327808.
+\]
+The R \texttt{CBPS} package with exact balancing gives a nearly
+identical point estimate of \(0.2099755\), corroborating the tightly solved R
+result.
+
+The decomposition can be verified directly. Supplying the Stata propensity
+scores to the R function \texttt{tau\_u()} reproduces \(0.2083305\), and
+evaluating the R sandwich calculation at the Stata CBPS solution reproduces
+the Stata standard error of \(0.2322452\). Hence the estimator and inference
+functions agree conditional on the same propensity scores. The small table
+discrepancy is solely a consequence of the numerical CBPS solution in a poorly
+conditioned cubic polynomial specification, rather than a difference in the
+econometric estimand or its implementation.
+
+This distinction also matters for reproducibility. The published Stata file
+installs the current \texttt{kappalate} release and does not pin either the
+package version or the optimization technique. Its results can therefore
+change when the package defaults change. A literal replication with version
+1.1.0 requires \texttt{technique(nr)}. The main R analysis retains the more
+tightly balanced solution; if the published value is reproduced separately,
+the Stata version and optimization setting should be reported explicitly.
