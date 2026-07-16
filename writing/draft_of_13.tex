@@ -449,7 +449,7 @@ analogues, however, need not coincide in finite samples, whether $p(X_i)$ is kno
 estimated. This finite-sample ambiguity in the denominator is the source of the different
 weighting estimators of $\tau_{LATE}$ developed in the next section.
 
-
+\section{The estimators}
 \subsection{Kappa and weighting estimators of the LATE}
 The previous section established Abadie's kappa representation of the LATE. For
 the empirical analysis, the relevant implication is that this representation
@@ -460,22 +460,20 @@ $E[\kappa_{0i}]$. These objects are equal under the IV assumptions, but their
 sample analogues need not be equal. As a result, the same identification result
 leads to several natural weighting estimators once the population moments are
 replaced by sample averages.
-Following \citet{sloczynski2025abadie}, I focus on five such estimators. The
-distinction that matters for the later analysis is whether the weights are
-normalized in the sample. By normalization I mean that the weights entering a
-weighted mean are rescaled to sum to one. For a treatment-effect contrast, this
-requires the two weighted components of the contrast to be normalized separately.
-The estimator $\hat\tau_u$ based on \citet{uysal2011three} and the estimator
-$\hat\tau_{a,10}$ proposed by \citet{abadie2018econometric} have this property. The other three estimators,
+Following the notion of \citet{sloczynski2025abadie} both normalized and unnormalized weighting estimators are considered in order to to reproduce their comparison of the estimators' finite-sample properties.
+Central to the distinction between normalized and unnormalized estimator is whether the weights used to construct each weighted mean sum to one within the sample. When both components are normalized separately, the estimator can be represented as the difference between two separately normalized weighted means.
+This distinction is important because an estimated causal effect expressed as a difference in outcomes should not depend on arbitrary choices concerning the location or units of the outcome variable. In particular, adding the same constant to every observed outcome should leave the estimated treatment effect unchanged. Similarly, changing the scale of the underlying outcome should induce only the corresponding economically interpretable change in the estimate. These requirements are formalized by the properties of translation invariance
+and scale equivariance, which are examined in detail in
+Section~\ref{sec:translation_invariance}.
+To reproduce the analysis of \citet{sloczynski2025abadie}, the set of estimators considered here includes the estimator $\hat\tau_u$, originally proposed by \citet{uysal2011three}, and the estimator $\hat\tau_{a,10}$, considered by \citet{abadie2018econometric}.
+Both estimators are normalized, although they arise from different representations of the LATE.
+The remaining estimators 
 $\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$, are
-unnormalized sample analogues. This subsection defines the estimators and sets up
-the notation used in the empirical tables. The implications of the normalization
-choice for translation invariance are discussed in the next subsection.
-
-\subsubsection*{Two normalized estimators}
-For notational simplicity, the formulas below are written in terms of $p(X_i)$. In the empirical implementation, $p(X_i)$ is replaced by a fitted propensity score
-$\hat p(X_i)$.
-The first estimator, $\hat\tau_u$, is due to \citet{uysal2011three}. It is
+unnormalized sample analogues. 
+The present subsection defines these estimators and shows how their respective weights are constructed and normalized. The implications of these normalization choices for translation invariance and scale equivariance are discussed subsequently.\\
+For notational simplicity, the formulas below are written in terms of thd population instrument propensity score $p(X_i)$. As it is common in empirical applications that $p(X_i)$ is unknown, it is replaced by the fitted propensity score $\hat p(X_i)$.
+The first estimator is  $\hat\tau_u$ originally proposed in \citep{uysal2011three} and moreover the preferred estimator in \citet{sloczynski2025abadie}. 
+It is constructed as 
 the ratio of two separately Hájek-normalized inverse-probability-weighted
 contrasts,
 \begin{equation}
@@ -491,11 +489,9 @@ contrasts,
     }.
     \label{eq:tau_u}
 \end{equation}
-Both the numerator and the denominator are differences of Hájek-normalized
-IPW means. Thus, within each instrument group, the weights are rescaled before
-the difference is formed.\\
-The second normalized estimator, $\hat\tau_{a,10}$, is due to
-\citet{abadie2018econometric} (see also \citealp{sant2022covariate}). Rather than normalizing the instrument-group IPW means as in \(\hat\tau_u\),
+The numerator is a normalized inverse-probability-weighted estimate of the effect of the instrument on the outcome.
+The denominator is the corresponding normalized estimate of the effect of the instrument on treatment. Within each instrument group, the inverse-probability weights are rescaled to sum to one before the respective differences are formed. The normalization of these component weights is demonstrated in Appendix~\ref{app:normalization_estimators}.\\
+The second normalized estimator, $\hat\tau_{a,10}$, considered by \citet{abadie2018econometric} and \citet{sant2022covariate}. Rather than normalizing the instrument-group IPW means as in \(\hat\tau_u\),
 it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly,
 \begin{equation}
     \hat\tau_{a,10} =
@@ -504,9 +500,9 @@ it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly
     \left(\sum_{i=1}^N \kappa_{0i}\right)^{-1}\sum_{i=1}^N \kappa_{0i}Y_i.
     \label{eq:tau_a10}
 \end{equation}
-
-\subsubsection*{Three unnormalized estimators}
-The remaining estimators start from the same population identity,
+Here each component has its own normlaization denominator. 
+Consequently, the $\kappa_1$ weights in the first component and the $\kappa_0$ weights in the second component each sum to one within the sample.\\
+The remaining estimators are also valid sample analogues of the population identification result:
 \[
 \tau_{LATE}
 = P(D_i(1)>D_i(0))^{-1}
@@ -514,8 +510,7 @@ E\!\left[
 Y_i\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}
 \right].
 \]
-They use the same sample numerator. What differs across them is the sample
-analogue used for the complier share in the denominator.
+Their lack of normalization arises because a common estimate of the complier share is used as the denominator of both weighted outcome sums:
 \begin{align}
     \hat\tau_a &= \left(N^{-1}\sum_{i=1}^N \kappa_i\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_a}\\
     \hat\tau_t \;(=\hat\tau_{a,1}) &= \left(N^{-1}\sum_{i=1}^N \kappa_{1i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_t}\\
@@ -523,11 +518,7 @@ analogue used for the complier share in the denominator.
 \end{align}
 These three estimators are consistent under the same population argument, but
 their finite-sample weights are not normalized. In particular, the two components
-of the implied outcome contrast are not both forced to sum to one. This
-distinction has direct finite-sample consequences. \citet{sloczynski2025abadie}
-show that
-$\hat\tau_u$ and $\hat\tau_{a,10}$ are translation invariant, whereas
-$\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$ are not.
+of the implied outcome contrast are not both forced to sum to one. 
 Among the unnormalized estimators, $\hat\tau_t$ is the one most commonly used in
 the applied literature, following \citet{tan2006regression} and
 \citet{frolich2007nonparametric} and later applications such as
@@ -536,14 +527,14 @@ the applied literature, following \citet{tan2006regression} and
 \citet{abdulkadirouglu2017research}.
 
 \subsubsection*{Estimating the propensity score}
-
-In applications, the instrument propensity score $p(X_i)$ is usually unknown.
-Following \citet{sloczynski2025abadie}, I use the parametric logit model
+Following \citet{sloczynski2025abadie}, two estimators of $\alpha$ are used to
+obtain the instrument propensity score $\hat p(X_i)$.
+The first is standard maximum likelihood,
+denoted $\hat\alpha^{ml}$. For this the the parametric logit model
 \[
 F(X_i,\alpha)=\frac{\exp(X_i'\alpha)}{1+\exp(X_i'\alpha)}.
-\]
-I use two estimators of $\alpha$. The first is standard maximum likelihood,
-denoted $\hat\alpha^{ml}$. The second is the covariate balancing propensity
+\] is used.
+The second is the covariate balancing propensity
 score estimator of \citet{imai2014covariate}, denoted $\hat\alpha^{cb}$, which
 solves
 \begin{equation}
@@ -551,18 +542,18 @@ solves
     N^{-1}\sum_{i=1}^N \frac{1-Z_i}{1-F(X_i,\hat\alpha^{cb})}X_i.
     \label{eq:cbps_moment}
 \end{equation}
-This moment condition chooses the propensity-score parameters so that the
-reweighted covariates balance across instrument values. It therefore targets a
-different finite-sample property than the likelihood score.
-The superscript on an estimator indicates which propensity score is used. For example,
+Rather than maximizing the likelihood of $Z_i$ given $X_i$, this condition
+chooses $\alpha$ so that the reweighted covariate means are balanced across
+instrument groups.  
+I use a superscript to indicate which propensity score enters a given
+estimato. For example,
 $\hat\tau_u^{ml}$ and $\hat\tau_u^{cb}$ are obtained by plugging in
 $\hat p^{ml}(X_i)=F(X_i,\hat\alpha^{ml})$ and
-$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively. The same convention applies
-to the remaining kappa estimators.
-
-This convention matters in the empirical analysis. Under maximum likelihood, the
-finite-sample denominator ambiguity remains, and the ML versions of the
-estimators generally differ. Under covariate balancing with a constant included
+$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively. \\
+This convention matters as under maximum likelihood, the
+finite-sample denominator ambiguity remains, and
+$\hat\tau_u^{ml}$, $\hat\tau_{a,10}^{ml}$, $\hat\tau_a^{ml}$, $\hat\tau_t^{ml}$,
+and $\hat\tau_{a,0}^{ml}$ generally differ from one another. Under covariate balancing with a constant included
 in $X_i$, \citet{sloczynski2025abadie} show the exact finite-sample identity
 \[
 \hat\tau_u^{cb}
@@ -575,41 +566,64 @@ in $X_i$, \citet{sloczynski2025abadie} show the exact finite-sample identity
 =
 \hat\tau_{a,10}^{cb}.
 \]
-Thus, reporting all these CBPS-based estimates separately would not add
+The unnormalized estimator $\hat\tau_a^{cb}$ is not part of this equivalence and can differ from
+the others even under covariate balancing.
+This result determines how I report the estimates in the empirical sections.
+Reporting all these CBPS-based estimates separately would not add
 information, because they coincide by construction in the sample. I therefore report
-$\hat\tau_u^{cb}$ as the CBPS-based representative. The remaining estimators are
-reported with maximum-likelihood propensity scores. The estimator \(\hat\tau_a^{cb}\) is not covered by this equivalence. Since the
-empirical comparison follows \citet{sloczynski2025abadie} and focuses on
-\(\hat\tau_u^{cb}\) as the CBPS-based representative, I do not report
-\(\hat\tau_a^{cb}\) as a separate benchmark.
-
+$\hat\tau_u^{cb}$ as the CBPS-based estimate.
+The remaining estimators are
+reported with maximum-likelihood propensity scores. \\
+An important consideration for the code implementation is that no existing
+software implements the full set of required features in R.\citet{bodory2018causalweight}'s \texttt{causalweight} package
+implements $\hat\tau_u$ in R, but does not support covariate balancing
+estimation of $\alpha$ and relies exclusively on the bootstrap for inference.
+\citet{sloczynski2025abadie}'s companion \texttt{kappalate} package supports
+both maximum likelihood and covariate balancing, but is implemented in Stata. Since the empirical
+comparison in this thesis requires the kappa estimators to sit in the same
+computational pipeline as the DML and outcome-weight diagnostics (all implemented in R), I implement all point estimators,
+both propensity-score estimation methods, and analytical standard errors
+directly in R (see Github for details).
 
 
 \subsection{DML-based IV estimators}
 The kappa estimators introduced above approach the conditional IV problem by
 constructing explicit reweighting estimators from the conditional instrument
-propensity score. Double machine learning (DML) provides a complementary
-estimation strategy. It begins with a moment condition for a low-dimensional
-parameter of interest and treats the conditional expectations required to
-evaluate that moment as nuisance functions. These functions may be estimated
-with flexible learners such as machine-learning methods. The purpose of DML is to
-limit the effect that regularization bias and overfitting in the estimated
-nuisance functions have on estimation and inference for the target parameter
-\citep{chernozhukov2018double}.
+propensity score. 
+They provide the classical benchmark for the three empirical
+applications considered below.
+However, another question that this thesis tries to solve is how these
+estimators compare with more flexible IV procedures that accommodate potentially
+complex relationships between the main variables. 
+For this purpose, I consider IV estimators based on the double machine learning
+(DML) framework of \citet{chernozhukov2018double}.\\
+DML starts from a moment condition that identifies a low-dimensional target
+parameter and treats the conditional expectations entering this moment condition
+as nuisance functions.
+These nuiscance functions may be estimated
+with flexible learners such as machine-learning methods. 
+ Because directly inserting regularized
+nuisance estimates into conventional moment conditions can produce substantial
+bias % gerne zitat
+,DML combines Neyman-orthogonal scores with cross-fitting to reduce the
+sensitivity of the target estimator to nuisance estimation errors.
 \subsubsection{The double machine learning principle and orthogonal scores}
 Let $W_i$ collect the observed variables and let $\theta_0$ denote the
 low-dimensional parameter of interest. The nuisance functions are collected in
-$\eta_0$. The parameter is characterized by a population moment condition
+$\eta_0$.
+The parameter is characterized by a population moment condition
 \begin{equation}
     E\!\left[\psi(W_i;\theta_0,\eta_0)\right]=0,
     \label{eq:dml_moment}
 \end{equation}
 where $\psi(\cdot)$ is a score function. A direct plug-in estimator would first
 replace $\eta_0$ by an estimate $\hat\eta$ and then solve the sample analogue of
-\eqref{eq:dml_moment}. With flexible learners, however, nuisance estimates may
+\eqref{eq:dml_moment}. 
+With flexible learners, however, nuisance estimates may
 be regularized and may adapt closely to the observations on which they were
 trained. The resulting nuisance-estimation error can then enter the empirical
 moment at first order and distort the estimate of $\theta_0$.\\
+% I this correct 
 DML addresses this problem first through the construction of a
 Neyman-orthogonal score. Consider a perturbation $\eta_0+r(\eta-\eta_0)$ of the
 true nuisance functions in an admissible direction $\eta-\eta_0$. The score is
@@ -625,11 +639,9 @@ Neyman orthogonal at $(\theta_0,\eta_0)$ if
     \label{eq:neyman_orthogonality}
 \end{equation}
 This derivative is a Gateaux derivative with respect to the nuisance object.
-Condition~\eqref{eq:neyman_orthogonality} states that, at the truth, a small
-local perturbation of the nuisance functions has no first-order effect on the
-population moment. Consequently, sufficiently accurate nuisance estimates may
-converge more slowly than the target parameter without their errors necessarily
-dominating its first-order sampling behaviour. \\
+Condition~\eqref{eq:neyman_orthogonality}  implies that a small local
+perturbation of the nuisance functions has no first-order effect on the
+population moment.\\
 The distinction between first- and second-order sensitivity is central to this
 argument. For a non-orthogonal score, nuisance-estimation error may enter the
 moment linearly. If $\|\hat\eta-\eta_0\|=O_p(a_N)$, its contribution to the
@@ -661,26 +673,24 @@ estimator. As a familiar benchmark, if both nuisance components in
 $o_p(N^{-1/2})$. This can permit root-$N$ inference for $\theta_0$, subject to
 the remaining regularity conditions. The precise rate requirement depends on
 the score and on which nuisance-error products enter its remainder.\\
-Orthogonality should not be interpreted as making nuisance estimation
-unimportant. It is a local robustness property of the score, not a guarantee
-against arbitrary misspecification, poor overlap, weak instruments, or severely
-inaccurate nuisance predictions. Moreover, orthogonality alone does not prevent
-a flexible learner from overfitting the observations used to evaluate the
-score. DML therefore combines the orthogonal score with cross-fitting. The two
+Orthogonality should not be interpreted as making nuisance estimation unimportant. It is a local robustness property of the score, not a guarantee against arbitrary misspecification, poor overlap, weak instruments, or severely inaccurate nuisance predictions. Furthermore, orthogonality alone does not prevent a flexible machine learning algorithm from overfitting the observations used to evaluate the score.
+To resolve this, DML combines the orthogonal score with cross-fitting \ref{cross fitting}. 
+The two
 devices address related but distinct problems.
 Orthogonality reduces the
 first-order sensitivity of the moment to nuisance-estimation error, whereas
 cross-fitting separates nuisance training from score evaluation. \\
 The precise content of $\theta_0$, $\eta_0$, and $\psi$ depends on the
-econometric model. This thesis uses two DML-based IV procedures. The first is a
+econometric model. This thesis uses two DML-based IV procedures.
+The first is a
 partially linear IV estimator, which obtains the structural coefficient from a
 residualized IV moment. The second is a Wald-type augmented
-inverse-probability-weighted estimator, which forms orthogonal reduced-form and
-first-stage moments and takes their ratio. Although both procedures use
+inverse-probability-weighted estimator. Although both procedures use
 orthogonal scores and cross-fitted nuisance predictions, they impose different
 model structures and should not be assumed to identify the same causal
 parameter without additional restrictions. This distinction provides the
 organizing principle for the estimator-specific subsections that follow.
+
 
 \subsubsection{The partially linear IV estimator}
 
@@ -694,28 +704,16 @@ instrumental variables (PLR-IV) estimator. Following
     & E[V_i\mid X_i]&=0. \label{eq:pliv_instrument}
 \end{align}
 Here, $\theta_0$ is the low-dimensional structural coefficient of interest,
-whereas $g_0(\cdot)$ and $m_0(\cdot)$ are unknown nuisance functions. The
+whereas $g_0(\cdot)$ and $m_0(\cdot)$ are unknown nuisance functions.
+The
 covariate contribution to the outcome is left unrestricted, but the treatment
-enters the structural equation through the constant coefficient $\theta_0$.
-Treatment may be endogenous: equation~\eqref{eq:pliv_model} does not require
+enters the structural equation through the constant coefficient $\theta_0$.\\
+Treatment may be endogenous because equation~\eqref{eq:pliv_model} does not require
 $E[U_i\mid X_i,D_i]=0$. Identification instead uses the conditional validity of
 $Z_i$. Equation~\eqref{eq:pliv_instrument} isolates
 $V_i=Z_i-m_0(X_i)$, the component of the instrument that cannot be predicted
-from $X_i$.
-
-One orthogonal score for this model is
-\begin{equation}
-    \psi_a(W_i;\theta,\eta)
-    =\big(Y_i-D_i\theta-g(X_i)\big)\big(Z_i-m(X_i)\big),
-    \qquad \eta=(g,m).
-    \label{eq:pliv_score_structural}
-\end{equation}
-At the true values, the conditional moment restriction in
-\eqref{eq:pliv_model} implies
-$E[\psi_a(W_i;\theta_0,\eta_0)]=0$. In practice, however, estimating
-$g_0(X)=E[Y-D\theta_0\mid X]$ directly is inconvenient because it depends on
-the unknown target parameter. The empirical implementation therefore uses the
-equivalent Robinson-style partialling-out score. Define
+from the covariates $X_i$.\\
+For estimation define the conditional means as in \citet{chernozhukov2018double}
 \begin{equation}
     \ell_0(X_i)=E[Y_i\mid X_i],\qquad
     r_0(X_i)=E[D_i\mid X_i],\qquad
@@ -729,7 +727,7 @@ and the residualized variables
     \widetilde Z_i=Z_i-m_0(X_i).
     \label{eq:pliv_residuals}
 \end{equation}
-The corresponding score is
+The corresponding partialling-out score is
 \begin{equation}
     \psi_{\mathrm{PLR-IV}}(W_i;\theta,\eta)
     =
@@ -738,30 +736,14 @@ The corresponding score is
     \qquad \eta=(\ell,r,m).
     \label{eq:pliv_score}
 \end{equation}
-At the true nuisance functions, this reduces to
+At the true parameter values, the score reduces to
 \begin{equation}
     \psi_{\mathrm{PLR-IV}}(W_i;\theta_0,\eta_0)
     =\big(\widetilde Y_i-\theta_0\widetilde D_i\big)
       \widetilde Z_i.
 \end{equation}
-All three nuisance components in \eqref{eq:pliv_nuisances} are conditional
-means and can therefore be estimated directly with regression learners. This
-also explains the learner architecture used later: the outcome, treatment, and
-instrument nuisance components of PLR-IV are all fitted as regression
-problems, even when $D_i$ and $Z_i$ are binary.
-
 The score in \eqref{eq:pliv_score} satisfies both the identifying moment
-condition and the Neyman-orthogonality condition introduced above. To see the
-source of orthogonality, perturbing $\ell$ or $r$ generates terms multiplied by
-$Z_i-m_0(X_i)$, whose conditional expectation given $X_i$ is zero. Perturbing
-$m$ generates a term multiplied by
-$Y_i-\ell_0(X_i)-\theta_0\{D_i-r_0(X_i)\}$, which also has conditional mean zero
-under \eqref{eq:pliv_model}. Hence the derivative of the population moment with
-respect to each nuisance direction vanishes at $\eta_0$. The relevant remainder
-therefore contains products involving the instrument-regression error and the
-outcome- or treatment-regression errors, rather than their leading linear
-effects.
-
+condition and the Neyman-orthogonality condition introduced above. \\
 Solving the population moment yields
 \begin{equation}
     \theta_0
@@ -775,10 +757,12 @@ provided that
     \label{eq:pliv_relevance}
 \end{equation}
 Condition~\eqref{eq:pliv_relevance} is the first-stage relevance condition after
-partialling out $X_i$. Its magnitude also matters in practice: orthogonality
+partialling out $X_i$. 
+Its magnitude also matters in practice as orthogonality
 protects against small nuisance-estimation errors, but it does not solve a weak
-instrument problem.
-
+instrument problem.\\
+All three nuisance components in \eqref{eq:pliv_nuisances} are conditional
+means and can therefore be estimated directly with regression learners.
 Replacing the nuisance functions by cross-fitted predictions gives the sample
 analogue
 \begin{equation}
@@ -795,62 +779,43 @@ analogue
 where $k(i)$ denotes the fold containing observation $i$ and the subscript
 $-k(i)$ indicates training on observations outside that fold. Thus, PLR-IV can
 be read as an IV regression of the residualized outcome on the residualized
-treatment, using the residualized instrument. The cross-fitting construction is
-described formally below.\\
-The ratio in \eqref{eq:pliv_population_ratio} resembles a Wald estimand, but it
-should not automatically be interpreted as the LATE defined earlier. Under the
+treatment, using the residualized instrument. The precise cross-fitting  and as well the tuning procedure  are described below.\\
+
+Although the ratio in \eqref{eq:pliv_population_ratio} resembles a Wald
+estimand, it should not automatically be interpreted as the LATE defined
+earlier.
+Under the
 maintained partially linear model, $\theta_0$ is the constant coefficient that
 solves the residualized IV moment. By contrast, the LATE permits heterogeneous
 treatment effects and averages those effects over the complier population.
 Constant treatment effects are a sufficient condition for these parameters to
-coincide, but they are not a necessary condition for numerical equality in a
-particular population.
+coincide, but the equality does not generally hold
+under treatment-effect heterogeneity.
+For a binary instrument, the precise source of this distinction can be shown
+in the
+corresponding derivation is provided in Appendix~\ref{app:pliv_late_aggregation}.
+Accordingly, PLR-IV is treated in the empirical analysis as a flexible
+residualized-IV benchmark, whereas Wald-AIPW and the normalized kappa
+estimators provide the more direct comparison of LATE estimators.
 
-The distinction can be made more explicit for a binary instrument. Let
-$p(X)=P(Z=1\mid X)$ and define the conditional reduced form and first stage as
-\begin{align}
-    \Delta_Y(X)&=E[Y\mid Z=1,X]-E[Y\mid Z=0,X],\\
-    \Delta_D(X)&=E[D\mid Z=1,X]-E[D\mid Z=0,X].
-\end{align}
-Then the residualized ratio can be written as
-\begin{equation}
-    \theta_{\mathrm{PLR-IV}}
-    =
-    \frac{E[p(X)\{1-p(X)\}\Delta_Y(X)]}
-         {E[p(X)\{1-p(X)\}\Delta_D(X)]}.
-    \label{eq:pliv_conditional_wald_aggregation}
-\end{equation}
-Under the conditional IV assumptions and monotonicity, whenever
-$\Delta_D(X)>0$, the conditional Wald ratio
-$\Delta_Y(X)/\Delta_D(X)$ identifies a conditional complier effect. Equation
-\eqref{eq:pliv_conditional_wald_aggregation} therefore aggregates these
-conditional effects with weights proportional to
-$p(X)\{1-p(X)\}\Delta_D(X)$. The overall LATE instead aggregates conditional
-complier effects according to the distribution of compliers. The additional
-factor $p(X)\{1-p(X)\}$ means that the two aggregations generally differ when
-instrument propensities or conditional effects vary with $X$. They coincide
-under stronger restrictions, for example constant conditional complier effects,
-and may also coincide in special designs such as a constant instrument
-propensity. PLR-IV is therefore reported in this thesis as a structural and
-residualized-IV benchmark, while Wald-AIPW and the kappa estimators are used for
-the direct LATE comparison.
+
+
+
 
 \subsubsection{The Wald-AIPW estimator}
 
 The second DML-based IV procedure used in this thesis is the Wald augmented
-inverse-probability-weighted (Wald-AIPW) estimator. In contrast to PLR-IV, it
-does not begin from a partially linear outcome equation with a constant
-treatment coefficient. It instead combines two orthogonal AIPW moments: one
-for the reduced-form effect of the instrument on the outcome and one for the
-first-stage effect of the instrument on treatment. Their ratio identifies the
-LATE under the conditional IV assumptions stated above. The augmented Wald
+inverse-probability-weighted (Wald-AIPW) estimator. Unlike PLR-IV, it does not
+impose a partially linear outcome equation with a constant treatment
+coefficient. Instead, it estimates the covariate-adjusted effect of the
+instrument on the outcome and the corresponding effect of the instrument on
+treatment, and forms their ratio. 
+ The augmented Wald
 construction follows the doubly robust IV logic of \citet{tan2006regression}.
-Its DML formulation is the interactive IV model studied by
-\citet[Section~5.2]{chernozhukov2018double} and
-implemented by \texttt{DoubleMLIIVM} with the score option \texttt{LATE}.
-
-Because both the treatment and the instrument are binary in this model, define
-the nuisance functions
+Its implementation
+with orthogonal scores and cross-fitting follows the interactive IV model of
+\citet[Section~5.2]{chernozhukov2018double}.\\
+For a binary instrument and binary treatment, the nuisance functions can be defined as
 \begin{align}
     g_z(X_i)&=E[Y_i\mid Z_i=z,X_i], &&z\in\{0,1\},
     \label{eq:wald_g_nuisance}\\
@@ -859,21 +824,18 @@ the nuisance functions
     m(X_i)&=P(Z_i=1\mid X_i).
     \label{eq:wald_m_nuisance}
 \end{align}
-This notation matches the empirical implementation: $g_z$ is the
-branch-specific outcome regression, $r_z$ is the branch-specific treatment
-regression, and $m$ is the instrument propensity score. In the notation of
-\citet{chernozhukov2018double}, the same objects are denoted by $\mu(z,X)$,
-$m(z,X)$, and $p(X)$, respectively.
-
-Conditional instrument independence implies that the average reduced form and
-first stage can be expressed as
+Here, $g_z$ denotes the instrument-specific outcome regression,
+$r_z$  the instrument-specific treatment regression, and $m$ the
+conditional instrument propensity score.
+These nuisance functions define the covariate-adjusted reduced form and first
+stage as
 \begin{align}
     \rho_Y&=E[g_1(X_i)-g_0(X_i)],
     \label{eq:wald_reduced_form}\\
     \rho_D&=E[r_1(X_i)-r_0(X_i)].
     \label{eq:wald_first_stage}
 \end{align}
-Under exclusion, monotonicity, and a non-zero first stage, their ratio is
+Under exclusion, monotonicity, and a non-zero first stage, their ratio identifies the LATE
 \begin{equation}
     \tau_{\mathrm{LATE}}=\frac{\rho_Y}{\rho_D}
     =\frac{E[g_1(X_i)-g_0(X_i)]}
@@ -881,14 +843,14 @@ Under exclusion, monotonicity, and a non-zero first stage, their ratio is
     \label{eq:wald_late_ratio}
 \end{equation}
 Under monotonicity, $\rho_D=E[D_i(1)-D_i(0)]$ equals the population share of
-compliers. The ratio in \eqref{eq:wald_late_ratio} consequently averages
-individual treatment effects over the complier population rather than imposing
-a common effect.
-
-Simply replacing $g_z$ and $r_z$ by flexible regression estimates would give a
-regression-adjustment estimator whose errors can enter at first order. The AIPW
-construction adds an inverse-probability correction to each conditional-mean
-contrast. Define the reduced-form pseudo-outcome
+compliers. Consequently, the ratio in \eqref{eq:wald_late_ratio} averages treatment
+effects over the complier population without imposing a common treatment
+effect.\\
+A direct regression-adjustment estimator would replace the nuisance functions
+by fitted conditional means. Estimation errors in these regressions could,
+however, affect the reduced form and first stage at first order. Wald-AIPW
+therefore augments each regression contrast with an inverse-probability
+correction. Define the reduced-form pseudo-outcome
 \begin{align}
     \Gamma_{Y,i}(\eta)
     ={}&g_1(X_i)-g_0(X_i)
@@ -904,115 +866,72 @@ and the first-stage pseudo-outcome
       -\frac{(1-Z_i)\{D_i-r_0(X_i)\}}{1-m(X_i)},
     \label{eq:wald_gamma_d}
 \end{align}
-where $\eta=(g_0,g_1,r_0,r_1,m)$. The first terms in
+where $\eta=(g_0,g_1,r_0,r_1,m)$.
+The first terms in
 \eqref{eq:wald_gamma_y} and \eqref{eq:wald_gamma_d} are regression-adjustment
-contrasts. The remaining terms correct these contrasts with residuals from the
-observed instrument branch, scaled by the inverse probability of observing that
-branch. At the true nuisance functions,
+contrasts. 
+The remaining terms use
+residuals from the observed instrument branch, weighted by the inverse
+probability of that branch. 
+At the true nuisance functions,
 \begin{equation}
     E[\Gamma_{Y,i}(\eta_0)]=\rho_Y,
     \qquad
     E[\Gamma_{D,i}(\eta_0)]=\rho_D.
 \end{equation}
-
-The Wald-AIPW score combines the two pseudo-outcomes in a single moment,
+The corresponding orthogonal score combines the two pseudo-outcomes:
 \begin{equation}
     \psi_{\mathrm{Wald-AIPW}}(W_i;\tau,\eta)
     =\Gamma_{Y,i}(\eta)-\tau\Gamma_{D,i}(\eta).
     \label{eq:wald_aipw_score}
 \end{equation}
-It is linear in $\tau$, and
-$E[\psi_{\mathrm{Wald-AIPW}}(W_i;\tau_{\mathrm{LATE}},\eta_0)]=0$.
-Solving this population moment reproduces \eqref{eq:wald_late_ratio}.
-
-The score is Neyman orthogonal. For example, a local perturbation of $g_1(X)$
-enters \eqref{eq:wald_gamma_y} multiplied by $1-Z/m(X)$, whose conditional
-expectation given $X$ is zero at the true $m$. Conversely, a perturbation of
-$m(X)$ is multiplied by branch-specific residuals such as $Y-g_z(X)$ and
-$D-r_z(X)$, whose conditional expectations are zero in their respective
-instrument branches at the true regression functions. Analogous arguments
-apply to $g_0$, $r_0$, and $r_1$. The leading effects of nuisance errors
-therefore cancel, leaving remainder terms that involve products of the
-instrument-propensity error with the branch-specific regression errors. A
-representative rate requirement is
-\begin{equation}
-    \|\widehat m-m\|_{P,2}
-    \left(
-      \|\widehat g-g\|_{P,2}
-      +\|\widehat r-r\|_{P,2}
-    \right)
-    =o_p(N^{-1/2}),
-    \label{eq:wald_aipw_product_rate}
-\end{equation}
-where the norms for $g$ and $r$ collect both instrument branches. This schematic
-condition is supplemented by the overlap, moment, first-stage, and consistency
-conditions required for DML inference.
-
-\paragraph{Double robustness.}
-The same augmentation that produces orthogonality also yields a useful
-robustness property. The mean of $\Gamma_Y$ identifies $\rho_Y$ if either the
-instrument propensity $m$ is correctly specified or both outcome branches
-$(g_0,g_1)$ are correctly specified. Similarly, the mean of $\Gamma_D$
-identifies $\rho_D$ if either $m$ is correct or both treatment branches
-$(r_0,r_1)$ are correct. For the ratio as a whole, the clean joint statement is
-therefore
-\begin{equation}
-    \widehat\tau_{\mathrm{Wald-AIPW}}\text{ is consistent if }
-    m\text{ is correct, or if both }g\text{ and }r\text{ are correct},
-    \label{eq:wald_aipw_double_robustness}
-\end{equation}
-provided that the limiting first stage is non-zero. It would be imprecise to
-state that any one of the five nuisance functions may be correct while all
-others are arbitrary: numerator and denominator must both be consistently
-estimated. In the DML analysis of this thesis, the emphasis is not on choosing
-one parametric model to be exactly correct, but on using orthogonality,
-cross-fitting, and sufficiently accurate flexible nuisance learners.
-
-Let $\widehat g_{z,-k(i)}$, $\widehat r_{z,-k(i)}$, and
-$\widehat m_{-k(i)}$ denote nuisance predictions obtained without using the
-fold containing observation $i$. Replacing the nuisance functions in
-\eqref{eq:wald_gamma_y}--\eqref{eq:wald_gamma_d} by these predictions gives
-cross-fitted pseudo-outcomes $\widehat\Gamma_{Y,i}$ and
-$\widehat\Gamma_{D,i}$. The DML2 estimator used in the empirical analysis is
+This score is linear in \(\tau\) and satisfies
+$
+    E[
+      \psi_{\mathrm{Wald-AIPW}}
+      (W_i;\tau_{\mathrm{LATE}},\eta_0)
+    ]=0.$
+Solving the population moment therefore reproduces the adjusted Wald ratio in
+\eqref{eq:wald_late_ratio}.\\
+The augmentation gives the reduced-form and first-stage moments a
+double-robustness property. Specifically, the reduced form is consistently
+estimated if either the instrument propensity \(m\) or both outcome regressions
+\((g_0,g_1)\) are correctly specified, while the first stage is consistently
+estimated if either \(m\) or both treatment regressions \((r_0,r_1)\) are
+correctly specified. Hence, consistency of the ratio requires both numerator
+and denominator to be consistently estimated.
+Let \(\widehat g_{z,-k(i)}\), \(\widehat r_{z,-k(i)}\), and
+\(\widehat m_{-k(i)}\) denote nuisance predictions obtained from models trained
+outside the fold containing observation \(i\). Substituting these predictions
+into \eqref{eq:wald_gamma_y} and \eqref{eq:wald_gamma_d} yields the
+cross-fitted pseudo-outcomes \(\widehat\Gamma_{Y,i}\) and
+\(\widehat\Gamma_{D,i}\). The DML2 estimator used in the empirical analysis is
 \begin{equation}
     \widehat\tau_{\mathrm{Wald-AIPW}}
-    =\frac{N^{-1}\sum_{i=1}^N\widehat\Gamma_{Y,i}}
-           {N^{-1}\sum_{i=1}^N\widehat\Gamma_{D,i}}.
+    =
+    \frac{N^{-1}\sum_{i=1}^N\widehat\Gamma_{Y,i}}
+         {N^{-1}\sum_{i=1}^N\widehat\Gamma_{D,i}}.
     \label{eq:wald_aipw_estimator}
 \end{equation}
-Thus, the estimator retains the familiar Wald logic: an adjusted reduced form
-is divided by an adjusted first stage. The difference is that each component is
-constructed from an orthogonal AIPW score evaluated with out-of-fold nuisance
-predictions.
-
-\paragraph{Overlap and numerical stability.}
+Thus, Wald-AIPW retains the usual Wald structure, but both the adjusted reduced
+form and the adjusted first stage are constructed from orthogonal scores using
+out-of-fold nuisance predictions.\\
 The inverse factors in \eqref{eq:wald_gamma_y} and
 \eqref{eq:wald_gamma_d} require the conditional instrument propensity to be
 bounded away from zero and one. This is not merely a technical restriction.
 When $\widehat m(X_i)$ is close to a boundary, a small number of observations
 can receive very large residual corrections, making the estimate sensitive to
 nuisance regularization and limited overlap. Orthogonality does not protect
-against such denominator instability. This is why the empirical analysis
-examines near-boundary instrument propensities, nuisance-prediction losses, and
-outcome-weight concentration, and why XGBoost is tuned by predictive loss
-inside the outer cross-fitting folds rather than by the resulting LATE
-estimate.
-
-The distinction from the ordinary AIPW estimator should also be clear. Standard
-AIPW for an average treatment effect treats $D$ as conditionally unconfounded
-and uses the treatment propensity $P(D=1\mid X)$. Wald-AIPW allows $D$ to be
-endogenous. It applies the augmented construction to the binary instrument $Z$,
-uses $P(Z=1\mid X)$ as the propensity score, and divides the augmented effect of
-$Z$ on $Y$ by the augmented effect of $Z$ on $D$. Under the conditional IV
-assumptions, exclusion, monotonicity, overlap, and relevance, the resulting
-target is the complier LATE.
-
-Compared with PLR-IV, Wald-AIPW therefore changes both the model and the
-estimand. It permits the conditional outcome and treatment relationships to
-vary freely across the two instrument branches and directly targets the LATE,
-at the cost of estimating five nuisance components and relying on instrument
-overlap. The following subsections describe the cross-fitting and nuisance
-training procedures shared by the two DML estimators.
+against such denominator instability. This is why the descriptive section for the three following empirical designs
+examines near-boundary instrument propensities.
+Wald-AIPW therefore provides the direct DML counterpart to the normalized
+kappa estimators used in this thesis. Both target the LATE under the conditional
+IV assumptions, but they estimate it through different sample constructions.
+Kappa estimators use explicit instrument-propensity weights, whereas
+Wald-AIPW combines instrument-specific regression adjustment with
+inverse-probability corrections. This difference motivates the subsequent
+comparison of their implied outcome weights, covariate balance, and numerical
+stability.
 
 
 
@@ -1024,270 +943,843 @@ training procedures shared by the two DML estimators.
 
 
 \subsubsection{Cross Fitting}
-The DML estimators used in this thesis rely on nuisance functions that are estimated before the final treatment-effect parameter is computed. The reason for this seperation is that flexible machine-learning methods can overfit.
-If the same observations are used both to train the nuisance functions and to evaluate the estimating equation, the nuisance estimation error can become mechanically related to the score residuals.
-This can create finite-sample bias even when the nuisance learner has good predictive performance.
-Double Machine Learning addresses this problem with cross fitting \citep{chernozhukov2018double}.
-For this K-fold cross fitting procedure is used in which the sample is first split into K folds. For each fold, the nuisance functions are estimated using only the observations outside that fold.
-Formally, let $I_1,\ldots,I_K$ be a partition of the sample indices $\{1,\ldots,N\}$. For each fold $I_k$, the nuisance vector is estimated on the complement $I_k^c = \{1,\ldots,N\}\setminus I_k$. For an observation $i \in I_k$, the cross-fitted nuisance prediction is therefore given by
+\label{cross fitting}
+The DML estimators used in this thesis rely on nuisance functions that are estimated before the final treatment-effect parameter is computed. 
+ If the same observations are
+used both to train flexible nuisance learners and to evaluate the score, the
+resulting nuisance-estimation errors may be mechanically related to the score
+residuals. Cross-fitting mitigates this in-sample overfitting bias by
+evaluating each observation with nuisance predictions obtained from models that
+were trained without that observation
+\citep{chernozhukov2018double}.\\
+Formally, let \(I_1,\ldots,I_K\) be a partition of the sample indices
+\(\{1,\ldots,N\}\). For each fold \(I_k\), the nuisance functions are estimated
+using the complementary training sample
+$
+    I_k^c=\{1,\ldots,N\}\setminus I_k.
+$
+For an observation \(i\in I_k\), the corresponding cross-fitted nuisance
+prediction is$
+    \widehat{\eta}_i
+    =
+    \widehat{\eta}_{-k}(X_i),
+$
+where \(\widehat{\eta}_{-k}\) denotes the nuisance model trained on \(I_k^c\).
+Repeating this procedure across all folds yields out-of-fold nuisance
+predictions for every observation. These predictions are then inserted into
+the orthogonal score used to estimate the target parameter.\\
+Cross-fitting therefore separates nuisance training from score evaluation
+while still allowing all observations to contribute to the final estimator.
+Each observation is evaluated only with predictions from a model that did not
+use that observation for training, while it can still contribute to the
+training samples of the remaining folds.\\
+In the empirical applications, I use five-fold cross-fitting. This choice
+provides a relatively large training sample for each nuisance model while
+retaining genuine out-of-fold score evaluation. Moderate fold numbers such as
+four or five are also recommended by
+\citet{chernozhukov2018double} for practical implementation.
 
-$$
-\hat{\eta}_i = \hat{\eta}_{-k}(X_i),
-$$
-
-where $\hat{\eta}_{-k}$ denotes the nuisance functions trained without using observations in fold $I_k$.
-These fitted nuisance functions are then used to predict the nuisance components for the held-out observations.
-Repeating this procedure over all folds produces out-of-sample nuisance predictions for every observation.
-The final DML estimate is then obtained from the orthogonal score using these cross-fitted predictions.
-It is important to mention that each observation is used twice, but for different purposes. It is used to train nuisance functions for other folds, and it is used in the final score only with nuisance predictions obtained from models that were not trained on that observation.
-This preserves the practical advantage of using the full sample while avoiding the direct own-observation overfitting problem.
-Cross-fitting is combined with Neyman orthogonal scores. Orthogonality means that small first-stage errors in the nuisance functions have only a second-order effect on the final parameter estimate. Intuitively, the score is constructed such that the treatment-effect estimate is locally insensitive to small perturbations in the nuisance estimates.
-This makes it possible to use tree based learners such as random forest or xgboost without treating the resulting causal estimate as a simple plug-in machine-learning prediction. In the empirical applications below, I use five-fold cross-fitting.
-The choice of five folds is due to the reason that moderate fold numbers keep enough observations for nuisance training while still ensuring that the score is evaluated out of sample.
 \subsubsection{Nuisance Training}
 
-The cross-fitting procedure determines on which observations the nuisance functions are trained and evaluated.
-As is common in machine learning, I also tune the hyperparameters of selected nuisance learners. In all tuned specifications, tuning is based on nuisance-prediction performance and not on the resulting treatment-effect estimate.\\
-The purpose of tuning is to control the complexity of the nuisance learners according to their out-of-sample predictive performance. This is particularly important for the Wald-AIPW specifications. The Wald-AIPW score contains inverse-propensity terms based on the fitted instrument propensity, for example terms involving $\hat m(X)$ and $1-\hat m(X)$ in the denominator. If a flexible learner produces fitted instrument propensities very close to zero or one, individual observations can receive very large score contributions. The resulting estimate may then become highly sensitive to a small number of observations. This is a standard instability of inverse-propensity and AIPW-type estimators under limited overlap or poorly regularized nuisance estimation, rather than a feature of the causal parameter itself.
-Gradient-boosted trees are a relevant case in this thesis because, if insufficiently regularized, they can generate highly concentrated fitted probabilities. Tuning the XGBoost nuisance learners by held-out prediction loss is therefore used to select a more appropriate level of learner complexity for the nuisance functions. The tuning criterion is fixed before the treatment-effect estimate is computed and does not use the Wald-AIPW point estimate or its standard error. In the empirical sections, I assess the diagnostic implications of this mechanism by reporting nuisance losses and the share of near-boundary fitted probabilities. This diagnostic is reported for both binary nuisance components, the instrument propensity $\hat m(X)$ and the treatment-regression probabilities $\hat r(0,X)$ and $\hat r(1,X)$, although the direct inverse-propensity denominator in the IIVM score is based on $\hat m(X)$. The movement of the treatment-effect estimate after tuning is interpreted only in light of these nuisance diagnostics, not as the criterion by which tuning is justified.
-The partially linear IV score is less exposed to this specific inverse-propensity mechanism, because it is based on residualized moments rather than the same AIPW re-weighting structure. For this reason, the near-boundary propensity concern is most relevant for the Wald-AIPW learner comparisons, especially for XGBoost. In the PLR-IV XGBoost specification, the nuisance functions are instead treated as regression problems for the outcome, instrument, and treatment residualizations. The relevant tuning concern is therefore the predictive regularization of these residualization steps, not the stabilization of inverse-propensity denominators.\\
-The PLR-IV and Wald-AIPW headline estimators based on outcome weights are implemented using the honest random forest smoother from the \textsc{OutcomeWeights} package \citep{knaus2024treatment}, which builds on the generalized random forest implementation in \texttt{grf} \citep{athey2019generalized}. In this case, tuning is native to the forest implementation. Setting \texttt{tune.parameters = "all"} passes the tuning request to \texttt{grf} and triggers an internal search over the forest's tunable hyperparameters: the subsample fraction, the number of variables considered at each split (\texttt{mtry}), the minimum node size, the honesty fraction, honesty leaf pruning, the split-balance parameter \texttt{alpha}, and the imbalance penalty.
-The tuning procedure can be described schematically as follows. The algorithm draws a number of candidate configurations $\lambda_1,\ldots,\lambda_R$ from the hyperparameter space and fits a smaller ``mini-forest'' at each candidate configuration. For each candidate, it computes a debiased estimate of the out-of-bag prediction error. This debiasing is used because the mini-forests contain fewer trees than the final production forest, so their raw out-of-bag errors contain additional Monte Carlo noise. The resulting pairs of candidate configurations and debiased errors are then smoothed, and the selected configuration is chosen by minimizing the predicted smoothed error over an additional set of randomly drawn candidate configurations. The final forest used for each nuisance component and cross-fitting fold is then grown with the selected tuning parameters. Since the empirical implementation uses five-fold cross-fitting, the nuisance forests are trained separately for the corresponding cross-fitting folds.\\
-For the XGBoost learner specifications, hyperparameters are selected through the \textsc{DoubleML} interface to \texttt{mlr3tuning}. In contrast to the honest forest case, the tuning procedure is not an internal XGBoost tuning path but an external nuisance-learner tuning step managed by \textsc{DoubleML}. For each nuisance learner, a random search evaluates a finite number $E$ of candidate hyperparameter configurations,
-$\lambda^{(1)},\ldots,\lambda^{(E)}$, over the number of boosting rounds, the maximum tree depth, the learning rate, and the minimum child-node weight. In the empirical implementation, $E=15$ and the candidates are evaluated by three-fold inner cross-validation.
+Compared to the cross-fitting procedure which determines on which observations the nuisance functions are trained and evaluated.
+ Hyperparameter tuning determines the complexity of selected
+learners within the corresponding training samples.
+For this purpose in all tuned specifications, tuning is based on nuisance-prediction performance.\\
+Tuning is applied in two parts of the empirical analysis. First, the honest
+forest smoothers used for the headline outcome-weight estimators are tuned
+internally by the \texttt{grf} implementation. Second, the XGBoost nuisance
+learners used in the \textsc{DoubleML} learner comparison are tuned by nested
+cross-validation. Linear and logistic regression are retained as fixed
+parametric benchmarks, while the \texttt{ranger} specifications are used as
+fixed off-the-shelf forest benchmarks. 
+Thus, only XGBoost receives an explicit
+external tuning exercise in the learner comparison; the separate GRF-based
+headline estimators already use the package's native tuning procedure.\\
+The motivation for tuning is strongest for flexible learners whose complexity
+can materially affect nuisance predictions. This is particularly relevant for
+Wald-AIPW because its score contains inverse instrument-propensity terms
+involving \(m(X)\) and \(1-m(X)\). Predictions close to zero or one can amplify
+individual score contributions and make the estimate sensitive to a small
+number of observations. Tuning does not remove limited overlap, but it can
+reduce instability caused by poorly regularized nuisance models. For PLR-IV,
+the same inverse-propensity mechanism is absent.
+In this framework, tuning instead aims to
+improve the regression functions used to residualize the outcome, treatment,
+and instrument.\\
+The headline PLR-IV and Wald-AIPW outcome-weight estimators use honest
+forest-based smoothers from the generalized random forest framework
+\citep{athey2019generalized,knaus2024treatment}. Setting
+\texttt{tune.parameters = "all"} activates the internal GRF tuning procedure.
+For a regression forest, the tunable parameters are the subsample fraction,
+\texttt{mtry}, minimum node size, honesty fraction, honesty leaf pruning,
+the split-balance parameter \texttt{alpha}, and the imbalance penalty.
+GRF draws random hyperparameter configurations and fits a small
+mini-forests for each configuration. It then computes a debiased
+out-of-bag prediction error, smooths the relationship between the candidate
+parameters and these error estimates, and selects the configuration with the
+lowest predicted smoothed error. The final nuisance forest is grown using the
+selected parameters. Because the DML estimators use five-fold cross-fitting,
+this tuning and fitting procedure is repeated separately within the relevant
+outer training samples.\\
 
-For nuisance component $j$, the selected configuration is
+The XGBoost specifications are tuned through the
+\textsc{DoubleML}/\texttt{mlr3tuning} interface. Within each outer
+cross-fitting training sample, a random search evaluates
+\(E=15\) candidate configurations using three-fold inner cross-validation.
+The search covers the number of boosting rounds, maximum tree depth, learning
+rate, and minimum child weight.
+For nuisance component \(j\), the selected parameter vector is
+\begin{equation}
+    \widehat{\lambda}_j
+    =
+    \arg\min_{\lambda \in \Lambda_E}
+    \frac{1}{K_{\mathrm{inner}}}
+    \sum_{k=1}^{K_{\mathrm{inner}}}
+    L_j(\lambda;k),
+\end{equation}
+where \(\Lambda_E\) is the set of randomly drawn candidate configurations and
+\(K_{\mathrm{inner}}=3\).\\
+For Wald-AIPW, the outcome regressions are tuned by root mean squared error,
+while the binary instrument propensity and treatment regressions are tuned by
+log-loss. For PLR-IV, all three nuisance functions are implemented as
+regression learners and are therefore tuned by root mean squared error.\\
+Tuning is performed with \texttt{tune\_on\_folds = TRUE}. Consequently,
+hyperparameters are selected separately within each outer training fold, and
+the observations used to evaluate the orthogonal score are excluded from both
+nuisance fitting and hyperparameter selection. This preserves the separation
+between nuisance training and score evaluation. It also implies that the tuned
+XGBoost specification does not have one global parameter vector; reported
+hyperparameters summarize the values selected across folds.
 
-\[
-\hat\lambda_j
-=
-\arg\min_{\lambda \in \{\lambda^{(1)},\ldots,\lambda^{(E)}\}}
-\frac{1}{K_{\mathrm{inner}}}
-\sum_{k=1}^{K_{\mathrm{inner}}}
-L_j(\lambda; k),
-\]
-
-where $K_{\mathrm{inner}}=3$. For the Wald-AIPW/IIVM XGBoost specification, the loss \(L_j\) is the root mean squared error for the outcome regression and the log-loss for the binary instrument propensity and the branch-specific treatment-regression probabilities. For the PLR-IV XGBoost specification, all three nuisance components are implemented as regression learners, so the corresponding tuning losses are root mean squared errors for the outcome, instrument, and treatment residualization steps. The search is therefore over a finite set of randomly drawn candidates rather than over the full continuous hyperparameter space.
-The tuning is performed with \texttt{tune\_on\_folds = TRUE}. Hence, the inner cross-validation search is carried out separately inside each outer cross-fitting training fold. Observations that form the held-out fold for evaluating the final orthogonal score are therefore not used either for fitting the nuisance functions or for selecting the XGBoost hyperparameters used to predict them. This avoids the hyperparameter-selection leakage that would arise from tuning once on the full sample and then reusing the same selected configuration in all outer folds.\\
-Both tuning procedures follow the same principle. Hyperparameters are selected using out-of-sample nuisance-prediction performance and never by optimizing the treatment-effect estimate itself. They differ in implementation. Honest random forest tuning is handled internally by \texttt{grf} through \texttt{tune.parameters = "all"}, whereas XGBoost tuning is conducted through the \textsc{DoubleML}/\texttt{mlr3tuning} interface using random search and inner cross-validation. Because the XGBoost tuning is fold-specific, there is no single global hyperparameter configuration for the tuned XGBoost specification. Reported XGBoost hyperparameter values are therefore descriptive summaries of the values selected across folds, not a single recipe that is subsequently plugged into all folds.
 
 
 
 
 
 
+\section{Connecting the Frameworks}
+\label{sec:connecting_frameworks}
 
+
+\subsection{Outcome weights and the Knaus framework}
+\label{subsec:knaus_framework}
+
+\subsubsection{A common representation of the estimators}
+
+The estimators introduced in the preceding chapter approach the conditional
+instrumental-variables problem through markedly different sample constructions.
+The kappa estimators are explicit weighting estimators whose formulas depend on
+the conditional instrument propensity score. PLR-IV instead estimates a
+residualized instrumental-variables moment, whereas Wald-AIPW forms a ratio of
+augmented reduced-form and first-stage moments using cross-fitted nuisance
+estimates. These differences make a direct comparison of the estimators' defining
+formulas difficult. A comparison of their point estimates reveals whether they
+disagree in a particular sample, but it does not show how the observations in
+that sample are combined to produce the disagreement.\\
+The purpose of this chapter is therefore to place the estimators in a common
+finite-sample diagnostic framework. The central object is a representation of a
+fitted estimator as a weighted sum of the observed outcomes,
+\begin{equation}
+    \widehat{\tau}
+    = \sum_{i=1}^{N}\omega_iY_i
+    = \boldsymbol{\omega}'\mathbf{Y},
+    \label{eq:outcome_weight_representation}
+\end{equation}
+where \(\boldsymbol{\omega}=(\omega_1,\ldots,\omega_N)'\) denotes the final
+outcome-weight vector. For the realized fitted procedure, each \(\omega_i\) denotes the coefficient
+attached to observation \(i\)'s outcome in the exact numerical representation
+of the estimate. Depending on the estimator and learner, the weight vector may itself
+depend on the observed outcomes and on algorithmic randomness. Equation
+\eqref{eq:outcome_weight_representation} nevertheless converts estimators with
+different mathematical and computational forms into the same sample-level
+object.\\
+Weighted-outcome representations are not specific to causal machine learning.
+They have a long tradition in weighting and matching estimators, regression,
+synthetic-control methods, and instrumental-variables estimation. The
+contribution of \citet{knaus2024treatment} is to provide a general framework for
+deriving such representations from pseudo-instrumental-variables estimators
+(PIVEs), to state the conditions under which the representation exists and is
+unique, and to obtain previously unavailable outcome weights for prominent DML
+and generalized-random-forest estimators. This construction provides the bridge
+used here between the kappa-based estimators and the DML estimators.
+
+\subsubsection{Identification weights, outcome weights, and effect weights}
+
+It is important to distinguish these outcome weights from Abadie's kappa
+weights. The quantities \(\kappa_i\), \(\kappa_{1i}\), and \(\kappa_{0i}\) are
+identification objects: under the conditional IV assumptions, they transform
+observed-data moments into moments of the latent complier population
+\citep{abadie2003semiparametric}. The coefficients \(\omega_i\), by contrast,
+are properties of a particular fitted estimator in a realized sample. They are
+defined by the requirement that their weighted sum reproduces the numerical
+estimate in \eqref{eq:outcome_weight_representation}. Raw kappa weights may enter
+the construction of a kappa estimator, but they are not generally identical to
+its final outcome weights because the latter also incorporate the estimator's
+sample normalization and denominator.\\
+Outcome weights must also be distinguished from effect weights. Outcome weights
+multiply observed outcomes and reproduce the fitted estimate numerically, without
+requiring a causal interpretation of that estimate. Effect weights instead
+describe how an estimator aggregates heterogeneous, and therefore generally
+unobserved, treatment effects across covariate values or population groups,
+usually as a population or expectation-based representation. The two objects
+answer different questions: effect weights concern the causal estimand to which
+an estimator gives emphasis, whereas outcome weights reveal how the realized
+sample is processed to obtain the reported estimate
+\citep[Section~1.1]{knaus2024treatment}. 
+
+
+
+\subsubsection{The pseudo-IV representation}
+
+The PIVE framework of \citet{knaus2024treatment} begins from the empirical
+moment condition
+\begin{equation}
+    \mathbb{E}_N\!\left[
+      \bigl(\widetilde{Y}_i-\widehat{\tau}\widetilde{D}_i\bigr)
+      \widetilde{Z}_i
+    \right]=0.
+    \label{eq:pive_moment_thesis}
+\end{equation}
+Here, \(\widetilde{Y}_i\) is a pseudo-outcome, \(\widetilde{D}_i\) is a
+pseudo-treatment, and \(\widetilde{Z}_i\) is a pseudo-instrument. The prefix
+``pseudo'' indicates that these variables need not coincide with the observed
+outcome, treatment, and instrument. They may contain residualization,
+inverse-probability adjustment, augmentation terms, or estimated nuisance
+functions specific to the estimator under consideration. This formulation
+isolates the part of the procedure that transforms the observed outcomes from
+the part that supplies the identifying first-stage variation.
+
+Solving \eqref{eq:pive_moment_thesis} gives
+\begin{equation}
+    \widehat{\tau}
+    =
+    \frac{\widetilde{\mathbf Z}'\widetilde{\mathbf Y}}
+         {\widetilde{\mathbf Z}'\widetilde{\mathbf D}}
+    =
+    \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+      \widetilde{\mathbf Z}'\widetilde{\mathbf Y},
+    \label{eq:pive_solution_thesis}
+\end{equation}
+provided that
+\(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\neq0\). If there exists a
+unique \(N\times N\) transformation matrix \(\mathbf T\) satisfying
+\begin{equation}
+    \widetilde{\mathbf Y}=\mathbf T\mathbf Y,
+    \label{eq:pive_transformation_thesis}
+\end{equation}
+then substitution into \eqref{eq:pive_solution_thesis} yields
+\begin{equation}
+    \widehat{\tau}
+    =
+    \underbrace{
+      \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+      \widetilde{\mathbf Z}'\mathbf T
+    }_{\boldsymbol{\omega}'}
+    \mathbf Y,
+\end{equation}
+and hence
+\begin{equation}
+    \boxed{
+    \boldsymbol{\omega}'
+    =
+    \bigl(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\bigr)^{-1}
+    \widetilde{\mathbf Z}'\mathbf T.}
+    \label{eq:pive_outcome_weights_thesis}
+\end{equation}
+Equation~\eqref{eq:pive_outcome_weights_thesis} is Proposition~1 of
+\citet{knaus2024treatment}. It gives a constructive two-step procedure: first,
+express the estimator as a PIVE; second, identify the transformation matrix
+\(\mathbf T\) that maps the observed outcome vector into the pseudo-outcome.
+Under Knaus's condition that a unique transformation matrix \(\mathbf T\)
+generates the pseudo-outcome, together with
+\(\widetilde{\mathbf Z}'\widetilde{\mathbf D}\neq0\), the resulting
+closed-form outcome-weight representation is well defined.
+
+For the kappa estimators, the transformation matrix is diagonal. Their
+pseudo-outcomes are obtained by multiplying each observed \(Y_i\) directly by
+an observation-specific scalar constructed from \(Z_i\), \(D_i\), and the
+estimated instrument propensity score. Their outcome weights can therefore be
+derived algebraically without estimating an outcome-regression smoother. For
+PLR-IV and Wald-AIPW, the situation is different. Their pseudo-outcomes contain
+estimated conditional outcome functions, so a closed-form outcome-weight vector
+requires those predictions to admit a smoother-matrix representation. In the
+notation of \citet{knaus2024treatment}, the fitted outcome nuisance vector must
+be reproducible by multiplying a unique smoother matrix by \(\mathbf Y\). Thus,
+the availability of DML outcome weights, unlike that of the kappa weights used
+here, depends on the nuisance learner and its concrete implementation.
+
+This distinction is operational in the empirical analysis. The kappa outcome
+weights are computed directly from their closed-form expressions. For PLR-IV
+and Wald-AIPW, candidate outcome weights are extracted whenever the fitted
+implementation makes the required representation available. The identity
+\(
+    \boldsymbol{\omega}'\mathbf Y=\widehat{\tau}
+\)
+is then verified numerically. Weight vectors that reproduce the corresponding
+estimate to numerical tolerance form the main diagnostic comparison. For some
+XGBoost implementations, an extracted vector is available but fails this
+identity check. Such vectors are retained only as explicitly flagged
+learner-sensitivity diagnostics and are not interpreted on the same footing as
+exact outcome-weight representations. This distinction keeps the comparison
+across the Vietnam draft lottery, the Card college-proximity design, and the
+Angrist--Evans fertility design tied to the estimators that are actually fitted
+in this thesis while making the limits of the extracted representation visible.
+
+
+\subsubsection{Knaus's normalization classes and the empirical comparison}
+
+Once \(\boldsymbol{\omega}\) has been obtained, its total mass and its masses
+within the treated and untreated subsamples provide a common classification of
+otherwise different estimators. Following \citet[Table~4]{knaus2024treatment},
+define
+\begin{equation}
+    C=\boldsymbol{\omega}'\mathbf 1_N,
+    \qquad
+    C_1=\boldsymbol{\omega}'\mathbf D,
+    \qquad
+    C_0=\boldsymbol{\omega}'(\mathbf 1_N-\mathbf D).
+    \label{eq:knaus_weight_masses}
+\end{equation}
+Because \(C=C_1+C_0\), weights with zero total mass assign equal and opposite
+aggregate mass to treated and untreated observations. Knaus refers to weights
+with \(C=0\) as normalized. They are \emph{fully normalized} when, in addition,
+\begin{equation}
+    C_1=1
+    \qquad\text{and}\qquad
+    C_0=-1.
+    \label{eq:knaus_full_normalization}
+\end{equation}
+In that case, the treated outcomes receive aggregate weight \(+1\), while
+the untreated outcomes receive aggregate weight \(-1\), placing the final
+contrast on the conventional treated-minus-untreated scale. Individual
+weights within either group may nevertheless be negative.
+A normalized estimator need not
+be fully normalized: it may instead satisfy \(C_1=c\) and \(C_0=-c\) for some
+\(c\neq1\). Knaus calls this case scale-normalized. If \(C\neq0\), one or both
+sides of the comparison remain unnormalized. In particular, the
+untreated-unnormalized class has \(C_1=1\) but \(C_0\neq-1\), whereas the
+treated-unnormalized class has \(C_0=-1\) but \(C_1\neq1\). If neither component
+has its target mass, the weights are fully unnormalized
+\citep[Section~4.1]{knaus2024treatment}.
+The complete classification is reported in Appendix
+Table~\ref{tab:knaus_weight_classes}, adapted from
+\citet[Table~4]{knaus2024treatment}.
+
+These distinctions are not merely terminological for the present comparison.
+Knaus derives sufficient implementation conditions determining the weight
+classes of PLR-IV and Wald-AIPW. Affine outcome smoothers are sufficient for
+zero total weight mass, while full normalization additionally requires
+particular alignment between the smoother matrices used for the outcome and
+treatment nuisance functions. Standard flexible implementations need not
+satisfy this stronger requirement
+\citep[Sections~4.2.2 and 4.2.4]{knaus2024treatment}. The empirical analysis
+therefore does not infer normalization from an estimator label. Instead,
+\(C\), \(C_1\), and \(C_0\) are calculated for every available outcome-weight
+vector and learner specification.
+
+Appendix~A.4 of \citet{knaus2024treatment} places the kappa estimators studied
+by \citet{sloczynski2025abadie} within the PIVE framework and relates
+\(\widehat{\tau}_u\) to normalized Wald-IPW. The next subsection specializes
+this result to the notation used in this thesis by deriving the explicit
+observation-level outcome weights of \(\widehat{\tau}_u\). This makes
+transparent how the separate H\'ajek normalization of the instrument groups
+determines the total, treated, and untreated outcome-weight masses and provides
+the formula used in the subsequent empirical diagnostics.
+
+
+
+
+\subsubsection{Outcome weights of the normalized Uysal estimator}
+\label{subsec:omega_u}
+
+The derivation applies the PIVE construction above directly to the estimator in
+Equation~\eqref{eq:tau_u}. Let \(\widehat p_i=\widehat p(X_i)\) and define the
+instrument-group normalizing constants
+\begin{equation}
+    s_1=\sum_{j=1}^{N}\frac{Z_j}{\widehat p_j},
+    \qquad
+    s_0=\sum_{j=1}^{N}\frac{1-Z_j}{1-\widehat p_j}.
+    \label{eq:u_s1_s0}
+\end{equation}
+The corresponding normalized instrument inverse-probability weights are
+\begin{equation}
+    \lambda_{1i}^{z,n}
+    =\frac{N Z_i/\widehat p_i}{s_1},
+    \qquad
+    \lambda_{0i}^{z,n}
+    =\frac{N(1-Z_i)/(1-\widehat p_i)}{s_0}.
+    \label{eq:u_norm_lambda}
+\end{equation}
+Both vectors have total mass \(N\), that is,
+\(\sum_i\lambda_{1i}^{z,n}=\sum_i\lambda_{0i}^{z,n}=N\). This is precisely
+the separate H\'ajek normalization imposed on the two instrument groups in
+\(\widehat\tau_u\).
+
+Define the diagonal matrix
+\begin{equation}
+    \mathbf T^u
+    =\operatorname{diag}\!\left(
+      \lambda_{11}^{z,n}-\lambda_{01}^{z,n},\ldots,
+      \lambda_{1N}^{z,n}-\lambda_{0N}^{z,n}
+    \right).
+    \label{eq:u_T_matrix}
+\end{equation}
+Then the normalized reduced form and first stage in
+Equation~\eqref{eq:tau_u} can be collected in the ratio
+\begin{equation}
+    \widehat\tau_u
+    =\frac{N^{-1}\mathbf 1_N'\mathbf T^u\mathbf Y}
+           {N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D}.
+    \label{eq:u_wald_matrix}
+\end{equation}
+Thus, \(\widehat\tau_u\) is a PIVE with
+\begin{equation}
+    \widetilde{\mathbf Y}=\mathbf T^u\mathbf Y,
+    \qquad
+    \widetilde{\mathbf D}=\mathbf T^u\mathbf D,
+    \qquad
+    \widetilde{\mathbf Z}=\mathbf 1_N.
+    \label{eq:u_pive_components}
+\end{equation}
+No outcome-regression smoother is required: conditional on the fitted
+propensity scores, \(\mathbf T^u\) is an explicit diagonal transformation that
+does not depend on \(\mathbf Y\). This applies to both the maximum-likelihood
+and CBPS versions of the estimator used in the empirical analysis.
+
+For compactness, denote the normalized IPW first stage by
+\begin{align}
+    \widehat\Delta_D^u
+    &:=N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D \notag\\
+    &=\frac{\sum_{j=1}^{N}Z_jD_j/\widehat p_j}{s_1}
+      -\frac{\sum_{j=1}^{N}(1-Z_j)D_j/(1-\widehat p_j)}{s_0}.
+    \label{eq:u_delta_scalar}
+\end{align}
+Provided that \(s_1\) and \(s_0\) are finite and nonzero and that
+\(\widehat\Delta_D^u\neq0\), Equation~\eqref{eq:pive_outcome_weights_thesis}
+gives
+\begin{equation}
+    \boldsymbol\omega^{u\prime}
+    =\left(N^{-1}\mathbf 1_N'\mathbf T^u\mathbf D\right)^{-1}
+      N^{-1}\mathbf 1_N'\mathbf T^u
+    =\left(\widehat\Delta_D^u\right)^{-1}
+      N^{-1}\mathbf 1_N'\mathbf T^u.
+    \label{eq:u_omega_matrix}
+\end{equation}
+Consequently, the final coefficient attached to observation \(i\)'s outcome is
+\begin{equation}
+    \boxed{
+    \omega_i^u
+    =\frac{1}{\widehat\Delta_D^u}
+      \left[
+        \frac{Z_i}{\widehat p_i s_1}
+        -\frac{1-Z_i}{(1-\widehat p_i)s_0}
+      \right].}
+    \label{eq:u_omega_scalar}
+\end{equation}
+It follows immediately that
+\(\widehat\tau_u=\sum_{i=1}^{N}\omega_i^uY_i\). The formula also coincides
+with the vector returned for \(\widehat\tau_u\) by the
+\texttt{kappa\_outcome\_weights()} function used below: each observation's
+signed normalized instrument weight is divided by the same estimated first
+stage.
+
+Under these existence conditions, the three outcome-weight masses follow
+directly from the separate instrument-group normalization. First,
+the equal total mass of the two normalized instrument-weight vectors implies
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^u
+    =\frac{1}{\widehat\Delta_D^u}
+      \left(\frac{1}{s_1}\sum_i\frac{Z_i}{\widehat p_i}
+            -\frac{1}{s_0}\sum_i\frac{1-Z_i}{1-\widehat p_i}\right)
+    =0.
+    \label{eq:u_omega_sum}
+\end{equation}
+Second, the definition of \(\widehat\Delta_D^u\) yields
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^uD_i=1.
+    \label{eq:u_omega_treated_sum}
+\end{equation}
+Finally,
+\begin{equation}
+    \sum_{i=1}^{N}\omega_i^u(1-D_i)
+    =\sum_i\omega_i^u-\sum_i\omega_i^uD_i=-1.
+    \label{eq:u_omega_untreated_sum}
+\end{equation}
+Hence \(\widehat\tau_u\) is fully normalized in the classification of
+\citet{knaus2024treatment}: its total outcome-weight mass is zero, while the
+treated and untreated masses are exactly \(+1\) and \(-1\). Importantly, this
+result concerns the final outcome weights, not merely the two inverse-probability
+weight vectors appearing in the estimator's numerator.
+
+\citet{uysal2011three} proposed the normalized estimator, while
+\citet{sloczynski2025abadie} study its finite-sample properties.
+\citet[Table~3, Section~4.2.4, and Appendix~A.4]{knaus2024treatment}
+identifies \(\widehat\tau_u\) with the normalized Wald-IPW case and shows that
+normalization of the instrument IPW components yields fully normalized outcome
+weights. The derivation above specializes this general result to the notation
+of the kappa estimators and records the corresponding observation-level
+coefficient explicitly. It thereby provides the exact weight vector used in
+the subsequent normalization, balance, effective-sample-size, and
+weight-concentration diagnostics.
+The precise role of the separate H\'ajek normalization relative to
+\(\widehat\tau_{a,1}\), including the special case in which covariate
+balancing already equalizes the two instrument-weight masses, is discussed in
+Appendix~\ref{app:omega_a1}, Remark~\ref{rem:hajek_contrast}.
+
+
+\subsubsection{From derivation to implementation}
+\label{subsubsec:weight_implementation}
+
+\begin{sloppypar}
+
+The preceding algebra is implemented in a common R workflow that constructs or
+extracts an observation-level outcome-weight vector for each fitted estimator
+for which the required representation is available. For the kappa estimators,
+\texttt{kappa\_outcome\_weights(Z, D, p)} maps the observed instrument,
+treatment, and fitted instrument propensity scores into the five
+outcome-weight vectors used in the analysis. Conditional on the supplied
+propensity scores, these weights are evaluated from closed-form expressions. No additional numerical optimization or outcome-regression model is required
+at the weight-construction stage. Propensity-score estimation remains a
+separate preceding step. In the empirical applications, the function is
+evaluated using maximum-likelihood propensity scores for all five kappa
+estimators; the CBPS propensity scores provide the additional
+\(\widehat\tau_u^{cb}\) specification.\\
+The DML outcome weights are obtained using the \texttt{OutcomeWeights} package
+accompanying \citet{knaus2024treatment}. The headline PLR-IV and Wald-AIPW
+specifications are fitted with \texttt{dml\_with\_smoother()} using five-fold
+cross-fitting and honest forest smoothers implemented through \texttt{grf}.
+Their observation-level outcome weights are then extracted with
+\texttt{get\_outcome\_weights()}. Alternative specifications are fitted as
+\texttt{DoubleMLPLIV} and \texttt{DoubleMLIIVM} objects using the parametric,
+\texttt{ranger}, and XGBoost nuisance learners. Where supported by the learner and package implementation,
+the stored nuisance models and predictions are passed to the
+\texttt{DoubleML} method of \texttt{get\_outcome\_weights()}.\\
+The analysis uses the development
+version 0.2.0.9000 of \texttt{OutcomeWeights} at GitHub commit
+\href{https://github.com/MCKnaus/OutcomeWeights/commit/0c94f940b04c14d0247b46842af37752e306b79e}{\texttt{0c94f940b04c}}, thereby
+recording the implementation used for learner-specific extraction.
+Finally, every constructed or extracted vector is subjected to the numerical
+identity check described above. The companion function
+\texttt{check\_weight\_identity()} with the corresponding fitted estimate, while
+\texttt{check\_doubleml\_identity()} applies the same check to weight objects
+extracted from \texttt{DoubleML}. The tolerance is set to \(10^{-8}\). The
+kappa vectors satisfy the identity algebraically and reproduce their estimates
+to numerical precision. For the learner-based estimators, the check determines
+whether the extracted vector is an exact outcome-weight representation of the
+realized fit. Only vectors passing this check are treated as exact
+representations in the main comparison. Extracted vectors that fail the
+identity may be reported separately as learner-sensitivity evidence, but they
+are not interpreted on the same footing.
+\end{sloppypar}
+\newpage
+
+
+
+\section{Translation and scale invariance}
+\label{sec:translation_invariance}
+
+The preceding section connected the normalization of the kappa-based estimators to
+their representation as weighted outcomes. This connection is particularly important
+because the finite-sample consequences of normalization are not merely algebraic.
+As emphasized by \citet{sloczynski2025abadie}, normalized and unnormalized
+weighting estimators of the LATE may react differently to transformations of the
+outcome variable, even when the underlying treatment, instrument, covariates, and
+identifying assumptions remain unchanged.\\
+This matters because a reasonable treatment-effect estimator should not depend on
+arbitrary choices in how the outcome is coded or centered. Adding the same constant
+to every observed outcome does not alter any individual treatment contrast and should
+therefore not change the estimated effect. Similarly, when the outcome is expressed in
+logs, changing the monetary unit before taking the logarithm should not affect the
+economic conclusion. The possibility that an estimator nevertheless changes under
+such transformations is therefore a substantive finite-sample failure rather than a
+purely technical feature.\\
+Building on the normalization results established above and in the appendix, this
+section first introduces the definitions of translation invariance and scale
+equivariance used by \citet{sloczynski2025abadie}. It then connects these properties
+to the outcome-weight representation developed in the preceding section and explains
+why the normalized kappa estimators satisfy them while the unnormalized alternatives
+generally do not. Finally, the section distinguishes between an algebraic check based
+on fixed outcome weights and the full rerun procedure that will be used in the
+empirical applications.
 
 
 \subsection{Translation invariance}
-\label{subsec:invariance_normalization}
+\label{subsec:translation_invariance}
+The first property considered is translation invariance. It formalizes the requirement
+that an estimator should be unaffected by a common change in the level of the outcome
+variable. \\
+Following the framework in \citet{sloczynski2025abadie}, let \(Y\) denote the vector of observed
+outcomes and let \(W\) collect all remaining variables entering the estimator, including
+the treatment, instrument, and covariates. An estimator
+\(\widehat{\tau}=\widehat{\tau}(Y,W)\) is translation invariant if
+\begin{equation}
+\widehat{\tau}(Y,W)
+=
+\widehat{\tau}(Y+k,W)
+\end{equation}
+for every constant \(k\). Translation invariance therefore requires the estimated
+treatment effect to remain unchanged when the same constant is added to every
+observation of the outcome. \\
+This property is a natural requirement for a treatment-effect estimator. A common shift
+in all outcome levels changes neither the relative position of observations nor any
+individual treatment contrast. It merely changes the origin from which the outcome is
+measured. An estimator that changes under such a transformation is consequently
+sensitive to an arbitrary coding or centering decision that has no bearing on the
+underlying causal effect. This concern is especially transparent for binary outcomes.
+Coding an outcome as zero and one or, alternatively, as one and two describes the same
+economic distinction, since the latter coding is obtained by adding one to every
+observation. A translation-invariant estimator must therefore return the same treatment
+effect under both codings.\\
+The empirical analysis applies this definition directly by comparing each estimator
+under an original outcome and under a translated version of that outcome. This
+exercise is central because it reveals whether differences between
+estimators reflect economically meaningful features of the data or merely arbitrary
+choices in outcome coding. In the Angrist and Evans application, the binary labor-force
+outcome \(Y\in\{0,1\}\) is compared with \(Y+1\in\{1,2\}\). The two codings preserve
+exactly the same distinction between working and not working and differ only by the
+constant \(k=1\). In the Card and Angrist--Evans income applications, the logged
+outcomes are likewise shifted by a common constant, such as \(k=\log(100)\). In each
+case, the identifying assumptions, treatment, instrument, covariates, and underlying
+economic comparison remain unchanged. A change in the estimated LATE can therefore
+be attributed solely to a failure of translation invariance.\\
+Following the empirical logic of \citet{sloczynski2025abadie}, these recodings first
+provide a benchmark for the normalized and unnormalized kappa estimators. The same
+diagnostic is then extended to the DML estimators considered in this thesis. This
+extension is a main focus of the analysis: it examines whether the invariance properties
+documented for classical weighting estimators continue to hold for complete
+machine-learning-based implementations.
+\subsubsection{Translation invariance in the outcome-weight representation}
+\label{subsubsec:translation_outcome_weights}
 
-The outcome-weight representation makes it possible to distinguish several
-finite-sample properties that are closely related but conceptually different.
-Throughout this section, consider an estimator that admits the representation
+The outcome-weight representation from
+Section~\ref{subsec:knaus_framework} provides a direct finite-sample
+characterization of translation invariance. Recall from
+Equation~\eqref{eq:outcome_weight_representation} that a fitted estimator can be
+written as
 \begin{equation}
-    \hat\tau = \sum_{i=1}^N \omega_i Y_i = \omega'Y,
-    \label{eq:ow_rep_ch2}
+    \widehat{\tau}(Y,W)
+    =
+    \sum_{i=1}^{N}\omega_iY_i.
 \end{equation}
-where the weights \(\omega_i\) are the final outcome weights of the estimator.
-These weights should be distinguished from identification weights such as
-Abadie's \(\kappa\)-weights. The latter identify moments of the complier
-population, whereas the former describe how the finite-sample estimator combines
-the observed outcomes.\\
-Translation invariance requires that adding a constant to all outcomes does not
-change the treatment effect estimate. Formally, for any constant \(c\),
-\begin{equation}
-    \hat\tau(Y+c\mathbf{1}_N) = \hat\tau(Y).
-    \label{eq:ti_definition}
-\end{equation}
-Using the outcome-weight representation in \eqref{eq:ow_rep_ch2}, the effect of
-such a shift is
+Holding the realized outcome weights fixed, replacing \(Y_i\) with \(Y_i+k\)
+gives
 \begin{align}
-    \hat\tau(Y+c\mathbf{1}_N)
-    &= \sum_{i=1}^N \omega_i (Y_i+c) \nonumber \\
-    &= \sum_{i=1}^N \omega_i Y_i
-       + c \sum_{i=1}^N \omega_i \nonumber \\
-    &= \hat\tau(Y) + c \sum_{i=1}^N \omega_i .
-    \label{eq:ti_shift}
+    \widehat{\tau}(Y+k,W)
+    &=
+    \sum_{i=1}^{N}\omega_i(Y_i+k) \\
+    &=
+    \sum_{i=1}^{N}\omega_iY_i
+    +
+    k\sum_{i=1}^{N}\omega_i.
 \end{align}
-Hence,
+Consequently,
 \begin{equation}
-    \hat\tau(Y+c\mathbf{1}_N)=\hat\tau(Y)
-    \quad\Longleftrightarrow\quad
-    \sum_{i=1}^N \omega_i=0.
-    \label{eq:ti_sumzero_ch2}
-\end{equation}
-The total sum of the outcome weights is therefore an exact finite-sample
-criterion for translation invariance. If \(\sum_i\omega_i\neq0\), the estimator
-changes by \(c\sum_i\omega_i\) under an additive shift of size \(c\). Thus,
-\(\sum_i\omega_i\) measures the per-unit sensitivity of the estimator to
-additive recodings of the outcome.
-This property is particularly relevant for log outcomes. If wages are measured
-in cents instead of dollars before taking logs, then
-\begin{equation}
-    \log(100Y_i) = \log(Y_i) + \log(100).
-    \label{eq:log_units}
-\end{equation}
-Changing the unit of the untransformed wage variable therefore corresponds to an
-additive shift of the log outcome. A translation-invariant estimator is unaffected
-by this transformation, whereas an estimator with \(\sum_i\omega_i\neq0\) changes
-by \(\log(100)\sum_i\omega_i\).
-
-Scale equivariance refers to the behavior of the estimator under transformations
-of the scale of the outcome variable. In the context of log outcomes, the most
-important implication is invariance to multiplicative changes in the
-untransformed outcome. Since multiplying the original outcome by a positive
-constant \(a>0\) changes the log outcome by an additive constant,
-\begin{equation}
-    \log(aY_i) = \log(Y_i) + \log(a),
-    \label{eq:scale_log}
-\end{equation}
-translation invariance of the estimator in log outcomes implies invariance to
-the units in which the original outcome is measured. Thus, for log outcomes,
-scale invariance with respect to the original variable is closely connected to
-translation invariance of the transformed outcome.
-It is important, however, not to confuse scale equivariance with normalization of
-the outcome weights. Scale equivariance concerns transformations of the outcome
-variable. Normalization concerns the total mass of the final outcome weights
-assigned to treated and untreated observations.
-
-A stronger property than translation invariance is full normalization of the
-outcome weights. In treatment-effect settings with binary treatment \(D_i\), the
-weights are fully normalized if
-\begin{equation}
-    \sum_{i=1}^N \omega_i D_i = 1
-    \quad\text{and}\quad
-    \sum_{i=1}^N \omega_i(1-D_i) = -1.
-    \label{eq:full_normalization}
-\end{equation}
-The first condition says that the total weight assigned to treated observations
-equals one. The second says that the total weight assigned to untreated
-observations equals minus one. Under these two conditions,
-\begin{equation}
-    \sum_{i=1}^N \omega_i
+    \widehat{\tau}(Y+k,W)-\widehat{\tau}(Y,W)
     =
-    \sum_{i=1}^N \omega_iD_i
-    +
-    \sum_{i=1}^N \omega_i(1-D_i)
-    =
-    1-1
-    =
-    0.
-    \label{eq:fullnorm_implies_ti}
+    k\sum_{i=1}^{N}\omega_i.
+    \label{eq:translation_weight_identity}
 \end{equation}
-Full normalization therefore implies translation invariance. The converse does
-not generally hold.\\
-The interpretation of full normalization is straightforward. If
-\eqref{eq:full_normalization} holds, the estimator can be viewed as a normalized
-weighted treated mean minus a normalized weighted untreated mean:
-\begin{equation}
-    \hat\tau
-    =
-    \sum_{D_i=1}\omega_iY_i
-    +
-    \sum_{D_i=0}\omega_iY_i,
-    \qquad
-    \sum_{D_i=1}\omega_i=1,
-    \quad
-    \sum_{D_i=0}\omega_i=-1.
-    \label{eq:fullnorm_interpretation}
-\end{equation}
-Thus, full normalization gives the outcome-weight representation the intuitive
-structure of a treated-control contrast.
 
-Partial normalization and the relation to translation invariance.
-Some estimators normalize only one side of the comparison. For example, an
-estimator may satisfy
+Equation~\eqref{eq:translation_weight_identity} shows that the weighted-outcome
+representation is translation invariant if and only if its outcome weights have
+zero total mass,
 \begin{equation}
-    \sum_{i=1}^N \omega_iD_i = 1,
-    \qquad
-    \sum_{i=1}^N \omega_i(1-D_i) \neq -1.
-    \label{eq:partial_treated_norm}
+    \sum_{i=1}^{N}\omega_i=0.
+    \label{eq:translation_zero_sum}
 \end{equation}
-In this case, the treated part of the estimator has the interpretation of a
-proper weighted treated mean, but the untreated part does not have the
-corresponding normalized control-mean interpretation. Moreover,
+This is precisely the first normalization condition in \citet{knaus2024treatment} outcome-weight
+classification introduced in
+Equation~\eqref{eq:knaus_weight_masses}. \\
+The result also connects the two normalization concepts distinguished in the
+preceding section. Separate normalization of the component weighted means in the
+sense of \citet{sloczynski2025abadie} produces equal and opposite total outcome
+weight masses and therefore satisfies
+Equation~\eqref{eq:translation_zero_sum}.\\
+The zero-sum condition therefore provides a complete characterization of additive
+translations for the kappa estimators considered here. \citet{sloczynski2025abadie} study a broader transformation property as well. The following
+subsection introduces their concept of scale equivariance and explains its
+connection to changes in the units of logarithmic outcomes.
+
+
+\subsection{Scale equivariance and logarithmic scale invariance}
+\label{subsec:scale_equivariance}
+
+
+\citet{sloczynski2025abadie} also consider the broader property of scale equivariance,
+which requires an estimator to react predictably to transformations of the outcome.
+The underlying principle is that a change in the numerical representation of an
+outcome should affect the estimated treatment effect only in the way implied by that
+transformation. In particular, multiplying an outcome measured in levels by a
+constant should rescale the estimated effect accordingly, rather than altering its
+substantive interpretation.\\
+The application of greatest relevance for this thesis is scale invariance with respect
+to the natural logarithm. When a positive outcome such as wages or income is analyzed
+in logarithms, changing the monetary unit of the original variable should not affect
+the estimated effect. For example, whether wages are recorded in dollars or cents is
+economically immaterial. If \(R_i\) denotes the underlying positive outcome, then
+measuring it in a different unit replaces \(R_i\) by \(aR_i\), where \(a>0\).
+After taking logarithms,
 \begin{equation}
-    \sum_{i=1}^N \omega_i
+    \log(aR_i)=\log(R_i)+\log(a).
+\end{equation}
+Thus, a multiplicative change in the unit of the original outcome becomes a common
+additive shift of the logged outcome.\\
+This observation explains the close connection between the two invariance properties
+in the empirical analysis. The comparison of log wages or log income across different
+monetary units is formally a translation of the analyzed log outcome, but its economic
+interpretation is a test of logarithmic scale invariance. An estimator that changes
+when the underlying income variable is expressed in cents rather than dollars therefore
+fails both the translation-invariance requirement on the log scale and the unit-invariance
+requirement that motivates the use of logarithmic outcomes.
+
+
+
+\subsection{From kappa estimators to full-pipeline DML checks}
+\label{subsec:full_pipeline_invariance}
+
+The preceding results establish the transformation properties of the classical
+weighting estimators considered in this thesis. Building on the identification
+results of \citet{abadie2003semiparametric},
+\citet{sloczynski2025abadie} distinguish between two normalized and three
+unnormalized estimators of the LATE. The Uysal estimator
+\(\widehat{\tau}_{u}\) and the separately normalized kappa estimator
+\(\widehat{\tau}_{a,10}\) are translation invariant and scale equivariant.
+By contrast,
+\(\widehat{\tau}_{a}\),
+\(\widehat{\tau}_{t}=\widehat{\tau}_{a,1}\), and
+\(\widehat{\tau}_{a,0}\) generally possess neither property. The distinction
+arises in finite samples because the population identities underlying the
+different kappa representations do not imply equality of their corresponding
+sample denominators. Separate normalization removes the sensitivity to a
+common shift in the outcome, whereas the unnormalized estimators retain a
+term that depends on the level at which the outcome is coded.\\
+Among the normalized alternatives,
+\citet{sloczynski2025abadie} recommend
+\(\widehat{\tau}_{u}\) for wider use. Both
+\(\widehat{\tau}_{u}\) and
+\(\widehat{\tau}_{a,10}\) satisfy the invariance properties studied above,
+but the Uysal estimator has an additional finite-sample advantage in settings
+with one-sided noncompliance: its first-stage denominator is strictly positive
+by construction whether there are no always-takers or no never-takers.
+The estimator \(\widehat{\tau}_{a,10}\), which normalizes its two kappa
+components separately, does not generally retain this advantage because either
+component denominator may still approach zero. The subsequent empirical
+analysis therefore treats the normalized kappa estimators as the invariance
+benchmark, while giving particular attention to
+\(\widehat{\tau}_{u}\).\\
+The central extension of this thesis is to apply the same invariance question
+to estimators implemented through double machine learning. For the kappa
+estimators, the weights depend on the treatment, instrument, covariates, and
+estimated instrument propensity score, but not on the outcome itself.
+Consequently, translating the outcome does not alter the fitted weight vector,
+and the estimator-level result follows directly from the normalization
+properties derived above. The situation is more involved for DML estimators.
+Their final estimate is produced by a sequence of operations that may include
+outcome-nuisance estimation, cross-fitting, data-adaptive model selection,
+hyperparameter tuning, and stochastic learner construction. A transformation
+of the outcome may therefore affect not only the final weighted sum but also
+the fitted nuisance functions and the realized outcome weights.\\
+For this reason, the main empirical invariance assessment uses a full-pipeline
+rerun. For a given estimator implementation
+\(\mathcal{A}\), the original and translated estimates are defined as
+\begin{align}
+    \widehat{\tau}_{\mathrm{orig}}
+    &=
+    \mathcal{A}
+    \bigl(
+        Y,W;
+        \mathcal{I},
+        \mathcal{L},
+        \mathcal{T},
+        s
+    \bigr), \\
+    \widehat{\tau}_{\mathrm{shift}}
+    &=
+    \mathcal{A}
+    \bigl(
+        Y+k,W;
+        \mathcal{I},
+        \mathcal{L},
+        \mathcal{T},
+        s
+    \bigr),
+\end{align}
+where \(\mathcal{I}\) denotes the fixed sample and cross-fitting partition,
+\(\mathcal{L}\) the learner specification,
+\(\mathcal{T}\) the tuning procedure, and \(s\) the random seed. The realized
+full-pipeline shift is
+\begin{equation}
+    \Delta_{\mathrm{rerun}}
     =
-    1+\sum_{i=1}^N \omega_i(1-D_i),
-    \label{eq:partial_norm_sum}
+    \widehat{\tau}_{\mathrm{shift}}
+    -
+    \widehat{\tau}_{\mathrm{orig}}.
+    \label{eq:method_a_rerun}
 \end{equation}
-so translation invariance generally fails unless the untreated weights happen to
-sum to \(-1\). Analogously, if the untreated weights sum to \(-1\) but the treated
-weights do not sum to \(1\), translation invariance also generally fails.
+Translation invariance of the implemented procedure requires
+\(\Delta_{\mathrm{rerun}}=0\), up to numerical tolerance. This differs from
+the frozen-weight calculation introduced previously. The method exposed in Section \ref{subsec:knaus_framework} asks what a
+single extracted outcome-weight vector predicts when it is applied to
+\(Y+k\). This method instead asks whether the complete estimation algorithm
+returns the same estimate after the translated outcome has been passed through
+the entire procedure again. \\
+Controlling the stochastic components of the comparison is essential. Random
+forests and related tree-based learners can involve randomized observation and
+variable subsampling, stochastic tree construction, and randomized
+hyperparameter searches. Cross-fitting introduces an additional source of
+variation through the assignment of observations to folds. If these elements
+differ between the two fits, the observed value of
+\(\Delta_{\mathrm{rerun}}\) may combine genuine sensitivity to the outcome
+translation with unrelated Monte Carlo variation. The original and shifted
+fits therefore use exactly the same observations and cross-fitting folds, and
+the random seed is reset immediately before each fit. The learner class,
+search space, tuning budget, loss function, and all other implementation
+choices are also held fixed.\\
+Holding the tuning rule fixed does not mean that fitted nuisance models or
+selected hyperparameters must be mechanically reused. Reusing a model trained
+on the original outcome would reduce the exercise to a frozen-fit check and
+would no longer evaluate the complete data-adaptive estimator. Instead, the
+same tuning procedure is rerun inside each corresponding training sample.
+For tree-based learners, this allows the translated outcome to pass through
+the same model-selection pipeline while ensuring that any resulting difference
+is not generated by a change chosen by the researcher. \\
+The empirical comparison is organized in two stages. First, the original
+results of \citet{sloczynski2025abadie} are reproduced for
+\(\widehat{\tau}_{u}\),
+\(\widehat{\tau}_{a,10}\),
+\(\widehat{\tau}_{a}\),
+\(\widehat{\tau}_{a,1}\), and
+\(\widehat{\tau}_{a,0}\). These estimates provide the classical benchmark:
+the normalized estimators should remain unchanged after translating the
+outcome, while the unnormalized estimators generally need not. Second, the
+same translated outcomes are used to rerun the DML implementations. The
+headline DML specifications are PLR-IV and Wald-AIPW estimated with
+cross-fitted, tuned honest-forest nuisance learners. PLR-IV is reported
+separately because its partially linear structural interpretation does not
+automatically coincide with the LATE targeted by the kappa and Wald-AIPW
+estimators. Nevertheless, translation invariance remains a well-defined
+property of its implemented estimator.\\
+Additional Wald-AIPW implementations using linear and logistic models,
+\texttt{ranger}, and XGBoost are used to assess learner sensitivity. Untuned
+tree-based specifications are retained where they serve as diagnostic
+benchmarks for the effect of regularization and nuisance calibration. The
+final assessment, however, uses the tuned specifications selected
+according to nuisance-prediction performance. For XGBoost, this entails
+repeating the nested tuning procedure separately for the original and shifted
+outcomes rather than carrying the fitted model or previously selected
+hyperparameters from one outcome coding to the other. For the GRF-based
+headline estimators, the package's native tuning procedure is likewise rerun
+within the corresponding outer training folds. This design ensures that the
+reported invariance check concerns the estimator specification ultimately used
+in the empirical analysis, while the untuned results remain available as a
+transparent learner-instability diagnostic.
 
-A different case arises when the total weight sum is zero but the treated and
-untreated components are not separately normalized. For example, it may be that
-\begin{equation}
-    \sum_{i=1}^N \omega_iD_i = a,
-    \qquad
-    \sum_{i=1}^N \omega_i(1-D_i) = -a,
-    \qquad
-    a\neq1.
-    \label{eq:ti_without_fullnorm}
-\end{equation}
-Then \(\sum_i\omega_i=0\), so the estimator is translation invariant. However,
-the treated and untreated components do not separately correspond to normalized
-weighted means. Such an estimator is stable to additive recodings of the outcome,
-but it lacks the stronger interpretation of a fully normalized treated-control
-contrast.
+The resulting comparison extends the analysis of
+\citet{sloczynski2025abadie} in two directions. It first verifies their
+finite-sample result within the classical kappa framework and then examines
+whether the same desirable behavior is preserved by complete, data-adaptive
+DML implementations. 
 
-Table~\ref{tab:normalization_properties_ch2} summarizes the distinction between
-these properties.
-
-\begin{table}[htbp]
-\centering
-\caption{Outcome-weight properties and their interpretation}
-\label{tab:normalization_properties_ch2}
-\begin{tabular}{p{0.25\textwidth}p{0.35\textwidth}p{0.32\textwidth}}
-\toprule
-Property & Algebraic condition & Interpretation \\
-\midrule
-Translation invariance
-&
-\(\sum_i \omega_i = 0\)
-&
-The estimator is invariant to additive shifts of the outcome, \(Y_i\mapsto
-Y_i+c\). \\
-\addlinespace
-Treated-side normalization
-&
-\(\sum_i \omega_iD_i = 1\)
-&
-The treated component has the scale of a normalized weighted treated mean. \\
-\addlinespace
-Untreated-side normalization
-&
-\(\sum_i \omega_i(1-D_i) = -1\)
-&
-The untreated component has the scale of minus a normalized weighted untreated
-mean. \\
-\addlinespace
-Full normalization
-&
-\(\sum_i \omega_iD_i = 1\) and
-\(\sum_i \omega_i(1-D_i) = -1\)
-&
-The estimator can be interpreted as a normalized weighted treated mean minus a
-normalized weighted untreated mean. This implies translation invariance. \\
-\addlinespace
-Translation invariance without full normalization
-&
-\(\sum_i\omega_i=0\), but treated and untreated sums are not \(1\) and \(-1\)
-&
-The estimator is stable to additive outcome shifts but does not have the full
-treated-control weighted-mean interpretation. \\
-\addlinespace
-Scale invariance in log outcomes
-&
-\(\hat\tau(\log(aY))=\hat\tau(\log Y)\)
-&
-The estimate in logs is invariant to the unit of measurement of the original
-outcome. This follows from translation invariance in log outcomes. \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 
 \newpage
@@ -1630,8 +2122,8 @@ Table~\ref{tab:vietnam_weights} reports four weight diagnostics for every
 estimator. The weight sum $\sum_i \omega_i$, the effective sample size
 $\text{ESS} = 1/\sum_i \omega_i^2$, the share of negative weights, and the
 maximum absolute weight. \\
-The first column directly operationalises the
-translation-invariance criterion derived in Chapter~\ref{sec:framework} which can be seen as the necessary and sufficient finite sample condition for translation invariance.
+The first column directly operationalises the translation-invariance criterion derived in
+Section~\ref{subsec:translation_invariance} which can be seen as the necessary and sufficient finite sample condition for translation invariance.
 In the cubic specification, $\sum_i\omega_i = 0$ holds 
 for PLR-IV, Wald-AIPW, and all three normalised kappa estimators.
 On the other hand the three
@@ -2452,13 +2944,288 @@ $\hat\tau_{a,0}^{ml}$ & $0.011$ \newline $(0.854)$ & $-0.050$ \newline $(0.802)$
 \renewcommand{\thesection}{\Alph{section}}
 
 
+\section{Normalization of the Weighting Estimators}
+\label{app:normalization_estimators}
+This appendix shows explicitly how the weights entering
+$\widehat{\tau}_u$ and $\widehat{\tau}_{a,10}$ are normalized. 
+
+
+\subsection{Normalization of \texorpdfstring{$\widehat{\tau}_u$}{tau-u}}
+Define the normalized inverse-probability weights for observations with $Z_i=1$ and $Z_i=0$, respectively, as
+\begin{equation}
+h_{1i}
+=
+\frac{Z_i/p(X_i)}
+{\sum_{j=1}^N Z_j/p(X_j)},
+\qquad
+h_{0i}
+=
+\frac{(1-Z_i)/(1-p(X_i))}
+{\sum_{j=1}^N (1-Z_j)/(1-p(X_j))}.
+\label{eq:hajek_weights}
+\end{equation}
+By construction,
+\begin{equation}
+\sum_{i=1}^N h_{1i}
+=
+\frac{\sum_{i=1}^N Z_i/p(X_i)}
+{\sum_{j=1}^N Z_j/p(X_j)}
+=1,
+\end{equation}
+and
+\begin{equation}
+\sum_{i=1}^N h_{0i}
+=
+\frac{\sum_{i=1}^N (1-Z_i)/(1-p(X_i))}
+{\sum_{j=1}^N (1-Z_j)/(1-p(X_j))}
+=1.
+\end{equation}
+Using these weights, define the normalized weighted means
+\begin{align}
+\widehat{\mu}_{Y,1}
+&=
+\sum_{i=1}^N h_{1i}Y_i,
+&
+\widehat{\mu}_{Y,0}
+&=
+\sum_{i=1}^N h_{0i}Y_i, \\
+\widehat{\mu}_{D,1}
+&=
+\sum_{i=1}^N h_{1i}D_i,
+&
+\widehat{\mu}_{D,0}
+&=
+\sum_{i=1}^N h_{0i}D_i.
+\end{align}
+The estimator in Equation~\eqref{eq:tau_u} can therefore be written compactly as
+\begin{equation}
+\widehat{\tau}_u
+=
+\frac{
+\widehat{\mu}_{Y,1}-\widehat{\mu}_{Y,0}
+}{
+\widehat{\mu}_{D,1}-\widehat{\mu}_{D,0}
+}.
+\label{eq:tau_u_compact}
+\end{equation}
+Thus, $\widehat{\tau}_u$ is a weighted Wald estimator in which both the reduced-form contrast and the first-stage contrast are constructed from separately normalized inverse-probability-weighted means.
+The reduced-form numerator may also be written as a single weighted sum:
+\begin{equation}
+\widehat{\mu}_{Y,1}-\widehat{\mu}_{Y,0}
+=
+\sum_{i=1}^N (h_{1i}-h_{0i})Y_i.
+\end{equation}
+The corresponding signed outcome weights sum to zero:
+\begin{equation}
+\sum_{i=1}^N(h_{1i}-h_{0i})
+=
+\sum_{i=1}^N h_{1i}
+-
+\sum_{i=1}^N h_{0i}
+=
+1-1=0.
+\label{eq:tau_u_zero_sum}
+\end{equation}
+Hence, although the weights within each component sum to one, the signed weights entering their difference sum to zero.
+
+
+\subsection{Normalization of \texorpdfstring{$\widehat{\tau}_{a,10}$}{tau-a10}}
+The estimator $\widehat{\tau}_{a,10}$ is given by
+\begin{equation}
+\widehat{\tau}_{a,10}
+=
+\frac{\sum_{i=1}^N\kappa_{1i}Y_i}
+{\sum_{i=1}^N\kappa_{1i}}
+-
+\frac{\sum_{i=1}^N\kappa_{0i}Y_i}
+{\sum_{i=1}^N\kappa_{0i}}.
+\end{equation}
+Define the normalized component weights
+\begin{equation}
+a_i
+=
+\frac{\kappa_{1i}}
+{\sum_{j=1}^N\kappa_{1j}},
+\qquad
+b_i
+=
+\frac{\kappa_{0i}}
+{\sum_{j=1}^N\kappa_{0j}}.
+\label{eq:kappa_normalized_weights}
+\end{equation}
+Provided that the respective denominators are nonzero, these weights satisfy
+\begin{equation}
+\sum_{i=1}^N a_i
+=
+\frac{\sum_{i=1}^N\kappa_{1i}}
+{\sum_{j=1}^N\kappa_{1j}}
+=1,
+\qquad
+\sum_{i=1}^N b_i
+=
+\frac{\sum_{i=1}^N\kappa_{0i}}
+{\sum_{j=1}^N\kappa_{0j}}
+=1.
+\end{equation}
+Accordingly,
+\begin{equation}
+\widehat{\tau}_{a,10}
+=
+\sum_{i=1}^N a_iY_i
+-
+\sum_{i=1}^N b_iY_i.
+\label{eq:tau_a10_weighted_means}
+\end{equation}
+The estimator can equivalently be expressed as a single signed weighted sum:
+\begin{equation}
+\widehat{\tau}_{a,10}
+=
+\sum_{i=1}^N(a_i-b_i)Y_i.
+\end{equation}
+Defining
+\begin{equation}
+\omega_i=a_i-b_i,
+\end{equation}
+the signed outcome weights satisfy
+\begin{equation}
+\sum_{i=1}^N\omega_i
+=
+\sum_{i=1}^N a_i
+-
+\sum_{i=1}^N b_i
+=
+1-1=0.
+\label{eq:tau_a10_zero_sum}
+\end{equation}
+It is therefore important to distinguish between two statements. First, the weights used in each component of $\widehat{\tau}_{a,10}$ sum separately to one. Second, once the two components are combined into a treatment-effect contrast, the resulting signed outcome weights sum to zero. 
+
+\section{PLR-IV as an aggregation of conditional Wald estimands}
+\label{app:pliv_late_aggregation}
+
+The difference between the PLR-IV estimand and the unconditional LATE can be
+made explicit when the instrument is binary. Let
+\[
+    p(X)=P(Z=1\mid X)
+\]
+and define the conditional reduced form and first stage as
+\begin{align}
+    \Delta_Y(X)
+    &=
+    E[Y\mid Z=1,X]-E[Y\mid Z=0,X],\\
+    \Delta_D(X)
+    &=
+    E[D\mid Z=1,X]-E[D\mid Z=0,X].
+\end{align}
+Since
+\[
+E[(Z-p(X))Y\mid X]
+=
+p(X)\{1-p(X)\}\Delta_Y(X)
+\]
+and
+\[
+E[(Z-p(X))D\mid X]
+=
+p(X)\{1-p(X)\}\Delta_D(X),
+\]
+the residualized IV estimand can be written as
+\begin{equation}
+    \theta_{\mathrm{PLR-IV}}
+    =
+    \frac{E[p(X)\{1-p(X)\}\Delta_Y(X)]}
+         {E[p(X)\{1-p(X)\}\Delta_D(X)]}.
+    \label{eq:pliv_conditional_wald_aggregation}
+\end{equation}
+
+Under the conditional IV assumptions and monotonicity,
+\(\Delta_D(X)\) equals the conditional complier share. Whenever
+\(\Delta_D(X)>0\), the conditional Wald ratio
+\[
+    \tau_C(X)
+    =
+    \frac{\Delta_Y(X)}{\Delta_D(X)}
+\]
+identifies the conditional LATE. Equation
+\eqref{eq:pliv_conditional_wald_aggregation} can therefore be rewritten as
+\begin{equation}
+    \theta_{\mathrm{PLR-IV}}
+    =
+    \frac{
+      E[p(X)\{1-p(X)\}\Delta_D(X)\tau_C(X)]
+    }{
+      E[p(X)\{1-p(X)\}\Delta_D(X)]
+    }.
+\end{equation}
+By contrast, the unconditional LATE is
+\begin{equation}
+    \tau_{\mathrm{LATE}}
+    =
+    \frac{
+      E[\Delta_D(X)\tau_C(X)]
+    }{
+      E[\Delta_D(X)]
+    }.
+\end{equation}
+Thus, PLR-IV attaches additional weight to covariate regions in which the
+instrument propensity is close to one half. The two aggregations generally
+differ when \(p(X)\) and the conditional complier effect vary across
+covariate values. They coincide, for example, when the conditional LATE is
+constant or when \(p(X)\) is constant across \(X\).
+
+
+\section{Outcome-Weight Classification}
+Table~\ref{tab:knaus_weight_classes} reproduces the classification introduced
+by \citet[Table~4]{knaus2024treatment} using the notation of this thesis.
+\begin{table}[htbp]
+\centering
+\caption{Outcome-weight classification of Knaus (2024)}
+\label{tab:knaus_weight_classes}
+\begin{tabular}{lccc}
+\toprule
+Weight class
+& \(C=\sum_i\omega_i\)
+& \(C_1=\sum_i\omega_iD_i\)
+& \(C_0=\sum_i\omega_i(1-D_i)\) \\
+\midrule
+Fully unnormalized
+& \(\neq 0\)
+& \(\neq 1\)
+& \(\neq -1\) \\
+
+Untreated unnormalized
+& \(\neq 0\)
+& \(=1\)
+& \(\neq -1\) \\
+
+Treated unnormalized
+& \(\neq 0\)
+& \(\neq 1\)
+& \(=-1\) \\
+
+Scale-normalized
+& \(=0\)
+& \(=c\neq1\)
+& \(=-c\neq-1\) \\
+
+Fully normalized
+& \(=0\)
+& \(=1\)
+& \(=-1\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
 
 \section{Outcome Weights of \texorpdfstring{$\hat\tau_{a,1}$}{tau(a,1)}}
 \label{app:omega_a1}
 
 This section derives the outcome weights of $\hat\tau_{a,1}$ (also written $\hat\tau_t$
 in \citealt{sloczynski2025abadie}) in the PIVE framework of
-\citet{knaus2024treatment}, and establishes that it is untreated-unnormalized.
+\citet{knaus2024treatment}. For a generic propensity-score estimate that does
+not impose the required balancing equality, the estimator is
+untreated-unnormalized.
 
 \paragraph{Setup.}
 Define the raw instrument IPW contrast for observation $i$ as
@@ -2494,7 +3261,7 @@ and the estimator can be written as
 which is a PIVE with $\widetilde{\mathbf{Z}} = \mathbf{1}_N$,
 $\widetilde{\mathbf{D}} = \boldsymbol{\kappa}_1$,
 $\widetilde{\mathbf{Z}}'\widetilde{\mathbf{D}} = \sum_i\kappa_{i1}$.
-By Proposition~\ref{prop:pive_weights}, the outcome weights are
+Applying Equation~\eqref{eq:pive_outcome_weights_thesis}, the outcome weights are
 \begin{equation}
   \boldsymbol{\omega}^{a,1\prime}
   = \left(\sum_i\kappa_{i1}\right)^{-1} \mathbf{1}_N' \mathbf{T}^{a,1},
@@ -2521,10 +3288,10 @@ Then $\sum_i r_i = s_1 - s_0$, so
   = \frac{s_1 - s_0}{\sum_j\kappa_{j1}},
   \label{eq:a1_sum}
 \end{equation}
-which is zero only if $s_1 = s_0$, a coincidental data-dependent condition with no
-structural guarantee. Hence $\sum_i\omega_i^{a,1} \neq 0$ in general, and
-$\hat\tau_{a,1}$ is not translation invariant.
-
+Thus, $\sum_i\omega_i^{a,1}=0$ if and only if $s_1=s_0$. This equality is
+not imposed by a generic propensity-score estimator, so
+$\sum_i\omega_i^{a,1}\neq0$ in general. The CBPS exception relevant for this
+thesis is stated in Remark~\ref{rem:hajek_contrast} below.
 \noindent\textit{(ii) Treated weight sum.}
 Using $D_i r_i = \kappa_{i1}$ from \eqref{eq:a1_kappa_decomp}:
 \begin{equation}
@@ -2545,9 +3312,9 @@ Using $(1-D_i)r_i = -\kappa_{i0}$ from \eqref{eq:a1_kappa_decomp}:
   = \frac{-\sum_i \kappa_{i0}}{\sum_j\kappa_{j1}},
   \label{eq:a1_untreated}
 \end{equation}
-which equals $-1$ only if $\sum_i\kappa_{i0} = \sum_i\kappa_{i1}$. Since there is no
-structural reason for the complier shares from the treated and untreated sides to be
-equal in any given sample, $\sum_i\omega_i^{a,1}(1-D_i) \neq -1$ in general.
+which equals $-1$ only if $\sum_i\kappa_{i0}=\sum_i\kappa_{i1}$. A generic
+propensity-score estimate does not enforce this finite-sample equality, and
+therefore $\sum_i\omega_i^{a,1}(1-D_i)\neq-1$ in general.
 
 \paragraph{Classification.}
 Collecting the three results:
@@ -2559,7 +3326,10 @@ Collecting the three results:
   \sum_{i=1}^N \omega_i^{a,1}(1-D_i) = -\frac{\sum_i\kappa_{i0}}{\sum_i\kappa_{i1}} \neq -1.
   \label{eq:a1_classification}
 \end{equation}
-Therefore $\hat\tau_{a,1}$ is \emph{untreated-unnormalized} in the sense of
+Therefore, in the generic case, $\hat\tau_{a,1}$ is
+\emph{untreated-unnormalized} in the sense of$\sum_i\kappa_{i0}$ for the two sides, forcing both to sum to their target values;
+$\hat\tau_{a,1}$ uses only the treated-side denominator, leaving the untreated side
+without its own rescaling.
 \citet[Table~4]{knaus2024treatment}: the treated side is normalized by construction
 but the untreated side is not. The contrast with $\hat\tau_{a,10}$ is instructive:
 the normalized estimator uses separate denominators $\sum_i\kappa_{i1}$ and
@@ -2567,80 +3337,37 @@ $\sum_i\kappa_{i0}$ for the two sides, forcing both to sum to their target value
 $\hat\tau_{a,1}$ uses only the treated-side denominator, leaving the untreated side
 without its own rescaling.
 
+\begin{remark}[Role of the separate H\'ajek normalization]
+\label{rem:hajek_contrast}
+Equation~\eqref{eq:a1_sum} shows that the total outcome-weight mass of
+\(\widehat\tau_{a,1}\) remains proportional to the difference
+\(s_1-s_0\). By contrast, \(\widehat\tau_u\) normalizes the two instrument
+groups separately, so Equation~\eqref{eq:u_omega_sum} reduces its total mass
+to \((\widehat\Delta_D^u)^{-1}(1-1)=0\). For this pair of Wald-IPW
+estimators, separate H\'ajek normalization is therefore the algebraic step that
+guarantees translation invariance without requiring an additional balancing
+restriction.
+
+This comparison changes when the propensity-score procedure itself imposes
+that restriction. With an intercept included in the CBPS balancing equation
+\eqref{eq:cbps_moment},
+\begin{equation}
+    s_1-s_0
+    =\sum_{i=1}^{N}
+      \frac{Z_i-\widehat p_i}
+           {\widehat p_i(1-\widehat p_i)}
+    =0
+    \label{eq:cbps_equal_ipw_masses}
+\end{equation}
+up to numerical tolerance. In this case,
+\(\widehat\tau_{a,1}^{cb}\) also has zero total outcome-weight mass and
+coincides with \(\widehat\tau_u^{cb}\), consistently with the finite-sample
+equivalence discussed in Chapter~3.
+\end{remark}
+
 \newpage
 
 
-\section{R Code Overview}
-\label{app:code}
-
-The empirical analysis relies on a created set of purpose-built R functions that
-implement the outcome-weight framework derived in Section~\ref{sec:connection}.
-The functions are currently contained in \texttt{functions\_kappa.R}; the
-final replication package, whether as a standalone script, a collection of
-application-specific files, or an R package will be made available at the
-link at the end of this appendix.\\
-The central contribution of the code is the function
-\texttt{kappa\_outcome\_weights(Z, D, p)}, which takes the observed instrument
-$Z$, treatment $D$, and a fitted propensity score vector $\hat{p}$ and returns
-the five outcome weight vectors $\boldsymbol{\omega}^u$,
-$\boldsymbol{\omega}^{a,10}$, $\boldsymbol{\omega}^a$,
-$\boldsymbol{\omega}^{a,1}$, and $\boldsymbol{\omega}^{a,0}$ in closed form.
-The weights are computed directly from the expressions derived in
-Section~\ref{subsec:omega_u}, without numerical optimisation or outcome
-regression. For $\hat\tau_u$, the function applies the Hájek-normalized
-IPW contrast from \eqref{eq:u_omega_scalar}; for $\hat\tau_{a,10}$, it
-applies the separately normalised $\kappa_1$/$\kappa_0$ ratio; for the
-three unnormalized estimators, it uses the common IPW numerator with the
-three denominator choices from \citet{sloczynski2025abadie}.
-
-\begin{lstlisting}[caption={\texttt{kappa\_outcome\_weights()}: closed-form
-  outcome weights for all five kappa estimators},
-  label={lst:kappa_ow}]
-kappa_outcome_weights <- function(Z, D, p) {
-  kw  <- kappa_weights(Z, D, p)           # kappa, kappa1, kappa0
-
-  # tau_u: Hajek-normalized IPW contrast (eq. u_omega_scalar)
-  s1  <- sum(Z / p);  s0 <- sum((1 - Z) / (1 - p))
-  dD  <- sum(D * Z / p) / s1 - sum(D * (1 - Z) / (1 - p)) / s0
-  w_u <- (Z / p / s1 - (1 - Z) / (1 - p) / s0) / dD
-
-  # tau_a10: separately normalized kappa1 / kappa0
-  w_a10 <- kw$kappa1 / sum(kw$kappa1) - kw$kappa0 / sum(kw$kappa0)
-
-  # tau_a, tau_a1, tau_a0: common IPW numerator, three denominators
-  num_w <- (Z - p) / (p * (1 - p)) / length(Z)
-
-  list(w_u   = as.vector(w_u),
-       w_a10 = as.vector(w_a10),
-       w_a   = as.vector(num_w / mean(kw$kappa)),
-       w_a1  = as.vector(num_w / mean(kw$kappa1)),
-       w_a0  = as.vector(num_w / mean(kw$kappa0)))
-}
-\end{lstlisting}
-
-Two companion functions produce the diagnostics reported in every weight
-table throughout Chapters~\ref{sec:vietnam} and~\ref{sec:card_ae}.
-\texttt{weight\_diag(w)} returns the four quantities that appear in each
-row of Tables~\ref{tab:vietnam_weights} and~\ref{tab:card_weights}: the
-weight sum $\sum_i\omega_i$ (the translation-invariance criterion of
-\eqref{eq:ti_identity}), the effective sample size
-$\mathrm{ESS} = 1/\sum_i\omega_i^2$, the share of negative weights, and
-the maximum absolute weight.
-\texttt{check\_weight\_identity(w, Y, tau\_hat)} verifies the identity
-$\hat\tau = \sum_i\omega_i Y_i$ to machine precision for every point
-estimate reported; all checks pass across all specifications.
-The propensity score is estimated either by standard logit MLE via
-\texttt{logit\_mle()} or by a hand-coded CBPS solver,
-\texttt{fit\_cbps\_alpha()}, which implements Newton steps with
-backtracking line search to solve the covariate-balancing moment condition
-directly.
-Analytical standard errors follow from \texttt{kappa\_analytic\_se\_one()},
-which stacks the propensity-score and LATE moment conditions and computes
-the M-estimation sandwich via a numerical Jacobian.
-
-\bigskip
-\noindent All replication code is available at:
-\texttt{[GITHUB / CLOUD LINK]}
 
 \section{Instrument Propensity Scores}
 \begin{figure}[htbp]

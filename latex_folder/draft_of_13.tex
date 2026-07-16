@@ -194,28 +194,31 @@
 \section*{Abstract}
 \addcontentsline{toc}{section}{Abstract}
 
-This thesis applies the outcome-weights framework of \citet{knaus2024} to kappa-based
-local average treatment effect (LATE) estimators of \citet{abadie2003} and
-\citet{suw2025}. Any estimator that can be written as a weighted sum of observed outcomes,
-$\hat\tau = \sum_i \omega_i Y_i$, admits direct covariate balance diagnostics via Love
-plots and effective sample size (ESS) calculations. Knaus (2024) derives such outcome
-weights for double machine learning (DML) and generalised random forest estimators;
-Appendix A.4 sketches but does not implement the same for kappa estimators. We fill
-this gap by deriving closed-form outcome weights for all five kappa-based LATE estimators
-and showing that the sum-to-zero condition $\sum_i \omega_i = 0$ is the exact finite-sample
-criterion for translation invariance---the property that the LATE estimate is unaffected
-by additive rescaling of the outcome variable.
-
-We apply the unified outcome-weight diagnostics to three empirical settings: the Vietnam
-draft lottery \citep{angrist1990}, college proximity as an instrument for education
-\citep{card1995}, and sibling sex composition as an instrument for fertility
-\citep{angrist1998}. A striking finding across applications is that in low-dimensional,
-near-random-assignment designs, ESS and the percentage of negative weights are virtually
-identical across all estimators and all machine learning learners---a pattern we term
-\emph{design dominates learner}. Normalization, not covariate adjustment, drives estimate
-divergence. Unnormalized kappa estimators fail translation invariance dramatically in the
-Angrist--Evans design, with estimates changing sign under outcome recoding. Normalized
-estimators $\hat\tau_u$ and $\hat\tau_{a,10}$ are robust throughout.
+This thesis develops a unified outcome-weight analysis of finite-sample differences
+between weighting and causal machine-learning estimators of the local average treatment
+effect (LATE). Building on Abadie's kappa representation, the normalization analysis of
+\citet{sloczynski2025abadie}, and the outcome-weight framework of
+\citet{knaus2024treatment}, I derive closed-form observation weights for the five
+kappa-based LATE estimators considered in the thesis. This includes an explicit
+outcome-weight derivation for the separately H\'ajek-normalized estimator of
+\citet{uysal2011three}. Exact comparisons are restricted to
+weight vectors that reproduce the corresponding fitted estimate through
+$\widehat\tau=\sum_i\omega_iY_i$.\\
+The main methodological focus is the behavior of these estimators under transformations
+of the outcome. For a fixed, exact outcome-weight representation, an additive shift by
+$k$ changes the estimate by $k\sum_i\omega_i$. The thesis combines this algebraic
+diagnostic with a full-pipeline test that reruns nuisance estimation, sample splitting,
+and hyperparameter tuning after the outcome is translated. This distinction extends the
+analysis of translation invariance and logarithmic scale invariance from classical kappa
+estimators to complete data-adaptive implementations. The empirical analysis studies the
+Vietnam draft lottery, the Card college-proximity design, and the Angrist--Evans fertility
+design. Across these applications, kappa estimators, PLR-IV, and Wald-AIPW are compared in
+terms of point estimates, normalization, signed-weight concentration, negative weights,
+covariate balance, and transformation behavior. The analysis thereby separates three
+questions that need not have the same answer: whether an estimator reproduces its fitted
+effect as weighted outcomes, whether those weights provide a normalized and balanced
+comparison, and whether the complete estimation procedure is invariant to economically
+irrelevant outcome recodings.
 
 \bigskip
 \noindent\textbf{Keywords:} local average treatment effect, instrumental variables,
@@ -460,17 +463,18 @@ $E[\kappa_{0i}]$. These objects are equal under the IV assumptions, but their
 sample analogues need not be equal. As a result, the same identification result
 leads to several natural weighting estimators once the population moments are
 replaced by sample averages.
-Following the notion of \citet{sloczynski2025abadie} both normalized and unnormalized weighting estimators are considered in order to to reproduce their comparison of the estimators' finite-sample properties.
-Central to the distinction between normalized and unnormalized estimator is whether the weights used to construct each weighted mean sum to one within the sample. When both components are normalized separately, the estimator can be represented as the difference between two separately normalized weighted means.
-This distinction is important because an estimated causal effect expressed as a difference in outcomes should not depend on arbitrary choices concerning the location or units of the outcome variable. In particular, adding the same constant to every observed outcome should leave the estimated treatment effect unchanged. Similarly, changing the scale of the underlying outcome should induce only the corresponding economically interpretable change in the estimate. These requirements are formalized by the properties of translation invariance
-and scale equivariance, which are examined in detail in
+Following \citet{sloczynski2025abadie}, both normalized and unnormalized weighting
+estimators are considered. The distinction is whether the component weights are rescaled
+to form separately normalized weighted means. Its consequences for translation
+invariance and scale equivariance are developed in
 Section~\ref{sec:translation_invariance}.
 To reproduce the analysis of \citet{sloczynski2025abadie}, the set of estimators considered here includes the estimator $\hat\tau_u$, originally proposed by \citet{uysal2011three}, and the estimator $\hat\tau_{a,10}$, considered by \citet{abadie2018econometric}.
 Both estimators are normalized, although they arise from different representations of the LATE.
 The remaining estimators 
 $\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$, are
 unnormalized sample analogues. 
-The present subsection defines these estimators and shows how their respective weights are constructed and normalized. The implications of these normalization choices for translation invariance and scale equivariance are discussed subsequently.\\
+The present subsection defines the estimators and shows how their respective weights are
+constructed and normalized.\\
 For notational simplicity, the formulas below are written in terms of thd population instrument propensity score $p(X_i)$. As it is common in empirical applications that $p(X_i)$ is unknown, it is replaced by the fitted propensity score $\hat p(X_i)$.
 The first estimator is  $\hat\tau_u$ originally proposed in \citep{uysal2011three} and moreover the preferred estimator in \citet{sloczynski2025abadie}. 
 It is constructed as 
@@ -1460,7 +1464,7 @@ version 0.2.0.9000 of \texttt{OutcomeWeights} at GitHub commit
 recording the implementation used for learner-specific extraction.
 Finally, every constructed or extracted vector is subjected to the numerical
 identity check described above. The companion function
-\texttt{check\_weight\_identity()} with the corresponding fitted estimate, while
+\texttt{check\_weight\_identity()} compares a constructed vector with the corresponding fitted estimate, while
 \texttt{check\_doubleml\_identity()} applies the same check to weight objects
 extracted from \texttt{DoubleML}. The tolerance is set to \(10^{-8}\). The
 kappa vectors satisfy the identity algebraically and reproduce their estimates
@@ -1477,94 +1481,91 @@ are not interpreted on the same footing.
 
 \section{Translation and scale invariance}
 \label{sec:translation_invariance}
-
-The preceding section connected the normalization of the kappa-based estimators to
-their representation as weighted outcomes. This connection is particularly important
-because the finite-sample consequences of normalization are not merely algebraic.
-As emphasized by \citet{sloczynski2025abadie}, normalized and unnormalized
-weighting estimators of the LATE may react differently to transformations of the
-outcome variable, even when the underlying treatment, instrument, covariates, and
-identifying assumptions remain unchanged.\\
-This matters because a reasonable treatment-effect estimator should not depend on
-arbitrary choices in how the outcome is coded or centered. Adding the same constant
-to every observed outcome does not alter any individual treatment contrast and should
-therefore not change the estimated effect. Similarly, when the outcome is expressed in
-logs, changing the monetary unit before taking the logarithm should not affect the
-economic conclusion. The possibility that an estimator nevertheless changes under
-such transformations is therefore a substantive finite-sample failure rather than a
-purely technical feature.\\
-Building on the normalization results established above and in the appendix, this
-section first introduces the definitions of translation invariance and scale
-equivariance used by \citet{sloczynski2025abadie}. It then connects these properties
-to the outcome-weight representation developed in the preceding section and explains
-why the normalized kappa estimators satisfy them while the unnormalized alternatives
-generally do not. Finally, the section distinguishes between an algebraic check based
-on fixed outcome weights and the full rerun procedure that will be used in the
-empirical applications.
-
+Normalization has a direct finite-sample implication as estimators that target the same
+population LATE may respond differently to transformations that leave the underlying
+economic comparison unchanged. Following \citet{sloczynski2025abadie}, this chapter
+formalizes translation invariance and scale equivariance, relates both properties to the
+outcome-weight representation, and distinguishes the implication of a realized weight
+vector from the behavior of a complete data-adaptive estimation procedure. This last
+distinction is central to the empirical contribution of the thesis because nuisance
+functions and outcome weights may themselves change when a DML estimator is refitted.
 
 \subsection{Translation invariance}
 \label{subsec:translation_invariance}
-The first property considered is translation invariance. It formalizes the requirement
-that an estimator should be unaffected by a common change in the level of the outcome
-variable. \\
-Following the framework in \citet{sloczynski2025abadie}, let \(Y\) denote the vector of observed
-outcomes and let \(W\) collect all remaining variables entering the estimator, including
-the treatment, instrument, and covariates. An estimator
+Let \(Y\) denote the vector of observed outcomes and let \(W\) collect the treatment,
+instrument, covariates, and all other non-outcome inputs. Following
+\citet{sloczynski2025abadie}, an estimator
 \(\widehat{\tau}=\widehat{\tau}(Y,W)\) is translation invariant if
 \begin{equation}
-\widehat{\tau}(Y,W)
-=
-\widehat{\tau}(Y+k,W)
+ \widehat{\tau}(Y+k\mathbf 1_N,W)
+    =
+    \widehat{\tau}(Y,W)
+    \label{eq:translation_definition}
 \end{equation}
-for every constant \(k\). Translation invariance therefore requires the estimated
-treatment effect to remain unchanged when the same constant is added to every
-observation of the outcome. \\
-This property is a natural requirement for a treatment-effect estimator. A common shift
-in all outcome levels changes neither the relative position of observations nor any
-individual treatment contrast. It merely changes the origin from which the outcome is
-measured. An estimator that changes under such a transformation is consequently
-sensitive to an arbitrary coding or centering decision that has no bearing on the
-underlying causal effect. This concern is especially transparent for binary outcomes.
-Coding an outcome as zero and one or, alternatively, as one and two describes the same
-economic distinction, since the latter coding is obtained by adding one to every
-observation. A translation-invariant estimator must therefore return the same treatment
-effect under both codings.\\
-The empirical analysis applies this definition directly by comparing each estimator
-under an original outcome and under a translated version of that outcome. This
-exercise is central because it reveals whether differences between
-estimators reflect economically meaningful features of the data or merely arbitrary
-choices in outcome coding. In the Angrist and Evans application, the binary labor-force
-outcome \(Y\in\{0,1\}\) is compared with \(Y+1\in\{1,2\}\). The two codings preserve
-exactly the same distinction between working and not working and differ only by the
-constant \(k=1\). In the Card and Angrist--Evans income applications, the logged
-outcomes are likewise shifted by a common constant, such as \(k=\log(100)\). In each
-case, the identifying assumptions, treatment, instrument, covariates, and underlying
-economic comparison remain unchanged. A change in the estimated LATE can therefore
-be attributed solely to a failure of translation invariance.\\
-Following the empirical logic of \citet{sloczynski2025abadie}, these recodings first
-provide a benchmark for the normalized and unnormalized kappa estimators. The same
-diagnostic is then extended to the DML estimators considered in this thesis. This
-extension is a main focus of the analysis: it examines whether the invariance properties
-documented for classical weighting estimators continue to hold for complete
-machine-learning-based implementations.
+for every constant \(k\). A common shift changes the origin of the outcome but neither
+individual treatment contrasts nor the underlying causal parameter. An estimator that
+responds to such a shift is therefore sensitive to an arbitrary coding or centering
+choice.
+
+
+
+\subsubsection{Outcome transformations in the empirical applications}
+\label{subsubsec:translation_transformations}
+
+The empirical analysis implements the definition in
+Equation~\eqref{eq:translation_definition} by comparing each estimator under an original outcome and a translated version of that outcome. For the binary labor-force outcome in the Angrist--Evans application, the
+transformation is
+\begin{equation}
+    Y_i^{\mathrm{shift}}=Y_i+1,
+    \qquad
+    Y_i\in\{0,1\},
+    \quad
+    Y_i^{\mathrm{shift}}\in\{1,2\}.
+    \label{eq:binary_translation}
+\end{equation}
+The two codings preserve the distinction between working and not working and differ
+only in their origin. The reflected coding \(1-Y_i=-Y_i+1\), which is also displayed in
+the Angrist--Evans reproduction, is not a pure translation because it additionally
+reverses the sign of the outcome contrast. The corresponding binary-outcome results are
+reported in Section~\ref{subsec:ae_child_reproduction}.\\
+For the continuous wage and income outcomes, let \(R_i>0\) denote the variable in its
+original monetary unit and define \(Y_i=\log(R_i)\). Expressing \(R_i\) in a different
+unit multiplies it by a constant \(a>0\), so that
+\begin{equation}
+    Y_i^{(a)}
+    =
+    \log(aR_i)
+    =
+    \log(R_i)+\log(a)
+    =
+    Y_i+\log(a).
+    \label{eq:logged_outcome_translation}
+\end{equation}
+Thus, changing the monetary unit is an additive translation of the analyzed log outcome
+with \(k=\log(a)\). The Vietnam and Card applications compare wages in dollars and cents,
+for which \(a=100\), while the Angrist--Evans income application uses the corresponding
+unit factors for its alternative income codings. These exercises are reported in
+Sections~\ref{subsec:vietnam_estimates}, \ref{subsec:card_translation_invariance}, and
+\ref{subsec:ae_child_reproduction}, respectively. In every case, the treatment,
+instrument, covariates, and economic contrast remain fixed; only the representation of
+the outcome changes.
+
+
+
 \subsubsection{Translation invariance in the outcome-weight representation}
 \label{subsubsec:translation_outcome_weights}
 
-The outcome-weight representation from
-Section~\ref{subsec:knaus_framework} provides a direct finite-sample
-characterization of translation invariance. Recall from
-Equation~\eqref{eq:outcome_weight_representation} that a fitted estimator can be
-written as
+The outcome-weight framework developed in Section~\ref{subsec:knaus_framework} provides
+an algebraic characterization of this property. Suppose that the realized estimator has
+the exact representation
 \begin{equation}
     \widehat{\tau}(Y,W)
     =
     \sum_{i=1}^{N}\omega_iY_i.
 \end{equation}
-Holding the realized outcome weights fixed, replacing \(Y_i\) with \(Y_i+k\)
-gives
+Holding this realized weight vector fixed and replacing \(Y_i\) with \(Y_i+k\) gives
 \begin{align}
-    \widehat{\tau}(Y+k,W)
+     \widehat{\tau}(Y+k\mathbf 1_N,W)
     &=
     \sum_{i=1}^{N}\omega_i(Y_i+k) \\
     &=
@@ -1574,7 +1575,7 @@ gives
 \end{align}
 Consequently,
 \begin{equation}
-    \widehat{\tau}(Y+k,W)-\widehat{\tau}(Y,W)
+    \widehat{\tau}(Y+k\mathbf 1_N,W)-\widehat{\tau}(Y,W)
     =
     k\sum_{i=1}^{N}\omega_i.
     \label{eq:translation_weight_identity}
@@ -1587,127 +1588,107 @@ zero total mass,
     \sum_{i=1}^{N}\omega_i=0.
     \label{eq:translation_zero_sum}
 \end{equation}
-This is precisely the first normalization condition in \citet{knaus2024treatment} outcome-weight
-classification introduced in
-Equation~\eqref{eq:knaus_weight_masses}. \\
-The result also connects the two normalization concepts distinguished in the
-preceding section. Separate normalization of the component weighted means in the
-sense of \citet{sloczynski2025abadie} produces equal and opposite total outcome
-weight masses and therefore satisfies
-Equation~\eqref{eq:translation_zero_sum}.\\
-The zero-sum condition therefore provides a complete characterization of additive
-translations for the kappa estimators considered here. \citet{sloczynski2025abadie} study a broader transformation property as well. The following
-subsection introduces their concept of scale equivariance and explains its
-connection to changes in the units of logarithmic outcomes.
+This is the first normalization condition in the outcome-weight classification of
+\citet{knaus2024treatment}, introduced in Equation~\eqref{eq:knaus_weight_masses}.
+Separate normalization of the component weighted means produces equal and opposite
+outcome-weight masses and therefore satisfies Equation~\eqref{eq:translation_zero_sum}.\\
+For the kappa estimators considered here, the fitted weights depend on the treatment,
+instrument, covariates, and estimated instrument propensity score, but not on the
+outcome. The zero-sum condition therefore characterizes the response of the estimator
+itself to an additive translation. For DML estimators, by contrast, outcome-nuisance
+estimation may cause the fitted weights to change when the outcome is translated. In
+that setting, Equation~\eqref{eq:translation_weight_identity} characterizes the realized
+weight representation, while invariance of the complete procedure must be assessed by
+rerunning the estimator as described in Section~\ref{subsec:full_pipeline_invariance}.
+Moreover, the weight-based interpretation is exact only when the numerical identity
+\(\widehat\tau=\sum_i\omega_iY_i\) is satisfied; extracted vectors that fail this identity
+remain approximate learner-sensitivity evidence.
 
 
 \subsection{Scale equivariance and logarithmic scale invariance}
 \label{subsec:scale_equivariance}
 
 
-\citet{sloczynski2025abadie} also consider the broader property of scale equivariance,
-which requires an estimator to react predictably to transformations of the outcome.
-The underlying principle is that a change in the numerical representation of an
-outcome should affect the estimated treatment effect only in the way implied by that
-transformation. In particular, multiplying an outcome measured in levels by a
-constant should rescale the estimated effect accordingly, rather than altering its
-substantive interpretation.\\
-The application of greatest relevance for this thesis is scale invariance with respect
-to the natural logarithm. When a positive outcome such as wages or income is analyzed
-in logarithms, changing the monetary unit of the original variable should not affect
-the estimated effect. For example, whether wages are recorded in dollars or cents is
-economically immaterial. If \(R_i\) denotes the underlying positive outcome, then
-measuring it in a different unit replaces \(R_i\) by \(aR_i\), where \(a>0\).
-After taking logarithms,
+\citet{sloczynski2025abadie} study the broader property of scale equivariance. Let
+\(R=(R_1,\ldots,R_N)'\) be a strictly positive outcome in its original units, define
+\(f(R)=(g(R_1),\ldots,g(R_N))'\), and let
+\(g(r)=\alpha_2r^{\alpha_1}-\alpha_3\). An estimator is scale equivariant if
 \begin{equation}
-    \log(aR_i)=\log(R_i)+\log(a).
+    \widehat\tau\!\left(f(aR),W\right)
+    =
+    a^{\alpha_1}\widehat\tau\!\left(f(R),W\right)
+    \label{eq:scale_equivariance_definition}
 \end{equation}
-Thus, a multiplicative change in the unit of the original outcome becomes a common
-additive shift of the logged outcome.\\
-This observation explains the close connection between the two invariance properties
-in the empirical analysis. The comparison of log wages or log income across different
-monetary units is formally a translation of the analyzed log outcome, but its economic
-interpretation is a test of logarithmic scale invariance. An estimator that changes
-when the underlying income variable is expressed in cents rather than dollars therefore
-fails both the translation-invariance requirement on the log scale and the unit-invariance
-requirement that motivates the use of logarithmic outcomes.
+for all \(R>0\), \(a>0\), \(W\), and
+\(\alpha_1,\alpha_2,\alpha_3\in\mathbb R\).
+This property ensures that multiplicative, power, and additive transformations of the
+underlying outcome induce the corresponding economically interpretable change in the
+estimate.\\
+The empirical case relevant for this thesis is scale invariance with respect to the
+natural logarithm, obtained by taking \(\alpha_1\to0\),
+\(\alpha_2=1/\alpha_1\), and \(\alpha_3=\alpha_2\). From
+Equation~\eqref{eq:logged_outcome_translation},
+\begin{equation}
+    \widehat\tau\!\left(\log(aR),W\right)
+    =
+    \widehat\tau\!\left(\log(R),W\right)
+    \label{eq:log_scale_invariance}
+\end{equation}
+is the corresponding unit-invariance requirement. \citet{sloczynski2025abadie}
+illustrate this implication empirically by changing the monetary unit before taking
+logs. The Vietnam, Card, and Angrist--Evans income exercises in this thesis implement
+the same test. They do not evaluate the entire family of transformations in
+Equation~\eqref{eq:scale_equivariance_definition}; they evaluate its natural-log
+scale-invariance implication. Consequently, a dollars-to-cents comparison is formally
+a translation-invariance test for the analyzed log outcome and, simultaneously, a
+logarithmic scale-invariance test for the underlying wage or income variable.\\
+
+
 
 
 
 \subsection{From kappa estimators to full-pipeline DML checks}
 \label{subsec:full_pipeline_invariance}
 
-The preceding results establish the transformation properties of the classical
-weighting estimators considered in this thesis. Building on the identification
-results of \citet{abadie2003semiparametric},
-\citet{sloczynski2025abadie} distinguish between two normalized and three
-unnormalized estimators of the LATE. The Uysal estimator
-\(\widehat{\tau}_{u}\) and the separately normalized kappa estimator
-\(\widehat{\tau}_{a,10}\) are translation invariant and scale equivariant.
-By contrast,
-\(\widehat{\tau}_{a}\),
-\(\widehat{\tau}_{t}=\widehat{\tau}_{a,1}\), and
-\(\widehat{\tau}_{a,0}\) generally possess neither property. The distinction
-arises in finite samples because the population identities underlying the
-different kappa representations do not imply equality of their corresponding
-sample denominators. Separate normalization removes the sensitivity to a
-common shift in the outcome, whereas the unnormalized estimators retain a
-term that depends on the level at which the outcome is coded.\\
-Among the normalized alternatives,
-\citet{sloczynski2025abadie} recommend
-\(\widehat{\tau}_{u}\) for wider use. Both
-\(\widehat{\tau}_{u}\) and
-\(\widehat{\tau}_{a,10}\) satisfy the invariance properties studied above,
-but the Uysal estimator has an additional finite-sample advantage in settings
-with one-sided noncompliance: its first-stage denominator is strictly positive
-by construction whether there are no always-takers or no never-takers.
-The estimator \(\widehat{\tau}_{a,10}\), which normalizes its two kappa
-components separately, does not generally retain this advantage because either
-component denominator may still approach zero. The subsequent empirical
-analysis therefore treats the normalized kappa estimators as the invariance
-benchmark, while giving particular attention to
-\(\widehat{\tau}_{u}\).\\
-The central extension of this thesis is to apply the same invariance question
-to estimators implemented through double machine learning. For the kappa
-estimators, the weights depend on the treatment, instrument, covariates, and
-estimated instrument propensity score, but not on the outcome itself.
-Consequently, translating the outcome does not alter the fitted weight vector,
-and the estimator-level result follows directly from the normalization
-properties derived above. The situation is more involved for DML estimators.
-Their final estimate is produced by a sequence of operations that may include
-outcome-nuisance estimation, cross-fitting, data-adaptive model selection,
-hyperparameter tuning, and stochastic learner construction. A transformation
-of the outcome may therefore affect not only the final weighted sum but also
-the fitted nuisance functions and the realized outcome weights.\\
-For this reason, the main empirical invariance assessment uses a full-pipeline
-rerun. For a given estimator implementation
-\(\mathcal{A}\), the original and translated estimates are defined as
+The normalized estimators \(\widehat\tau_u\) and \(\widehat\tau_{a,10}\) provide the
+classical invariance benchmark, whereas \(\widehat\tau_a\),
+\(\widehat\tau_t=\widehat\tau_{a,1}\), and \(\widehat\tau_{a,0}\) generally fail
+translation invariance and scale equivariance \citep{sloczynski2025abadie}. The Vietnam
+and Card analyses reproduce the corresponding outcome-transformation comparisons in
+their empirical applications. The Angrist--Evans analysis reproduces the same mechanism
+on diagnostic subsamples and is therefore a qualitative rather than a one-to-one
+numerical reproduction of their full-sample results.\\
+The central extension of this thesis is to apply the invariance question to estimators
+implemented through double machine learning. Unlike the kappa weights, a DML estimator
+may depend on the outcome through fitted nuisance functions, cross-fitting,
+data-adaptive model selection, and hyperparameter tuning. Translating the outcome may
+therefore change both the final weighted sum and the realized outcome weights. The
+weight-sum calculation alone cannot establish invariance of the complete implementation.\\
+For this reason, the main empirical assessment uses a full-pipeline rerun. For a given estimator implementation \(\mathcal A\), define
 \begin{align}
     \widehat{\tau}_{\mathrm{orig}}
     &=
     \mathcal{A}
     \bigl(
         Y,W;
-        \mathcal{I},
         \mathcal{L},
         \mathcal{T},
+        \mathcal{F},
         s
     \bigr), \\
     \widehat{\tau}_{\mathrm{shift}}
     &=
     \mathcal{A}
     \bigl(
-        Y+k,W;
-        \mathcal{I},
         \mathcal{L},
         \mathcal{T},
+        \mathcal{F},
         s
     \bigr),
 \end{align}
-where \(\mathcal{I}\) denotes the fixed sample and cross-fitting partition,
-\(\mathcal{L}\) the learner specification,
-\(\mathcal{T}\) the tuning procedure, and \(s\) the random seed. The realized
-full-pipeline shift is
+where \(\mathcal L\) denotes the learner specification, \(\mathcal T\) the tuning
+procedure, \(\mathcal F\) the cross-fitting design and fold-construction rule, and \(s\)
+the random seed. The realized full-pipeline shift is
 \begin{equation}
     \Delta_{\mathrm{rerun}}
     =
@@ -1717,69 +1698,25 @@ full-pipeline shift is
     \label{eq:method_a_rerun}
 \end{equation}
 Translation invariance of the implemented procedure requires
-\(\Delta_{\mathrm{rerun}}=0\), up to numerical tolerance. This differs from
-the frozen-weight calculation introduced previously. The method exposed in Section \ref{subsec:knaus_framework} asks what a
-single extracted outcome-weight vector predicts when it is applied to
-\(Y+k\). This method instead asks whether the complete estimation algorithm
-returns the same estimate after the translated outcome has been passed through
-the entire procedure again. \\
-Controlling the stochastic components of the comparison is essential. Random
-forests and related tree-based learners can involve randomized observation and
-variable subsampling, stochastic tree construction, and randomized
-hyperparameter searches. Cross-fitting introduces an additional source of
-variation through the assignment of observations to folds. If these elements
-differ between the two fits, the observed value of
-\(\Delta_{\mathrm{rerun}}\) may combine genuine sensitivity to the outcome
-translation with unrelated Monte Carlo variation. The original and shifted
-fits therefore use exactly the same observations and cross-fitting folds, and
-the random seed is reset immediately before each fit. The learner class,
-search space, tuning budget, loss function, and all other implementation
-choices are also held fixed.\\
-Holding the tuning rule fixed does not mean that fitted nuisance models or
-selected hyperparameters must be mechanically reused. Reusing a model trained
-on the original outcome would reduce the exercise to a frozen-fit check and
-would no longer evaluate the complete data-adaptive estimator. Instead, the
-same tuning procedure is rerun inside each corresponding training sample.
-For tree-based learners, this allows the translated outcome to pass through
-the same model-selection pipeline while ensuring that any resulting difference
-is not generated by a change chosen by the researcher. \\
-The empirical comparison is organized in two stages. First, the original
-results of \citet{sloczynski2025abadie} are reproduced for
-\(\widehat{\tau}_{u}\),
-\(\widehat{\tau}_{a,10}\),
-\(\widehat{\tau}_{a}\),
-\(\widehat{\tau}_{a,1}\), and
-\(\widehat{\tau}_{a,0}\). These estimates provide the classical benchmark:
-the normalized estimators should remain unchanged after translating the
-outcome, while the unnormalized estimators generally need not. Second, the
-same translated outcomes are used to rerun the DML implementations. The
-headline DML specifications are PLR-IV and Wald-AIPW estimated with
-cross-fitted, tuned honest-forest nuisance learners. PLR-IV is reported
-separately because its partially linear structural interpretation does not
-automatically coincide with the LATE targeted by the kappa and Wald-AIPW
-estimators. Nevertheless, translation invariance remains a well-defined
-property of its implemented estimator.\\
-Additional Wald-AIPW implementations using linear and logistic models,
-\texttt{ranger}, and XGBoost are used to assess learner sensitivity. Untuned
-tree-based specifications are retained where they serve as diagnostic
-benchmarks for the effect of regularization and nuisance calibration. The
-final assessment, however, uses the tuned specifications selected
-according to nuisance-prediction performance. For XGBoost, this entails
-repeating the nested tuning procedure separately for the original and shifted
-outcomes rather than carrying the fitted model or previously selected
-hyperparameters from one outcome coding to the other. For the GRF-based
-headline estimators, the package's native tuning procedure is likewise rerun
-within the corresponding outer training folds. This design ensures that the
-reported invariance check concerns the estimator specification ultimately used
-in the empirical analysis, while the untuned results remain available as a
-transparent learner-instability diagnostic.
-
-The resulting comparison extends the analysis of
-\citet{sloczynski2025abadie} in two directions. It first verifies their
-finite-sample result within the classical kappa framework and then examines
-whether the same desirable behavior is preserved by complete, data-adaptive
-DML implementations. 
-
+\(\Delta_{\mathrm{rerun}}=0\), up to numerical tolerance. The original and shifted
+fits use the same observations, learner class, number of folds, fold-construction rule,
+tuning search space, tuning budget, loss functions, and random seed. The seed is reset
+immediately before each fit. Because the current scripts regenerate the folds rather
+than storing and reinserting a common fold object, the realized partition is reproduced
+when the software's fold construction is deterministic conditional on the seed and call
+sequence; exact equality of externally stored fold identifiers is not claimed.\\
+The fitted nuisance models and selected hyperparameters are not carried from the original
+outcome to its translated version. Instead, the same estimation and tuning procedures
+are rerun so that Method~A evaluates the complete data-adaptive estimator. The headline
+implementations apply this procedure to PLR-IV and Wald-AIPW with cross-fitted, tuned
+honest forests. Parametric, \texttt{ranger}, and tuned XGBoost implementations assess
+learner sensitivity, with nested XGBoost tuning rerun for the translated outcome. PLR-IV
+is reported separately because its partially linear structural parameter need not
+coincide with the LATE targeted by the kappa and Wald-AIPW estimators, although
+translation invariance remains a well-defined property of its implementation. The
+resulting comparison first establishes the classical normalization benchmark and then
+examines whether it is preserved by the complete DML pipelines used in the empirical
+analysis.
 
 
 \newpage
