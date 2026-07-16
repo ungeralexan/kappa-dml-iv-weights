@@ -271,3 +271,31 @@ estimators but does not apply it empirically. This thesis fills that gap.
 
 
 ### Chapter 8 — Conclusion (1–2 pages)
+
+
+
+
+
+#### What I still could test is this : 
+What you do not currently test
+
+SUW’s formal scale-equivariance definition covers a broader class of transformations, including power-type transformations and multiplicative changes more generally.
+
+Your scripts do not systematically test, for example,
+
+Y
+⋆
+=aY
+
+and verify
+
+τ
+(aY)=a
+τ
+(Y),
+
+nor do they test the full family of transformations appearing in their formal definition.
+
+Therefore, the precise statement is:
+
+Your empirical reruns directly test translation invariance. For logged wage and income outcomes, they also test scale invariance with respect to the natural logarithm. The binary reversal 1−Y, where included, provides an additional affine recoding check. The scripts do not constitute a comprehensive empirical test of SUW’s full scale-equivariance property.
