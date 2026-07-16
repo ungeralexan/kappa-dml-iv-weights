@@ -137,12 +137,10 @@ estimators but does not apply it empirically. This thesis fills that gap.
 - Outcome-weight proof: τ̂(Y+k) − τ̂(Y) = kΣᵢωᵢ ? 
 - Proposition 3.2 (SUW 2025): τ̂ᵤ and τ̂ₐ,₁₀ pass; τ̂ₐ, τ̂ₜ, τ̂ₐ,₀ fail
 - Explain scale equivariance differently Definition SE / scale issue: brief statement, linked to log-unit sensitivity
-- Concrete example: cents vs. dollars is an additive shift after logs
-- Separate clearly:
-  - Method B = frozen-weight algebraic check using extracted ωᵢ
+- Mention the method you are using and why it is so special for the Double Machine Learning framework  
   - Method A = full rerun of the implemented estimator on Y+k
-- Emphasize that Method A is the later empirical contribution because it includes
-  nuisance training, cross-fitting, tuning, and algorithmic randomness
+  - Emphasize that Method A is the later empirical contribution because it includes
+    nuisance training, cross-fitting, tuning, and algorithmic randomness
 
 **Section 4.3 — Outcome weights diagnostics**
 - Covariate Balance: Standardized Mean Difference (SMD): |X̄ₜᵣₑₐₜₑ_ₖ − X̄_cₒₙₜᵣₒₗ_ₖ| / SD(Xₖ),
