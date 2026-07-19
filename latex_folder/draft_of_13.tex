@@ -1826,6 +1826,116 @@ Analysis sample
 
 
 
+\section{Outcome-weight diagnostics}
+\label{sec:outcome_weight_diagnostics}
+
+Section~\ref{subsec:knaus_framework} showed how the estimators considered in this
+thesis can be represented through observation-level outcome weights. 
+As this framework follows \citet{knaus2024treatment} the empirical
+diagnostic analysis begins by verifying that the extracted weights reproduce the
+corresponding fitted estimate within numerical tolerance. This identity check is
+essential because only then can the weight vector be interpreted as an exact
+representation of the estimator and used in subsequent diagnostics.\\
+Once this condition is satisfied, the weights reveal how the estimator combines the
+observations in the sample. Their total and group-specific masses describe the
+normalization properties discussed above, while their signs, range, and absolute
+magnitudes indicate whether the estimator relies on unusual or highly concentrated
+comparisons. These summaries provide a first assessment of the finite-sample weight
+structure, but they do not show whether the weighted treatment groups are comparable
+in terms of observed characteristics or how broadly the weight mass is distributed.\\
+The analysis therefore focuses more closely on two complementary dimensions.
+Standardized mean differences and Love plots are used to assess covariate balance,
+whereas conventional and modified effective sample size measures summarize weight
+dispersion and concentration. Together, these diagnostics show how each estimator
+arrives at its point estimate and whether that estimate is supported by a broad and
+covariate-balanced comparison. The following subsection first introduces the
+covariate-balance measures used in the empirical applications.
+
+
+
+\subsection{Covariate balance}
+\label{subsec:covariate_balance}
+
+A central concern in causal inference is understanding the comparison on which an
+estimated effect is based. In
+observational and conditionally randomized settings, treated and untreated units may
+also differ in pretreatment characteristics that are related to treatment selection. Examining these characteristics is therefore important for understanding
+the comparison on which an estimated effect is based.\\
+A point estimate alone does not reveal which observations contribute most strongly to
+that comparison. Two estimators may produce similar treatment-effect estimates while
+placing weight on very different parts of the sample. Once the outcome weights derived
+in Section~\ref{subsec:knaus_framework} are available, the implicit comparison generated
+by each estimator can be examined directly. In particular, the weights show whether the
+treated and untreated observations that contribute to the fitted estimate are similar in
+their observed covariates.\\
+This perspective is especially useful for the DML estimators considered in this thesis.
+Their final estimates result from nuisance-function estimation, residualization,
+cross-fitting, and aggregation, so the observation-level comparison is not immediately
+visible from the reported coefficient. The outcome-weight representation makes this
+otherwise less transparent comparison accessible to the same balance diagnostics that
+are commonly used for explicit weighting estimators. \\
+The primary balance measure used in the empirical analysis is the standardized mean
+difference. For covariate \(X_j\), let
+\(\bar X^{\,\omega}_{1j}\) and \(\bar X^{\,\omega}_{0j}\) denote the weighted means
+among treated and untreated observations, respectively. The standardized mean
+difference is
+\begin{equation}
+    \operatorname{SMD}_j
+    =
+    \frac{
+        \bar X^{\,\omega}_{1j}
+        -
+        \bar X^{\,\omega}_{0j}
+    }{
+        s_j
+    },
+    \label{eq:smd_definition}
+\end{equation}
+where \(s_j\) is a fixed measure of the dispersion of covariate \(X_j\). The empirical
+analysis reports the absolute value,
+\(\lvert\operatorname{SMD}_j\rvert\), because the magnitude of the imbalance is of
+primary interest.\\
+Standardization makes differences comparable across covariates measured in different
+units. Unlike significance tests of differences in means, the SMD is also not
+mechanically driven by the sample size. For a binary covariate, the weighted mean equals
+the weighted proportion, so the numerator in
+Equation~\eqref{eq:smd_definition} measures the difference in the prevalence of that
+characteristic between the two weighted groups. SMDs can therefore be applied to both
+continuous and binary covariates, although unusually large values for rare binary
+characteristics should also be interpreted alongside the underlying weighted
+proportions.
+
+
+\subsubsection{Implementation and visualization}
+
+
+To assess covariate balance, the estimator-specific outcome weights are converted into
+group-oriented diagnostic weights. Since untreated observations conventionally enter
+the outcome-weight representation with the opposite sign, their weights are reversed
+before the balance statistics are calculated. Specifically, the diagnostic weight is
+defined as
+\[
+    a_i=\omega_i(2D_i-1),
+\]
+so that the treated and untreated components are expressed with a common orientation.
+This transformation does not necessarily make every diagnostic weight nonnegative,
+because wrong-sign weights may remain within either treatment group.\\
+The resulting weights are supplied to the \texttt{cobalt} package, which computes
+covariate balance before and after weighting. For each covariate, the empirical
+analysis compares the unadjusted standardized mean difference with the corresponding
+outcome-weighted standardized mean difference. Binary covariates are also standardized
+in the implementation, placing continuous and binary variables on a common scale.\\
+The balance statistics are displayed in Love plots, with one row for each covariate
+and separate markers for the unadjusted and weighted comparisons. A reference line at
+\(\lvert\operatorname{SMD}\rvert=0.1\) is included as a conventional descriptive
+benchmark for residual imbalance. The plots therefore show whether a given estimator
+reduces or increases the initial covariate imbalance and whether this pattern differs
+across estimator families and nuisance learners. The reference value is used to
+facilitate comparison and is not interpreted as a formal test of identification.
+
+
+\newpage
+
 \section{Empirical Application: Military Service and Wages}
 \label{sec:vietnam}
 % ==============================================================================
