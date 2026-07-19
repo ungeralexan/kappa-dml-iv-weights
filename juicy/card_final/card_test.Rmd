@@ -145,6 +145,77 @@ cat(sprintf("Kappa: Card %d / Kitagawa %d covariates | DML: Card %dx%d / Kitagaw
             nrow(X_dml_card), ncol(X_dml_card), nrow(X_dml_kit), ncol(X_dml_kit)))
 ```
 
+## Design-Stage Instrument-Propensity Balance
+
+<div class="note-box">
+**Distinct diagnostic.** These plots assess whether the fitted instrument propensity
+score balances the observed covariates between the instrument groups
+(`Z = 1` versus `Z = 0`). They use positive, separately normalized instrument-IPW
+weights and therefore describe conventional weighted pseudo-populations. They do not
+replace the outcome-weight Love plots below, which assess the signed treated-control
+comparison generating each fitted LATE estimate. Continuous covariates are standardized;
+starred binary covariates are shown as raw differences in proportions.
+</div>
+
+```{r instrument-ipw-balance, fig.height=7, fig.width=14}
+# Positive Hájek-normalized instrument-IPW weights. Scaling each Z arm to sum
+# to one is explicit here, although cobalt's within-arm weighted means are
+# invariant to a common rescaling within an arm.
+instrument_ipw <- function(Z, p) {
+  Z <- as.numeric(Z)
+  p <- as.numeric(p)
+  if (length(Z) != length(p) || any(!is.finite(p)) || any(p <= 0 | p >= 1)) {
+    stop("Instrument-IPW balance requires finite propensity scores strictly inside (0, 1).")
+  }
+  w <- ifelse(Z == 1, 1 / p, 1 / (1 - p))
+  w[Z == 1] <- w[Z == 1] / sum(w[Z == 1])
+  w[Z == 0] <- w[Z == 0] / sum(w[Z == 0])
+  w
+}
+
+make_instrument_ipw_love <- function(title_str, Z, X_bal, p_ml, p_cb,
+                                      threshold = 0.1) {
+  love.plot(
+    Z ~ X_bal,
+    weights = list(
+      "MLE instrument IPW"  = instrument_ipw(Z, p_ml),
+      "CBPS instrument IPW" = instrument_ipw(Z, p_cb)
+    ),
+    position   = "bottom",
+    title      = title_str,
+    thresholds = c(m = threshold),
+    var.order  = "unadjusted",
+    continuous = "std",
+    binary     = "raw",
+    s.d.denom  = "pooled",
+    stats      = "mean.diffs",
+    abs        = TRUE,
+    line       = TRUE,
+    stars      = "raw",
+    colors     = viridis(3),
+    shapes     = c("circle", "triangle", "diamond")
+  )
+}
+
+p_ml_card <- logit_mle(Z, X_card_kappa)
+p_cb_card <- get_cbps_p(Z, X_card_kappa)
+p_ml_kit  <- logit_mle(Z, X_kit_kappa)
+p_cb_kit  <- get_cbps_p(Z, X_kit_kappa)
+
+grid.arrange(
+  make_instrument_ipw_love(
+    "Instrument balance — Card controls",
+    Z, X_dml_card, p_ml_card, p_cb_card
+  ),
+  make_instrument_ipw_love(
+    "Instrument balance — Kitagawa controls",
+    Z, X_dml_kit, p_ml_kit, p_cb_kit
+  ),
+  ncol = 2,
+  top = "Design-stage balance across college-proximity instrument groups"
+)
+```
+
 ---
 
 # 1. Reproduction — SUW Table 3
@@ -254,13 +325,34 @@ build_treatment_table(col5, col6, col7, col8) %>%
 
 # 2. Double ML — PLR-IV & Wald-AIPW
 
-```{r dml-fit-all, cache=TRUE}
-# Two DML fits: Card/some college and Kitagawa/college completion.
-set.seed(42); dml_card_d1 <- dml_with_smoother(Y_dol, D1, X_dml_card, Z, n_cf_folds = 5, tune.parameters = "all")
-set.seed(42); dml_kit_d2  <- dml_with_smoother(Y_dol, D2, X_dml_kit,  Z, n_cf_folds = 5, tune.parameters = "all")
+<div class="note-box">
+**Forest specification.** For each empirical specification, the DML estimator
+is fitted once with the default untuned honest forests
+(`tune.parameters = "none"`) and once with all forest parameters eligible for
+GRF's internal tuning (`tune.parameters = "all"`). The random seed is reset
+before every fit so that the comparison isolates the tuning choice as closely
+as possible. The tuned fits are retained as the headline specification and are
+therefore the objects used in the subsequent learner comparison, diagnostics,
+and translation-rerun notebook.
+</div>
 
-res_card_d1 <- summary(dml_card_d1)
-res_kit_d2  <- summary(dml_kit_d2)
+```{r dml-fit-all, cache=TRUE}
+# Card/some-college specification.
+set.seed(42); dml_card_d1_untuned <- dml_with_smoother(
+  Y_dol, D1, X_dml_card, Z, n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_card_d1_tuned <- dml_with_smoother(
+  Y_dol, D1, X_dml_card, Z, n_cf_folds = 5, tune.parameters = "all")
+
+# Kitagawa/college-completion specification.
+set.seed(42); dml_kit_d2_untuned <- dml_with_smoother(
+  Y_dol, D2, X_dml_kit, Z, n_cf_folds = 5, tune.parameters = "none")
+set.seed(42); dml_kit_d2_tuned <- dml_with_smoother(
+  Y_dol, D2, X_dml_kit, Z, n_cf_folds = 5, tune.parameters = "all")
+
+res_card_d1_untuned <- summary(dml_card_d1_untuned)
+res_card_d1_tuned   <- summary(dml_card_d1_tuned)
+res_kit_d2_untuned  <- summary(dml_kit_d2_untuned)
+res_kit_d2_tuned    <- summary(dml_kit_d2_tuned)
 
 # Extract PLR-IV and Wald-AIPW outcome weights for every fit.
 extract_w <- function(dml_obj) {
@@ -269,10 +361,20 @@ extract_w <- function(dml_obj) {
   list(plriv    = as.vector(om$omega["PLR-IV",    ]),
        waldaipw = as.vector(om$omega["Wald-AIPW", ]))
 }
-w_card_d1 <- extract_w(dml_card_d1)
-w_kit_d2  <- extract_w(dml_kit_d2)
+w_card_d1_untuned <- extract_w(dml_card_d1_untuned)
+w_card_d1_tuned   <- extract_w(dml_card_d1_tuned)
+w_kit_d2_untuned  <- extract_w(dml_kit_d2_untuned)
+w_kit_d2_tuned    <- extract_w(dml_kit_d2_tuned)
 
-cat("All 2 specification-specific DML fits complete.\n")
+# Headline aliases: all downstream Card analyses use the tuned forest fits.
+dml_card_d1 <- dml_card_d1_tuned
+dml_kit_d2  <- dml_kit_d2_tuned
+res_card_d1 <- res_card_d1_tuned
+res_kit_d2  <- res_kit_d2_tuned
+w_card_d1   <- w_card_d1_tuned
+w_kit_d2    <- w_kit_d2_tuned
+
+cat("All 4 specification-by-tuning DML fits complete.\n")
 ```
 
 ## Estimates {.tabset}
@@ -299,16 +401,26 @@ show_dml_cell <- function(res, wlist, Y, cap) {
 
 ### Card — somecol
 
-```{r dml-card-d1}
-show_dml_cell(res_card_d1, w_card_d1, Y_dol,
-              "DML — Card spec, somecol, Y = log wages (dollars)")
+```{r dml-card-d1-untuned}
+show_dml_cell(res_card_d1_untuned, w_card_d1_untuned, Y_dol,
+              "Card spec, somecol — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-card-d1-tuned}
+show_dml_cell(res_card_d1_tuned, w_card_d1_tuned, Y_dol,
+              "Card spec, somecol — tuned honest forest (tune.parameters = \"all\")")
 ```
 
 ### Kitagawa — educ16
 
-```{r dml-kit-d2}
-show_dml_cell(res_kit_d2, w_kit_d2, Y_dol,
-              "DML — Kitagawa spec, educ16, Y = log wages (dollars)")
+```{r dml-kit-d2-untuned}
+show_dml_cell(res_kit_d2_untuned, w_kit_d2_untuned, Y_dol,
+              "Kitagawa spec, educ16 — untuned honest forest (tune.parameters = \"none\")")
+```
+
+```{r dml-kit-d2-tuned}
+show_dml_cell(res_kit_d2_tuned, w_kit_d2_tuned, Y_dol,
+              "Kitagawa spec, educ16 — tuned honest forest (tune.parameters = \"all\")")
 ```
 
 ## DML vs. Kappa — Point Estimates
@@ -336,11 +448,11 @@ dml_cell <- function(res, est) {
 }
 
 dml_rows <- rbind(
-  data.frame(Estimator = "PLR-IV (DML)",
+  data.frame(Estimator = "PLR-IV (DML; tuned forest)",
              `somecol / Card`     = dml_cell(res_card_d1, "PLR-IV"),
              `educ16 / Kitagawa`  = dml_cell(res_kit_d2,  "PLR-IV"),
              check.names = FALSE, stringsAsFactors = FALSE),
-  data.frame(Estimator = "Wald-AIPW (DML)",
+  data.frame(Estimator = "Wald-AIPW (DML; tuned forest)",
              `somecol / Card`     = dml_cell(res_card_d1, "Wald-AIPW"),
              `educ16 / Kitagawa`  = dml_cell(res_kit_d2,  "Wald-AIPW"),
              check.names = FALSE, stringsAsFactors = FALSE)
@@ -467,7 +579,12 @@ get_xgb_row <- function(export, cell_name, tuned_label = "tuned") {
   hit <- grepl(tuned_label, tab$Learner, ignore.case = TRUE) &
     !grepl("untuned", tab$Learner, ignore.case = TRUE) & tab$Cell == cell_name
   if (sum(hit) != 1L) stop(sprintf("Expected one tuned XGBoost row for '%s'.", cell_name))
-  tab[hit, , drop = FALSE]
+  # The Wald export also contains "Propensity boundary share", whereas the
+  # PLR-IV export does not. Restrict both to their common display columns before
+  # base::rbind(); otherwise the two data frames have different widths.
+  out <- tab[hit, c("Cell", "Learner", "Estimate (SE)"), drop = FALSE]
+  out$`Weight identity` <- export$identity_checks[[cell_name]]$tuned
+  out
 }
 get_xgb_weight <- function(export, cell_name) export$omega_vectors[[cell_name]]$tuned
 get_xgb_identity <- function(export, cell_name) export$identity_checks[[cell_name]]$tuned
@@ -489,7 +606,8 @@ rbind(
 ) %>%
   select(Estimator, everything()) %>%
   kbl(caption = "Imported tuned-on-folds XGBoost estimates") %>%
-  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE)
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE) %>%
+  footnote(general = "Weight identity is TRUE only when the exported outcome weights reproduce the corresponding XGBoost coefficient exactly. FALSE does not prevent displaying the fitted estimate, but weight-based diagnostics must be interpreted as an approximate/non-affine representation.")
 ```
 
 ## Comparison Table
@@ -562,7 +680,7 @@ dml_diag_cell <- function(wlist, kw) {
     weight_diag(kw$tau_ml_u,    "τ_ml_u     (kappa)"),
     weight_diag(kw$tau_ml_a10,  "τ_ml_a10   (kappa)"),
     weight_diag(kw$tau_ml_a,    "τ_ml_a     (kappa)"),
-    weight_diag(kw$tau_ml_a1,   "τ_ml_t/a1  (kappa)"),
+    weight_diag(kw$tau_ml_t,    "τ_ml_t     (kappa)"),
     weight_diag(kw$tau_ml_a0,   "τ_ml_a0    (kappa)")
   )
 }
@@ -586,7 +704,7 @@ ext_diag_block <- function(D, X_kappa, w_lm, w_rf, w_pliv_xgb, w_wald_xgb) {
     weight_diag(kw$tau_ml_u,   "τ_ml_u    (kappa, MLE)"),
     weight_diag(kw$tau_ml_a10, "τ_ml_a10  (kappa, MLE)"),
     weight_diag(kw$tau_ml_a,   "τ_ml_a    (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_a1,  "τ_ml_t    (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_t,   "τ_ml_t    (kappa, unnorm)"),
     weight_diag(kw$tau_ml_a0,  "τ_ml_a0   (kappa, unnorm)")
   )
 }
@@ -635,7 +753,7 @@ style_ext_diag(ext_diag_block(D2, X_kit_kappa, lm_kit_d2$w, rf_kit_d2$w,
 ## Weight-Statistics Bridge — RQ1 {.tabset}
 
 <div class="note-box">
-**What this is.** For every estimator, `weight_bridge()` reports the outcome weights **Overall / Treated / Control** (control sign-flipped, matching Knaus's convention), putting the two diagnostic vocabularies side by side: his six `summary()` statistics (Min, Max, %Neg, Σ of the largest 10%, Σω, Σ|ω|) next to the two effective-sample-size measures (Kish vs. modified). The headline is **ESS mod** — where the weak Kitagawa instrument drives Kish toward 1, the modified ESS shows the true usable mass. The Knaus block is computed in plain R, so the kappa estimators get his statistics too, which his package never produces for them.
+**What this is.** For every estimator, `weight_bridge()` reports the outcome weights **Overall / Treated / Control** (control sign-flipped, matching Knaus's convention), putting the two diagnostic vocabularies side by side: his six `summary()` statistics (Min, Max, negative-weight share, Σ of the largest 10%, Σω, Σ|ω|) next to maximum absolute weight and the two effective-sample-size measures (Kish vs. modified). Knaus's printed label is “% Negative,” although the package reports a share on the zero-to-one scale; `Neg. share` makes that scale explicit here. The headline is **ESS mod** — where the weak Kitagawa instrument drives Kish toward 1, the modified ESS shows the true usable mass. The Knaus block is computed in plain R, so the kappa estimators get his statistics too, which his package never produces for them.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
@@ -650,7 +768,7 @@ cell_weight_list <- function(wdml, lm_w, rf_w, pliv_xgb_w, wald_xgb_w, kw) {
     "Wald-AIPW XGBoost tuned" = wald_xgb_w,
     "τ_cb_u (kappa)"   = kw$tau_cb_u,
     "τ_ml_u (kappa)"   = kw$tau_ml_u,
-    "τ_ml_t (kappa)"   = kw$tau_ml_a1
+    "τ_ml_t (kappa)"   = kw$tau_ml_t
   )
 }
 
@@ -666,19 +784,22 @@ bridge_cells <- list(
 bridge_table <- function(wlist, D, cap) {
   ests <- names(wlist)
   df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
-  disp <- df[, c("Scope","Min","Max","Pct_neg","Sum_top10","Sum_w","Sum_abs_w","ESS_kish","ESS_mod")]
+  disp <- df[, c("Scope","Min","Max","Neg_share","Sum_top10","Sum_w",
+                 "Sum_abs_w","Max_abs_w","ESS_kish","ESS_mod")]
 
   kk <- disp %>%
     kbl(caption = cap, row.names = FALSE,
-        col.names = c("Scope","Min","Max","%Neg","ΣTop10%","Σω","Σ|ω|","ESS Kish","ESS mod"),
-        align = c("l", rep("r", 8))) %>%
+        col.names = c("Scope","Min","Max","Neg. share","ΣTop10%","Σω","Σ|ω|",
+                      "Max |ω|","ESS Kish","ESS mod"),
+        align = c("l", rep("r", 9))) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 12) %>%
     add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
+                       "Concentration" = 1,
                        "Effective sample size" = 2)) %>%
-    column_spec(9, bold = TRUE, background = "#eef6ff")
+    column_spec(10, bold = TRUE, background = "#eef6ff")
   for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
-  kk %>% footnote(general = "Control rows use Knaus's sign-flipped −ω convention. ESS mod = (Σ|ω|)²/Σω² is the number to report; ESS Kish = 1/Σω² is reference only.")
+  kk %>% footnote(general = "Neg. share is in [0,1], matching the numerical scale returned by Knaus's summary method. Control rows use Knaus's sign-flipped −ω convention. ESS mod = (Σ|ω|)²/Σω² is the number to report; ESS Kish = 1/Σω² is reference only.")
 }
 ```
 
@@ -700,6 +821,15 @@ bridge_table(bridge_cells[["Kitagawa · educ16"]]$w, bridge_cells[["Kitagawa · 
 
 # 5. Love Plots
 
+<div class="note-box">
+**Balance scale.** Each panel reports absolute mean differences only (no KS
+statistic). Continuous covariates are standardized by the pooled unadjusted
+standard deviation. Starred binary covariates are left on their raw 0/1 scale.
+Because the adjusted comparison uses sign-oriented outcome weights, a raw binary
+difference is a signed weighted-moment difference and need not compare two
+literal proportions when wrong-sign weights remain.
+</div>
+
 ## DML vs. Kappa {.tabset}
 
 ### Card — somecol (all 8 estimators)
@@ -712,7 +842,7 @@ grid.arrange(grobs = list(
   make_love("τ_ml_u",           kw_card_d1$tau_ml_u,   D1, X_dml_card),
   make_love("τ_ml_a10",         kw_card_d1$tau_ml_a10, D1, X_dml_card),
   make_love("τ_ml_a (unnorm)",  kw_card_d1$tau_ml_a,   D1, X_dml_card),
-  make_love("τ_ml_t (unnorm)",  kw_card_d1$tau_ml_a1,  D1, X_dml_card),
+  make_love("τ_ml_t (unnorm)",  kw_card_d1$tau_ml_t,   D1, X_dml_card),
   make_love("τ_ml_a0 (unnorm)", kw_card_d1$tau_ml_a0,  D1, X_dml_card)
 ), nrow = 2, top = "Love Plots — Card spec, somecol: DML vs. Kappa")
 ```
@@ -727,7 +857,7 @@ grid.arrange(grobs = list(
   make_love("τ_ml_u",           kw_kit_d2$tau_ml_u,   D2, X_dml_kit),
   make_love("τ_ml_a10",         kw_kit_d2$tau_ml_a10, D2, X_dml_kit),
   make_love("τ_ml_a (unnorm)",  kw_kit_d2$tau_ml_a,   D2, X_dml_kit),
-  make_love("τ_ml_t (unnorm)",  kw_kit_d2$tau_ml_a1,  D2, X_dml_kit),
+  make_love("τ_ml_t (unnorm)",  kw_kit_d2$tau_ml_t,   D2, X_dml_kit),
   make_love("τ_ml_a0 (unnorm)", kw_kit_d2$tau_ml_a0,  D2, X_dml_kit)
 ), nrow = 2, top = "Love Plots — Kitagawa spec, college completion: DML vs. Kappa")
 ```

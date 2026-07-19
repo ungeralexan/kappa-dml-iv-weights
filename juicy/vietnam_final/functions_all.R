@@ -784,9 +784,17 @@ run_2sls <- function(Y, D, Z, X_df, endog_name = "D") {
 weight_statistics <- function(w) {
   w <- as.numeric(w)
   if (!length(w)) stop("Weight vector must contain at least one observation.")
-  if (any(!is.finite(w))) stop("Weight vector contains non-finite values.")
 
   n <- length(w)
+  if (any(!is.finite(w))) {
+    return(c(
+      n = n, Min = NA_real_, Max = NA_real_, Neg_share = NA_real_,
+      Pct_neg = NA_real_, Sum_top10 = NA_real_, Sum_w = NA_real_,
+      Sum_abs_w = NA_real_, Max_abs_w = NA_real_, ESS_kish = NA_real_,
+      ESS_mod = NA_real_
+    ))
+  }
+
   sw2 <- sum(w^2)
   ord <- sort(w)
   p90 <- floor(0.9 * n)

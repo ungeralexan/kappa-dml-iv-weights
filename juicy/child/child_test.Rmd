@@ -785,7 +785,7 @@ dml_diag_cell <- function(w_untuned, w_tuned, kw) {
     weight_diag(kw$tau_ml_u,        "\u03c4_ml_u (kappa)"),
     weight_diag(kw$tau_ml_a10,      "\u03c4_ml_a10 (kappa)"),
     weight_diag(kw$tau_ml_a,        "\u03c4_ml_a (kappa)"),
-    weight_diag(kw$tau_ml_a1,       "\u03c4_ml_t/a1 (kappa)"),
+    weight_diag(kw$tau_ml_t,        "\u03c4_ml_t (kappa)"),
     weight_diag(kw$tau_ml_a0,       "\u03c4_ml_a0 (kappa)")
   )))
 }
@@ -809,7 +809,7 @@ learner_diag_block <- function(kw, family, w_linear, w_ranger, w_xgb_untuned, w_
     weight_diag(kw$tau_ml_u,     "\u03c4_ml_u (kappa, MLE)"),
     weight_diag(kw$tau_ml_a10,   "\u03c4_ml_a10 (kappa, MLE)"),
     weight_diag(kw$tau_ml_a,     "\u03c4_ml_a (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_a1,    "\u03c4_ml_t (kappa, unnorm)"),
+    weight_diag(kw$tau_ml_t,     "\u03c4_ml_t (kappa, unnorm)"),
     weight_diag(kw$tau_ml_a0,    "\u03c4_ml_a0 (kappa, unnorm)")
   )))
 }
@@ -893,7 +893,9 @@ style_learner_diag(
 weights Overall / Treated / Control (control sign-flipped, Knaus's
 convention -- "Control mass" reads \u2248 1 when normalized, not \u2212 1; see
 `child_xgb_tuning.Rmd`'s footnote for the same point), alongside the modified
-effective sample size. The headline is **ESS mod**.
+effective sample size. `Neg. share` is reported on the zero-to-one scale used
+numerically by Knaus's summary method, whose printed label is “% Negative.”
+The headline is **ESS mod**.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
@@ -908,7 +910,7 @@ pliv_weight_list <- function(w_untuned, w_tuned, lm_pliv_w, rf_pliv_w,
     "PLR-IV (XGBoost tuned)"     = xgb_pliv_tuned_w,
     "\u03c4_cb_u (kappa)"        = kw$tau_cb_u,
     "\u03c4_ml_u (kappa)"        = kw$tau_ml_u,
-    "\u03c4_ml_t (kappa)"        = kw$tau_ml_a1
+    "\u03c4_ml_t (kappa)"        = kw$tau_ml_t
   ))
 }
 
@@ -923,7 +925,7 @@ waldaipw_weight_list <- function(w_untuned, w_tuned, lm_iivm_w, rf_iivm_w,
     "Wald-AIPW (XGBoost tuned)"  = xgb_w_tuned,
     "\u03c4_cb_u (kappa)"        = kw$tau_cb_u,
     "\u03c4_ml_u (kappa)"        = kw$tau_ml_u,
-    "\u03c4_ml_t (kappa)"        = kw$tau_ml_a1
+    "\u03c4_ml_t (kappa)"        = kw$tau_ml_t
   ))
 }
 
@@ -949,18 +951,21 @@ bridge_cells <- list(
 bridge_table <- function(wlist, D, cap) {
   ests <- names(wlist)
   df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
-  disp <- df[, c("Scope","Min","Max","Pct_neg","Sum_top10","Sum_w","Sum_abs_w","ESS_mod")]
+  disp <- df[, c("Scope","Min","Max","Neg_share","Sum_top10","Sum_w",
+                 "Sum_abs_w","Max_abs_w","ESS_mod")]
 
   kk <- disp %>%
     kbl(caption = cap, row.names = FALSE,
-        col.names = c("Scope","Min","Max","%Neg","\u03a3Top10%","\u03a3\u03c9","\u03a3|\u03c9|","ESS mod"),
-        align = c("l", rep("r", 7))) %>%
+        col.names = c("Scope","Min","Max","Neg. share","\u03a3Top10%","\u03a3\u03c9","\u03a3|\u03c9|",
+                      "Max |\u03c9|","ESS mod"),
+        align = c("l", rep("r", 8))) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 12) %>%
-    add_header_above(c(" " = 1, "Knaus summary() statistics" = 6, "Effective sample size" = 1)) %>%
-    column_spec(8, bold = TRUE, background = "#eef6ff")
+    add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
+                       "Concentration" = 1, "Effective sample size" = 1)) %>%
+    column_spec(9, bold = TRUE, background = "#eef6ff")
   for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
-  kk %>% footnote(general = "Control rows use Knaus's sign-flipped convention (mass reads around 1 when normalized, not -1). ESS mod equals the squared sum of absolute weights divided by the sum of squared weights.")
+  kk %>% footnote(general = "Neg. share is in [0,1], matching Knaus's numerical output. Control rows use Knaus's sign-flipped convention (mass reads around 1 when normalized, not -1). ESS mod equals the squared sum of absolute weights divided by the sum of squared weights.")
 }
 ```
 
@@ -1001,9 +1006,14 @@ bridge_table(bridge_cells[["Wald-AIPW | Income (lincomem)"]]$w,
 # 5. Love Plots
 
 <div class="note-box">
-The Love plots summarize covariate balance induced by each estimator's
-outcome weights. XGBoost panels are shown when the imported export contains
-the corresponding weight vectors.
+**Balance scale.** The Love plots summarize covariate balance induced by each
+estimator's outcome weights and report absolute mean differences only (no KS
+statistic). Continuous covariates are standardized by the pooled unadjusted
+standard deviation. Starred binary covariates are left on their raw 0/1 scale.
+Because the adjusted comparison uses sign-oriented outcome weights, a raw binary
+difference is a signed weighted-moment difference and need not compare two
+literal proportions when wrong-sign weights remain. XGBoost panels are shown
+when the imported export contains the corresponding weight vectors.
 </div>
 
 ```{r love-helpers, echo=FALSE}
@@ -1034,7 +1044,7 @@ grid.arrange(grobs = list(
   make_love("\u03c4_ml_u",          kw_labor$tau_ml_u,        D_labor, X_dml_labor),
   make_love("\u03c4_ml_a10",        kw_labor$tau_ml_a10,      D_labor, X_dml_labor),
   make_love("\u03c4_ml_a (unnorm)", kw_labor$tau_ml_a,        D_labor, X_dml_labor),
-  make_love("\u03c4_ml_t (unnorm)", kw_labor$tau_ml_a1,       D_labor, X_dml_labor),
+  make_love("\u03c4_ml_t (unnorm)", kw_labor$tau_ml_t,        D_labor, X_dml_labor),
   make_love("\u03c4_ml_a0 (unnorm)",kw_labor$tau_ml_a0,       D_labor, X_dml_labor)
 ), ncol = 2, top = "Love Plots -- Labor (workedm): DML vs. Kappa")
 ```
@@ -1051,7 +1061,7 @@ grid.arrange(grobs = list(
   make_love("\u03c4_ml_u",          kw_income$tau_ml_u,        D_income, X_dml_income),
   make_love("\u03c4_ml_a10",        kw_income$tau_ml_a10,      D_income, X_dml_income),
   make_love("\u03c4_ml_a (unnorm)", kw_income$tau_ml_a,        D_income, X_dml_income),
-  make_love("\u03c4_ml_t (unnorm)", kw_income$tau_ml_a1,       D_income, X_dml_income),
+  make_love("\u03c4_ml_t (unnorm)", kw_income$tau_ml_t,        D_income, X_dml_income),
   make_love("\u03c4_ml_a0 (unnorm)",kw_income$tau_ml_a0,       D_income, X_dml_income)
 ), ncol = 2, top = "Love Plots -- Income (lincomem): DML vs. Kappa")
 ```

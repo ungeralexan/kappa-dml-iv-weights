@@ -55,7 +55,8 @@
 #   §o  alpha_moment_matrix()       — propensity-score moment matrix (MLE/CBPS)
 #   §p  kappa_analytic_se_one()     — M-estimation SE for one estimator
 #   §q  safe_kappa_se()             — error-safe wrapper for kappa SE
-#   §r  kappa_analytic_se_all()     — all six estimates + analytical SEs
+#   §r  kappa_point_estimates()     — canonical six-estimator point API
+#       kappa_analytic_se_all()     — point estimates + analytical SEs
 #   §s  run_2sls()                  — 2SLS benchmark with HC1-robust SEs
 #   §t  weight_diag()               — weight diagnostics (ESS, % neg, max|w|)
 #   §u  check_weight_identity()     — algebraic check sum(w*Y) == tau_hat
@@ -70,8 +71,7 @@
 #   §E  get_dml_coef()              — extract coef() from a DoubleML object
 #   §E2 get_dml_se()                — extract SE from a DoubleML summary()
 #                                     [PROMOTED from Card notebook in v3 — note 1]
-#   §F  kappa_estimates()           — six kappa point estimates for one X spec
-#                                     [UNUSED by Card notebook — see v3 note 4]
+#   §F  (removed)                   — duplicate kappa_estimates() retired
 #   §G  kappa_weights_bundle()      — six kappa weight vectors for one X spec
 #   §H  (removed in v3 — doubleml_translation_row() was dead — see note 2)
 #   §I  make_love()                 — Love plot for one weight vector
@@ -90,12 +90,13 @@
 #   • get_cbps_p():  *** SIGNATURE FIX ***
 #       The kappa version has signature get_cbps_p(Z, X) (§f).
 #       The DML notebooks defined a one-argument get_cbps_p(X) that used Z as
-#       a hidden global, and kappa_estimates()/kappa_weights_bundle() called
+#       a hidden global, and the former kappa_estimates() plus
+#       kappa_weights_bundle() called
 #       it as get_cbps_p(X_kappa). That one-argument form is REMOVED. The
-#       two-argument §f version is the only one. kappa_estimates() (§F) and
-#       kappa_weights_bundle() (§G) now call get_cbps_p(Z, X_kappa) correctly.
+#       two-argument §f version is the only one. kappa_point_estimates() (§r)
+#       and kappa_weights_bundle() (§G) call get_cbps_p(Z, X_kappa) correctly.
 #
-#   • kappa_estimates(), kappa_weights_bundle():  *** NO HIDDEN GLOBALS ***
+#   • kappa_point_estimates(), kappa_weights_bundle():  *** NO HIDDEN GLOBALS ***
 #       Now take Z and D as explicit arguments (notebook used globals).
 #
 #   • doubleml_translation_row():  *** NO HIDDEN GLOBALS, DE-DUPLICATED ***
@@ -122,32 +123,14 @@
 #    from the .Rmd and the header's "NO function defined inside any .Rmd"
 #    claim is finally true. No behavioural change.
 #
-# 2. REMOVED doubleml_translation_row() (was §H). It was DEAD CODE: not called
-#    anywhere in card_presentation_3.Rmd (it survived only in a stale comment),
-#    and it is a strict subset of ti_unified_row() (§K), which computes the same
-#    cents-vs-dollars Method-B shift plus the Method-A rerun in one row.
-#    >>> If your Vietnam notebook still calls doubleml_translation_row(), tell me
-#        and I will restore it in one line. Nothing in the Card pipeline uses it.
+# 2. REMOVED doubleml_translation_row() (was §H). It was dead code and is not
+#    called by any current application notebook.
 #
-# 3. NAMING INCONSISTENCY — FLAGGED, NOT FIXED (fixing it now would break the
-#    Card notebook). The Tan/Frolich unnormalized estimator (kappa1 denominator)
-#    is keyed differently across functions:
-#         kappa_analytic_se_all()  (§r)  ->  "tau_ml_t"
-#         kappa_estimates()        (§F)  ->  "tau_ml_a1"
-#         kappa_weights_bundle()   (§G)  ->  "tau_ml_a1"
-#    The Card notebook relies on BOTH spellings in different chunks, so renaming
-#    here would break it. This should be unified (one canonical key) when we
-#    next touch the notebooks — ask me and we do it across engine + notebooks
-#    together.
+# 3. NAMING CONSOLIDATED. The Tan/Frolich estimator, numerically identical to
+#    tau_a,1, is exposed as "tau_ml_t" by every public estimate/weight bundle.
+#    Internal denominator selectors remain "a1" and w_a1.
 #
-# 4. UNUSED-BY-CARD (kept, not removed — flagged inline with an [UNUSED] tag):
-#    fmt() (§v), kappa_estimates() (§F), translation_check_weights() and
-#    translation_check_rerun() (§J). None is called by card_presentation_3.Rmd.
-#    They are retained because (a) fmt() is plausibly used by the Vietnam
-#    notebook, (b) the two standalone translation_check_* functions are the
-#    natural building blocks for your planned SEPARATE translation-invariance
-#    notebook, and (c) kappa_estimates() is a lighter no-SE alternative to
-#    kappa_analytic_se_all()$estimates. Say the word and any of these can go.
+# 4. UNUSED-BY-CARD (kept): fmt() (§v).
 #
 # 5. NOT TOUCHED: the econometric bodies (propensity scores, kappa formulas,
 #    sandwich SEs, outcome-weight constructors) are byte-for-byte unchanged.
@@ -681,13 +664,11 @@ safe_kappa_se <- function(Y, Z, D, X_mat, estimator, method) {
 
 
 # ==============================================================================
-# §r  FULL KAPPA TABLE: ESTIMATES + ANALYTICAL SEs
+# §r  CANONICAL KAPPA POINT ESTIMATES + ANALYTICAL SEs
 # ==============================================================================
-# Convenience wrapper that computes all six kappa point estimates and their
-# corresponding M-estimation standard errors in one call.
-#
-# Returns:
-#   list(estimates = named numeric(6), se = named numeric(6))
+# kappa_point_estimates() is the single implementation of the six point
+# estimators. kappa_analytic_se_all() adds the corresponding M-estimation
+# standard errors without duplicating the point-estimation formulas.
 #
 # Estimator names (matching SUW Table notation):
 #   tau_cb_u   : CBPS + Uysal normalisation      [Panel B, row 1]
@@ -697,23 +678,28 @@ safe_kappa_se <- function(Y, Z, D, X_mat, estimator, method) {
 #   tau_ml_t   : MLE  + unnorm, kappa1 denom     [Panel C, row 5]
 #   tau_ml_a0  : MLE  + unnorm, kappa0 denom     [Panel C, row 6]
 
-kappa_analytic_se_all <- function(Y, Z, D, X_mat) {
+kappa_point_estimates <- function(Y, Z, D, X_mat) {
   Y <- as.numeric(Y); Z <- as.numeric(Z)
   D <- as.numeric(D); X_mat <- as.matrix(X_mat)
 
   p_ml <- logit_mle(Z, X_mat)
   p_cb <- get_cbps_p(Z, X_mat)
 
-  estimates <- c(
+  c(
     tau_cb_u   = tau_u(Y, Z, D, p_cb),
     tau_ml_u   = tau_u(Y, Z, D, p_ml),
     tau_ml_a10 = tau_a10(Y, Z, D, p_ml),
     tau_ml_a   = tau_unnorm(Y, Z, D, p_ml, "a"),
     tau_ml_t   = tau_unnorm(Y, Z, D, p_ml, "a1"),   # tau_t = tau_a,1 in SUW
-                                                     # FLAG: keyed "tau_ml_a1" in
-                                                     # §F/§G — unify later (note 3)
     tau_ml_a0  = tau_unnorm(Y, Z, D, p_ml, "a0")
   )
+}
+
+kappa_analytic_se_all <- function(Y, Z, D, X_mat) {
+  Y <- as.numeric(Y); Z <- as.numeric(Z)
+  D <- as.numeric(D); X_mat <- as.matrix(X_mat)
+
+  estimates <- kappa_point_estimates(Y, Z, D, X_mat)
 
   se <- c(
     tau_cb_u   = safe_kappa_se(Y, Z, D, X_mat, "u",   "cb"),
@@ -767,8 +753,12 @@ run_2sls <- function(Y, D, Z, X_df, endog_name = "D") {
 
 
 # ==============================================================================
-# §t  WEIGHT DIAGNOSTICS
+# §t  WEIGHT DIAGNOSTICS: ONE ENGINE, TWO PRESENTATION WRAPPERS
 # ==============================================================================
+# weight_statistics() is the unrounded source of truth for every diagnostic.
+# weight_diag() presents one compact overall row for the main empirical tables.
+# weight_stats_block()/weight_bridge() present Knaus-style scope summaries.
+#
 # Key diagnostics for a weight vector omega:
 #   Sum_w     : sum(omega_i) — should be ~0 for translation-invariant estimators
 #   ESS       : Kish (1965) effective sample size = 1 / sum(omega_i^2).
@@ -782,7 +772,8 @@ run_2sls <- function(Y, D, Z, X_df, endog_name = "D") {
 #               [1, n], and reduces EXACTLY to the Kish ESS when all weights are
 #               nonnegative. This is the effective-sample-size number to report
 #               and to compare across kappa / DML estimators.
-#   Pct_neg   : % observations with omega_i < 0
+#   Neg_share : share of observations with omega_i < 0, in [0,1]
+#   Pct_neg   : the same quantity expressed in percentage points, in [0,100]
 #   Max_abs_w : max |omega_i| — outlier detection
 #
 # v4: added ESS_mod (the modified ESS). This widens the returned data.frame
@@ -790,15 +781,41 @@ run_2sls <- function(Y, D, Z, X_df, endog_name = "D") {
 #     notebooks to 6 entries (cosmetic only — knitting is unaffected).
 # CHANGELOG: absent in vietnam_14_05.R; added in card_21_05.R.
 
-weight_diag <- function(w, name) {
+weight_statistics <- function(w) {
+  w <- as.numeric(w)
+  if (!length(w)) stop("Weight vector must contain at least one observation.")
+  if (any(!is.finite(w))) stop("Weight vector contains non-finite values.")
+
+  n <- length(w)
   sw2 <- sum(w^2)
+  ord <- sort(w)
+  p90 <- floor(0.9 * n)
+  sum_top10 <- if (p90 < n) sum(ord[(p90 + 1):n]) else sum(ord)
+
+  c(
+    n          = n,
+    Min        = min(w),
+    Max        = max(w),
+    Neg_share  = mean(w < 0),
+    Pct_neg    = mean(w < 0) * 100,
+    Sum_top10  = sum_top10,
+    Sum_w      = sum(w),
+    Sum_abs_w  = sum(abs(w)),
+    Max_abs_w  = max(abs(w)),
+    ESS_kish   = 1 / sw2,
+    ESS_mod    = (sum(abs(w)))^2 / sw2
+  )
+}
+
+weight_diag <- function(w, name) {
+  stats <- weight_statistics(w)
   data.frame(
     Estimator = name,
-    Sum_w     = round(sum(w), 8),
-    ESS       = round(1 / sw2, 0),                    # Kish — see caveat above
-    ESS_mod   = round((sum(abs(w)))^2 / sw2, 0),      # Zubizarreta modified ESS
-    Pct_neg   = round(mean(w < 0) * 100, 1),
-    Max_abs_w = round(max(abs(w)), 6),
+    Sum_w     = round(stats[["Sum_w"]], 8),
+    ESS       = round(stats[["ESS_kish"]], 0),        # Kish — see caveat above
+    ESS_mod   = round(stats[["ESS_mod"]], 0),         # modified ESS
+    Pct_neg   = round(stats[["Pct_neg"]], 1),         # percentage points
+    Max_abs_w = round(stats[["Max_abs_w"]], 6),
     stringsAsFactors = FALSE
   )
 }
@@ -815,8 +832,10 @@ weight_diag <- function(w, name) {
 #       prints, reimplemented here in plain R so they are available for the
 #       KAPPA estimators too (his package only produces them for DoubleML
 #       objects). Definitions match his C++ summary_weights_rcpp() exactly:
-#         Min, Max, Pct_neg, Sum_top10 (sum of the largest 10% of weights),
+#         Min, Max, Neg_share, Sum_top10 (sum of the largest 10% of weights),
 #         Sum_w, Sum_abs_w.
+#       Although the package prints the label "% Negative", its numerical output
+#       is a share in [0,1]. Neg_share deliberately follows that implementation.
 #       Group convention also matches his summary(): Treated uses omega[D==1]
 #       as-is; Control uses the SIGN-FLIPPED -omega[D==0], so control weights
 #       are summarised on the same positive scale he uses.
@@ -827,10 +846,10 @@ weight_diag <- function(w, name) {
 #       ESS_mod is sign-flip invariant, so Treated/Control values are the same
 #       whether or not the control sign flip is applied.
 #
-# This single object is the computational core of RQ1: it puts "what he defines"
+# This object puts "what he defines"
 # and "what I define" in one table and lets you show they describe the same
-# weights. It does NOT replace weight_diag() (§t) — that stays as the compact
-# per-estimator row used in the existing notebook tables.
+# weights. Both wrappers delegate to weight_statistics(), so shared quantities
+# cannot drift while their presentation remains tailored to different sections.
 #
 # Arguments:
 #   w    : signed outcome-weight vector (length n)
@@ -838,26 +857,22 @@ weight_diag <- function(w, name) {
 #   name : estimator label
 #
 # Returns: data.frame, 3 rows (Scope = Overall / Treated / Control), columns
-#   Estimator, Scope, n, Min, Max, Pct_neg, Sum_top10, Sum_w, Sum_abs_w,
-#   ESS_kish, ESS_mod.
+#   Estimator, Scope, n, Min, Max, Neg_share, Sum_top10, Sum_w, Sum_abs_w,
+#   Max_abs_w, ESS_kish, ESS_mod.
 
 weight_stats_block <- function(w) {
-  w   <- as.numeric(w)
-  n   <- length(w)
-  sw2 <- sum(w^2)
-  ord <- sort(w)
-  p90 <- floor(0.9 * n)                              # matches his C++ index
-  sum_top10 <- if (p90 < n) sum(ord[(p90 + 1):n]) else sum(ord)
+  stats <- weight_statistics(w)
   c(
-    n          = n,
-    Min        = min(w),
-    Max        = max(w),
-    Pct_neg    = round(mean(w < 0) * 100, 1),
-    Sum_top10  = round(sum_top10, 6),
-    Sum_w      = round(sum(w), 8),
-    Sum_abs_w  = round(sum(abs(w)), 6),
-    ESS_kish   = round(1 / sw2, 0),
-    ESS_mod    = round((sum(abs(w)))^2 / sw2, 0)
+    n          = stats[["n"]],
+    Min        = stats[["Min"]],
+    Max        = stats[["Max"]],
+    Neg_share  = round(stats[["Neg_share"]], 4),
+    Sum_top10  = round(stats[["Sum_top10"]], 6),
+    Sum_w      = round(stats[["Sum_w"]], 8),
+    Sum_abs_w  = round(stats[["Sum_abs_w"]], 6),
+    Max_abs_w  = round(stats[["Max_abs_w"]], 6),
+    ESS_kish   = round(stats[["ESS_kish"]], 0),
+    ESS_mod    = round(stats[["ESS_mod"]], 0)
   )
 }
 
@@ -1023,41 +1038,9 @@ get_dml_se <- function(obj) {
 
 
 # ==============================================================================
-# §F  SIX KAPPA POINT ESTIMATES FOR ONE COVARIATE SPECIFICATION
-#                          [UNUSED by card_presentation_3.Rmd — see note below]
+# §F  (REMOVED: DUPLICATE KAPPA POINT-ESTIMATE FUNCTION)
 # ==============================================================================
-# All six kappa estimates (CBPS+Uysal, MLE+Uysal, Abadie-Cattaneo, and the
-# three unnormalised variants) for a given kappa design matrix X_kappa.
-# tau_ml_a1 is tau_t in SUW notation. Returns a named numeric(6).
-#
-# UNUSED: the Card notebook reads its six point estimates from
-# kappa_analytic_se_all()$estimates (§r) instead. This function is the lighter
-# no-SE alternative; kept for convenience.
-#
-# *** NAMING INCONSISTENCY (flagged, not fixed — see v3 header note 3) ***
-# This function keys the Tan/Frolich estimator as "tau_ml_a1", but
-# kappa_analytic_se_all() (§r) keys the SAME estimator as "tau_ml_t". Do not
-# rename here in isolation — the Card notebook depends on both spellings. Unify
-# across engine + notebooks in one coordinated pass.
-#
-# *** CHANGED vs notebook ***  Z and D are explicit arguments (were globals),
-# and get_cbps_p() is called with the correct two-argument signature
-# get_cbps_p(Z, X_kappa). The notebook's one-argument get_cbps_p(X_kappa) only
-# worked against a local one-arg redefinition that is now removed.
-
-kappa_estimates <- function(Y, Z, D, X_kappa) {
-  p_ml <- logit_mle(Z, X_kappa)
-  p_cb <- get_cbps_p(Z, X_kappa)          # CHANGED: was get_cbps_p(X_kappa)
-
-  c(
-    tau_cb_u   = tau_u(Y, Z, D, p_cb),
-    tau_ml_u   = tau_u(Y, Z, D, p_ml),
-    tau_ml_a10 = tau_a10(Y, Z, D, p_ml),
-    tau_ml_a   = tau_unnorm(Y, Z, D, p_ml, "a"),
-    tau_ml_a1  = tau_unnorm(Y, Z, D, p_ml, "a1"),   # FLAG: keyed "tau_ml_t" in §r
-    tau_ml_a0  = tau_unnorm(Y, Z, D, p_ml, "a0")
-  )
-}
+# Point estimates now live exclusively in kappa_point_estimates() (§r).
 
 
 # ==============================================================================
@@ -1065,7 +1048,7 @@ kappa_estimates <- function(Y, Z, D, X_kappa) {
 # ==============================================================================
 # Per-observation outcome weights for all six kappa estimators, via
 # kappa_outcome_weights() (§k). Returns a named list of six weight vectors,
-# matching the keys used by weight_diag() (§t) in the diagnostics tables.
+# using the same canonical public keys as kappa_point_estimates() (§r).
 #
 # *** CHANGED vs notebook ***  Same fix as §F: Z and D explicit; get_cbps_p()
 # called as get_cbps_p(Z, X_kappa).
@@ -1082,7 +1065,7 @@ kappa_weights_bundle <- function(Z, D, X_kappa) {
     tau_ml_u   = kw_ml$w_u,
     tau_ml_a10 = kw_ml$w_a10,
     tau_ml_a   = kw_ml$w_a,
-    tau_ml_a1  = kw_ml$w_a1,
+    tau_ml_t   = kw_ml$w_a1,
     tau_ml_a0  = kw_ml$w_a0
   )
 }
@@ -1091,17 +1074,16 @@ kappa_weights_bundle <- function(Z, D, X_kappa) {
 # ==============================================================================
 # §H  (REMOVED in v3)
 # ==============================================================================
-# doubleml_translation_row() lived here. It was never called by
-# card_presentation_3.Rmd and is fully superseded by ti_unified_row() (§K),
-# which reports the same cents-vs-dollars Method-B shift alongside the Method-A
-# rerun. See the v3 cleaning note 2 in the header. To restore, ask.
+# doubleml_translation_row() lived here. It was never called by the current
+# application notebooks and was removed.
 
 
 # ==============================================================================
 # §I  LOVE PLOT FOR ONE WEIGHT VECTOR
 # ==============================================================================
-# cobalt Love plot of absolute standardised mean differences, with the
-# (2*D - 1) sign flip mapping signed outcome weights onto cobalt's
+# cobalt Love plot of absolute covariate mean differences, with continuous
+# covariates standardised and binary covariates left on their raw 0/1 scale.
+# The (2*D - 1) sign flip maps signed outcome weights onto cobalt's
 # treated-vs-control convention (Knaus 2024, 401k notebook).
 #
 # *** CHANGED vs notebook ***  Base (make_love) and extended (make_love_dml)
@@ -1114,7 +1096,9 @@ kappa_weights_bundle <- function(Z, D, X_kappa) {
 #   w_vec     : signed outcome weight vector
 #   D         : treatment indicator (for the 2D-1 flip and the formula LHS)
 #   X_bal     : covariate matrix to assess balance on
-#   threshold : ASMD reference line (default 0.1)
+#   threshold : mean-difference reference line (default 0.1); interpreted as
+#               0.1 pooled SD for continuous covariates and 0.10 raw
+#               signed weighted-mean units for binary covariates
 
 make_love <- function(title_str, w_vec, D, X_bal, threshold = 0.1) {
   love.plot(
@@ -1124,10 +1108,13 @@ make_love <- function(title_str, w_vec, D, X_bal, threshold = 0.1) {
     title      = title_str,
     thresholds = c(m = threshold),
     var.order  = "unadjusted",
-    binary     = "std",
-    stats      = c("mean.diffs", "ks.statistics"), # stats = "mean.diffs"
+    continuous = "std",
+    binary     = "raw",
+    s.d.denom  = "pooled",
+    stats      = "mean.diffs",
     abs        = TRUE,
     line       = TRUE,
+    stars      = "raw",
     colors     = viridis(2),
     shapes     = c("circle", "triangle")
   )
@@ -1135,126 +1122,24 @@ make_love <- function(title_str, w_vec, D, X_bal, threshold = 0.1) {
 
 
 # ==============================================================================
-# §J  TRANSLATION INVARIANCE — TWO METHODS, HIGH PRECISION
-#     [translation_check_weights / translation_check_rerun are UNUSED by the
-#      Card notebook — it uses the combined ti_unified_row() (§K) instead. These
-#      standalone Method-A / Method-B builders are kept on purpose: they are the
-#      natural pieces for your planned SEPARATE translation-invariance notebook,
-#      where refitting in isolation is the whole point.]
+# §J  COMPLETE-PIPELINE TRANSLATION RERUN
 # ==============================================================================
-# Both methods test the same property: tau_hat(Y + c) = tau_hat(Y).
-# Adding a constant c changes a weighted-sum estimator by exactly c * sum(w),
-# so the estimator is translation invariant  <=>  sum_i w_i = 0.
-#
-# In a LOG-OUTCOME application, switching the wage units from dollars to cents
-# multiplies the raw wage by 100, which ADDS log(100) to the logged outcome:
-#       log(100 * wage) = log(wage) + log(100).
-# So "relogging" the outcome in different units == adding the constant c=log(100).
-# That is why the cents-vs-dollars comparison IS a translation-invariance test.
-#
-# ------------------------------------------------------------------------------
-# METHOD B  — OUTCOME-WEIGHT (algebraic) check.   [does NOT rerun the estimator]
-# ------------------------------------------------------------------------------
-# Take the FIXED weight vector w from a single fit and apply it to both outcome
-# codings. Report, to many decimals:
-#   tau_dollars = sum(w * Y_dollars)
-#   tau_cents   = sum(w * Y_cents)          (Y_cents = Y_dollars + k)
-#   diff_actual = tau_cents - tau_dollars
-#   diff_pred   = k * sum(w)                (the algebra's prediction)
-#   sum_w       = sum(w)                    (= 0  iff translation invariant)
-# Weights never change; only the outcome coding changes.
-translation_check_weights <- function(name, w, Y_dollars, Y_cents, k,
-                                       digits = 12) {
-  tau_d <- sum(w * Y_dollars)
-  tau_c <- sum(w * Y_cents)
-  sumw  <- sum(w)
+# Complete-pipeline translation-invariance result. This helper intentionally uses
+# only the two independently fitted point estimates. Outcome-weight predictions
+# belong to the separate weight-diagnostics workflow and are not part of the
+# empirical rerun check.
+translation_rerun_row <- function(name, tau_original, tau_shifted, k,
+                                  tolerance = 1e-8, digits = 12) {
+  difference <- as.numeric(tau_shifted) - as.numeric(tau_original)
   data.frame(
-    Estimator   = name,
-    tau_dollars = round(tau_d, digits),
-    tau_cents   = round(tau_c, digits),
-    diff_actual = round(tau_c - tau_d, digits),
-    diff_pred   = round(k * sumw,    digits),
-    sum_w       = round(sumw,        digits),
-    invariant   = isTRUE(all.equal(sumw, 0, tolerance = 1e-10)),
-    stringsAsFactors = FALSE
-  )
-}
-
-# ------------------------------------------------------------------------------
-# METHOD A  — RERUN-THE-ESTIMATOR (behavioural) check.   [refits DML twice]
-# ------------------------------------------------------------------------------
-# Fit once on Y_dollars, fit AGAIN on the shifted/relogged outcome Y_cents,
-# using the SAME seed both times so cross-fitting splits and forest randomness
-# are identical (any difference is then a real invariance result, not RNG).
-# Compare the realised shift tau(Y_cents) - tau(Y_dollars) against k * sum(w).
-#
-# fit_fun(Y) must return a list/obj from which `estimator_row` can be summarised;
-# here we pass a closure that calls dml_with_smoother and returns summary() and
-# the weights. Returns one row per estimator in `estimators`.
-translation_check_rerun <- function(cell_name, fit_dollars, fit_cents,
-                                     w_dollars, estimators, k, digits = 12) {
-  res_d <- summary(fit_dollars)
-  res_c <- summary(fit_cents)
-  do.call(rbind, lapply(estimators, function(est) {
-    tau_d <- get_estimate(res_d, est)
-    tau_c <- get_estimate(res_c, est)
-    w     <- w_dollars[[est]]
-    data.frame(
-      Cell        = cell_name,
-      Estimator   = est,
-      tau_dollars = round(tau_d, digits),
-      tau_cents   = round(tau_c, digits),
-      diff_actual = round(tau_c - tau_d, digits),  # realised shift from rerun
-      diff_pred   = round(k * sum(w), digits),      # predicted shift = k*sum(w)
-      sum_w       = round(sum(w), digits),
-      invariant   = isTRUE(all.equal(tau_c, tau_d, tolerance = 1e-8)),
-      stringsAsFactors = FALSE
-    )
-  }))
-}
-
-
-# ==============================================================================
-# §K  UNIFIED TRANSLATION-INVARIANCE ROW (Method A + Method B in one row)
-# ==============================================================================
-# Produces a single table row carrying BOTH translation-invariance diagnostics
-# for one estimator, so kappa / DML / learner estimators can be stacked in one
-# consolidated table.
-#
-#   Method B (weight / algebraic):  diff_B = k * sum(w_dollars)
-#       -> uses ONLY the dollars-fit weights; no refit. = 0  iff  sum(w)=0.
-#   Method A (rerun / behavioural): diff_A = tau_cents - tau_dollars
-#       -> the realised shift from estimating on both outcome codings.
-#
-# For weighted-sum estimators whose weights do NOT depend on Y (all kappa
-# estimators), the two outcome codings reuse identical weights, so Method A and
-# Method B coincide to machine precision. For adaptive learners (DML smoother,
-# ranger/xgboost via DoubleML) the weights are re-learned, so diff_A may differ
-# from diff_B; the gap (gap_AB) is the non-affine-smoother residual.
-#
-# Arguments:
-#   name        : estimator label
-#   w_dollars   : outcome-weight vector from the dollars fit
-#   tau_dollars : point estimate on Y (dollars)
-#   tau_cents   : point estimate on Y + k (cents)   [Method A rerun result]
-#   k           : shift constant = log(100)
-#   digits      : decimals to report (default 12)
-ti_unified_row <- function(name, w_dollars, tau_dollars, tau_cents, k,
-                           digits = 12) {
-  sumw   <- sum(w_dollars)
-  diff_B <- k * sumw                 # Method B prediction
-  diff_A <- tau_cents - tau_dollars  # Method A realised shift
-  data.frame(
-    Estimator   = name,
-    tau_dollars = round(tau_dollars, digits),
-    tau_cents   = round(tau_cents,   digits),
-    sum_w       = round(sumw,        digits),
-    diff_B      = round(diff_B,      digits),  # Method B: k * sum(w)
-    diff_A      = round(diff_A,      digits),  # Method A: rerun shift
-    gap_AB      = round(diff_A - diff_B, digits),
-    invariant_B = isTRUE(all.equal(sumw, 0, tolerance = 1e-10)),
-    invariant_A = isTRUE(all.equal(tau_cents, tau_dollars, tolerance = 1e-8)),
-    stringsAsFactors = FALSE
+    Estimator        = name,
+    Shift_k          = round(as.numeric(k), digits),
+    tau_original     = round(as.numeric(tau_original), digits),
+    tau_shifted      = round(as.numeric(tau_shifted), digits),
+    rerun_difference = round(difference, digits),
+    invariant        = is.finite(difference) && abs(difference) <= tolerance,
+    stringsAsFactors = FALSE,
+    check.names      = FALSE
   )
 }
 
