@@ -685,10 +685,18 @@ comp_df %>%
 # 4. Weight Diagnostics
 
 <div class="note-box">
-**Reading the tables.** `Sum_w ≈ 0` confirms translation invariance.
-**`ESS_mod`** = modified effective sample size `(Σ|ωᵢ|)²/Σωᵢ²`
-(Chattopadhyay & Zubizarreta 2023), valid under negative weights and bounded
-in `[1,n]`. The old Kish `ESS = 1/Σωᵢ²` is retained only as a reference.
+**Reading the tables.** `Sum_w ≈ 0` checks translation invariance and
+`Mass T/C ≈ 1 / 1` checks treated/control normalization. Following
+Chattopadhyay and Zubizarreta (2023, Section 5.4), modified ESS is reported
+separately for treated and control observations. The overall modified ESS is a
+supplementary concentration summary. `ESS mod/N T/C` divides each arm-specific
+value by that arm's observed size, making concentration comparable across
+unequal groups. `Opposite-sign mass T/C` measures the
+share of absolute mass opposite to the conventional treated/control orientation
+and therefore reveals cancellation that ESS alone cannot show; it is not by
+itself evidence of an invalid IV estimator. Conventional Kish ESS is not
+reported because signed outcome weights are not a nonnegative normalized
+weighted sample.
 The first pair of tabs compares untuned and tuned honest forests. The second
 pair compares PLR-IV and Wald-AIPW across learner families. A learner weight
 vector enters these exact diagnostics only when `ΣωᵢYᵢ = τ̂` passes; failed
@@ -701,8 +709,7 @@ results but are not compared on equal footing here.
 kw_cub <- kappa_weights_bundle(Z, D, X_cub)
 kw_sat <- kappa_weights_bundle(Z, D, X_sat)
 
-# weight_diag() returns 6 columns (… ESS, ESS_mod …): align has 5 "r".
-DIAG_ALIGN <- c("l","r","r","r","r","r")
+DIAG_ALIGN <- c("l","r","c","r","c","c","c","r")
 
 xgb_status <- data.frame(
   Estimator=rep(c("PLR-IV","Wald-AIPW"),each=4),
@@ -726,18 +733,18 @@ xgb_status %>%
                 full_width=FALSE,font_size=12) %>%
   footnote(general="Weights enter exact diagnostics, bridges, and Love plots only when available and Identity passed is TRUE. FALSE identities remain estimate-level learner-sensitivity results.")
 
-dml_diag_cell <- function(w_untuned, w_tuned, kw) {
+dml_diag_cell <- function(w_untuned, w_tuned, kw, D) {
   rbind(
-    weight_diag(w_untuned$plriv,    "PLR-IV (untuned forest)"),
-    weight_diag(w_untuned$waldaipw, "Wald-AIPW (untuned forest)"),
-    weight_diag(w_tuned$plriv,      "PLR-IV (tuned forest)"),
-    weight_diag(w_tuned$waldaipw,   "Wald-AIPW (tuned forest)"),
-    weight_diag(kw$tau_cb_u,    "τ_cb_u     (kappa)"),
-    weight_diag(kw$tau_ml_u,    "τ_ml_u     (kappa)"),
-    weight_diag(kw$tau_ml_a10,  "τ_ml_a10   (kappa)"),
-    weight_diag(kw$tau_ml_a,    "τ_ml_a     (kappa)"),
-    weight_diag(kw$tau_ml_t,    "τ_ml_t     (kappa)"),
-    weight_diag(kw$tau_ml_a0,   "τ_ml_a0    (kappa)")
+    outcome_weight_diag(w_untuned$plriv,    D, "PLR-IV (untuned forest)"),
+    outcome_weight_diag(w_untuned$waldaipw, D, "Wald-AIPW (untuned forest)"),
+    outcome_weight_diag(w_tuned$plriv,      D, "PLR-IV (tuned forest)"),
+    outcome_weight_diag(w_tuned$waldaipw,   D, "Wald-AIPW (tuned forest)"),
+    outcome_weight_diag(kw$tau_cb_u,    D, "τ_cb_u     (kappa)"),
+    outcome_weight_diag(kw$tau_ml_u,    D, "τ_ml_u     (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a10,  D, "τ_ml_a10   (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a,    D, "τ_ml_a     (kappa)"),
+    outcome_weight_diag(kw$tau_ml_t,    D, "τ_ml_t     (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a0,   D, "τ_ml_a0    (kappa)")
   )
 }
 style_dml_diag <- function(df, cap) {
@@ -746,38 +753,42 @@ style_dml_diag <- function(df, cap) {
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     row_spec(1:4, background = "#eef6ff") %>%
-    footnote(general = "Blue = honest-forest DML: untuned first, tuned second. Sum_w ≈ 0 means translation invariant. ESS_mod is the signed-weight effective sample size to report; ESS is reference only.")
+    footnote(general = "Blue = honest-forest DML. T/C entries report treated / sign-oriented control values. Arm-specific modified ESS is the headline concentration diagnostic; overall modified ESS is supplementary.")
 }
 
 exact_w <- function(fit) {
-  if (isTRUE(fit$ok) && !is.null(fit$w)) fit$w else rep(NA_real_, length(Y_dol))
+  if (isTRUE(fit$ok) && !is.null(fit$w)) fit$w else NULL
+}
+safe_outcome_diag <- function(w, D, label) {
+  if (is.null(w) || !length(w) || all(is.na(w))) NULL else outcome_weight_diag(w, D, label)
 }
 
-ext_diag_block <- function(kw, pliv_lm, iivm_lm, pliv_rf, iivm_rf,
+ext_diag_block <- function(D, kw, pliv_lm, iivm_lm, pliv_rf, iivm_rf,
                            pliv_xgb_u, pliv_xgb_t, iivm_xgb_u, iivm_xgb_t) {
-  rbind(
-    weight_diag(exact_w(pliv_lm),   "PLR-IV (OLS nuisances)"),
-    weight_diag(exact_w(iivm_lm),   "Wald-AIPW (OLS/logit nuisances)"),
-    weight_diag(exact_w(pliv_rf),   "PLR-IV (ranger)"),
-    weight_diag(exact_w(iivm_rf),   "Wald-AIPW (ranger)"),
-    weight_diag(exact_w(pliv_xgb_u),"PLR-IV (XGBoost, untuned)"),
-    weight_diag(exact_w(pliv_xgb_t),"PLR-IV (XGBoost, tune_on_folds=TRUE)"),
-    weight_diag(exact_w(iivm_xgb_u),"Wald-AIPW (XGBoost, untuned)"),
-    weight_diag(exact_w(iivm_xgb_t),"Wald-AIPW (XGBoost, tune_on_folds=TRUE)"),
-    weight_diag(kw$tau_cb_u,   "τ_cb_u    (kappa, CBPS)"),
-    weight_diag(kw$tau_ml_u,   "τ_ml_u    (kappa, MLE)"),
-    weight_diag(kw$tau_ml_a10, "τ_ml_a10  (kappa, MLE)"),
-    weight_diag(kw$tau_ml_a,   "τ_ml_a    (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_t,   "τ_ml_t    (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_a0,  "τ_ml_a0   (kappa, unnorm)")
-  )
+  do.call(rbind, Filter(Negate(is.null), list(
+    safe_outcome_diag(exact_w(pliv_lm),   D, "PLR-IV (OLS nuisances)"),
+    safe_outcome_diag(exact_w(iivm_lm),   D, "Wald-AIPW (OLS/logit nuisances)"),
+    safe_outcome_diag(exact_w(pliv_rf),   D, "PLR-IV (ranger)"),
+    safe_outcome_diag(exact_w(iivm_rf),   D, "Wald-AIPW (ranger)"),
+    safe_outcome_diag(exact_w(pliv_xgb_u),D, "PLR-IV (XGBoost, untuned)"),
+    safe_outcome_diag(exact_w(pliv_xgb_t),D, "PLR-IV (XGBoost, tune_on_folds=TRUE)"),
+    safe_outcome_diag(exact_w(iivm_xgb_u),D, "Wald-AIPW (XGBoost, untuned)"),
+    safe_outcome_diag(exact_w(iivm_xgb_t),D, "Wald-AIPW (XGBoost, tune_on_folds=TRUE)"),
+    outcome_weight_diag(kw$tau_cb_u,   D, "τ_cb_u    (kappa, CBPS)"),
+    outcome_weight_diag(kw$tau_ml_u,   D, "τ_ml_u    (kappa, MLE)"),
+    outcome_weight_diag(kw$tau_ml_a10, D, "τ_ml_a10  (kappa, MLE)"),
+    outcome_weight_diag(kw$tau_ml_a,   D, "τ_ml_a    (kappa, unnorm)"),
+    outcome_weight_diag(kw$tau_ml_t,   D, "τ_ml_t    (kappa, unnorm)"),
+    outcome_weight_diag(kw$tau_ml_a0,  D, "τ_ml_a0   (kappa, unnorm)")
+  )))
 }
 style_ext_diag <- function(df, cap) {
+  n_learn <- sum(grepl("^(PLR-IV|Wald-AIPW)", df$Estimator))
   df %>%
     kbl(caption = cap, align = DIAG_ALIGN) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
-    row_spec(1:8, background = "#eef6ff") %>%
+    row_spec(seq_len(n_learn), background = "#eef6ff") %>%
     footnote(general = "Blue = DoubleML learners, paired as PLR-IV and Wald-AIPW within each learner family. NA means the fit failed or its extracted weights did not reproduce the estimate exactly; such weights are not interpreted as exact outcome-weight representations.")
 }
 ```
@@ -787,14 +798,14 @@ style_ext_diag <- function(df, cap) {
 ### Cubic age
 
 ```{r dml-diag-cub}
-style_dml_diag(dml_diag_cell(w_cub_untuned, w_cub_tuned, kw_cub),
+style_dml_diag(dml_diag_cell(w_cub_untuned, w_cub_tuned, kw_cub, D),
                "Weight Diagnostics — Untuned/Tuned Honest Forest vs. Kappa | Cubic age")
 ```
 
 ### Saturated age
 
 ```{r dml-diag-sat}
-style_dml_diag(dml_diag_cell(w_sat_untuned, w_sat_tuned, kw_sat),
+style_dml_diag(dml_diag_cell(w_sat_untuned, w_sat_tuned, kw_sat, D),
                "Weight Diagnostics — Untuned/Tuned Honest Forest vs. Kappa | Saturated age")
 ```
 
@@ -803,7 +814,7 @@ style_dml_diag(dml_diag_cell(w_sat_untuned, w_sat_tuned, kw_sat),
 ### Cubic age
 
 ```{r ext-diag-cub}
-style_ext_diag(ext_diag_block(kw_cub,
+style_ext_diag(ext_diag_block(D, kw_cub,
                               lm_pliv_cub, lm_iivm_cub,
                               rf_pliv_cub, rf_iivm_cub,
                               xgb_pliv_cub_untuned, xgb_pliv_cub_tuned,
@@ -814,7 +825,7 @@ style_ext_diag(ext_diag_block(kw_cub,
 ### Saturated age
 
 ```{r ext-diag-sat}
-style_ext_diag(ext_diag_block(kw_sat,
+style_ext_diag(ext_diag_block(D, kw_sat,
                               lm_pliv_sat, lm_iivm_sat,
                               rf_pliv_sat, rf_iivm_sat,
                               xgb_pliv_sat_untuned, xgb_pliv_sat_tuned,
@@ -825,7 +836,11 @@ style_ext_diag(ext_diag_block(kw_sat,
 ## Weight-Statistics Bridge — RQ1 {.tabset}
 
 <div class="note-box">
-**What this is.** For every estimator, `weight_bridge()` reports the outcome weights **Overall / Treated / Control** (control sign-flipped, matching Knaus's convention), putting the two diagnostic vocabularies side by side: his six `summary()` statistics next to maximum absolute weight and the two effective-sample-size measures (Kish vs. modified). Knaus's printed label is “% Negative,” although the package reports a share on the zero-to-one scale; `Neg. share` makes that scale explicit here. The Knaus block is computed in plain R, so the kappa estimators get his statistics too.
+**What this is.** The detailed bridge reports Overall / Treated / Control
+statistics using Knaus's sign convention. `Neg. share` remains here solely to
+match his observation-count summary and is distinct from the oriented
+opposite-sign absolute-mass measure in the headline tables. Modified ESS is the
+only ESS shown for signed outcome weights.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
@@ -851,7 +866,7 @@ cell_weight_list <- function(w_untuned, w_tuned,
     "τ_ml_u (kappa)"   = kw$tau_ml_u,
     "τ_ml_t (kappa)"   = kw$tau_ml_t
   )
-  Filter(function(w) !all(is.na(w)), lst)
+  Filter(function(w) !is.null(w) && length(w) && !all(is.na(w)), lst)
 }
 
 bridge_cells <- list(
@@ -871,61 +886,22 @@ bridge_table <- function(wlist, cap) {
   ests <- names(wlist)
   df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
   disp <- df[, c("Scope","Min","Max","Neg_share","Sum_top10","Sum_w",
-                 "Sum_abs_w","Max_abs_w","ESS_kish","ESS_mod")]
+                 "Sum_abs_w","Max_abs_w","ESS_mod")]
 
   kk <- disp %>%
     kbl(caption = cap, row.names = FALSE,
         col.names = c("Scope","Min","Max","Neg. share","ΣTop10%","Σω","Σ|ω|",
-                      "Max |ω|","ESS Kish","ESS mod"),
-        align = c("l", rep("r", 9))) %>%
+                      "Max |ω|","ESS mod"),
+        align = c("l", rep("r", 8))) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 12) %>%
     add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
                        "Concentration" = 1,
-                       "Effective sample size" = 2)) %>%
-    column_spec(10, bold = TRUE, background = "#eef6ff")
+                       "Effective sample size" = 1)) %>%
+    column_spec(9, bold = TRUE, background = "#eef6ff")
   for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
-  kk %>% footnote(general = "Neg. share is in [0,1], matching Knaus's numerical output. Control rows use Knaus's sign-flipped −ω convention. ESS mod = (Σ|ω|)²/Σω² is the number to report; ESS Kish = 1/Σω² is reference only.")
+  kk %>% footnote(general = "Neg. share is Knaus's observation-count statistic in [0,1]. Control rows use the sign-flipped −ω convention. Headline tables report modified ESS separately by treatment arm.")
 }
-
-ess_overview_df <- do.call(rbind, lapply(names(bridge_cells), function(cn) {
-  cl <- bridge_cells[[cn]]
-  do.call(rbind, lapply(names(cl$w), function(nm) {
-    ov <- weight_bridge(cl$w[[nm]], D, nm)
-    ov <- ov[ov$Scope == "Overall", ]
-    data.frame(Cell = cn, Estimator = nm,
-               ESS_kish = ov$ESS_kish, ESS_mod = ov$ESS_mod,
-               check.names = FALSE, stringsAsFactors = FALSE)
-  }))
-}))
-```
-
-### ESS overview (Kish vs. modified)
-
-```{r bridge-ess-overview}
-ess_overview_df %>%
-  kbl(caption = "Effective sample size, Overall scope — Kish (1/Σω²) vs. modified ((Σ|ω|)²/Σω²)",
-      col.names = c("Cell","Estimator","ESS Kish","ESS mod"),
-      align = c("l","l","r","r")) %>%
-  kable_styling(bootstrap_options = c("striped","hover","condensed"),
-                full_width = TRUE, font_size = 13) %>%
-  column_spec(4, bold = TRUE, background = "#eef6ff") %>%
-  pack_rows(index = table(factor(ess_overview_df$Cell, levels = unique(ess_overview_df$Cell)))) %>%
-  footnote(general = "Where Kish collapses toward 1, the modified ESS recovers the genuine usable weight mass. Report the modified column.")
-```
-
-```{r bridge-ess-dumbbell, fig.height=5.5, fig.width=11}
-ggplot(ess_overview_df, aes(y = Estimator)) +
-  geom_segment(aes(x = ESS_kish, xend = ESS_mod, yend = Estimator),
-               colour = "#bdbdbd", linewidth = 1.1) +
-  geom_point(aes(x = ESS_kish, colour = "Kish"),     size = 2.6) +
-  geom_point(aes(x = ESS_mod,  colour = "Modified"), size = 2.6) +
-  facet_wrap(~ Cell, scales = "free_x") +
-  scale_colour_manual(values = c("Kish" = "#9e9e9e", "Modified" = "#2c7bb6"), name = NULL) +
-  labs(title = "Effective sample size: Kish → modified",
-       x = "Effective sample size", y = NULL) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "top", panel.grid.minor = element_blank())
 ```
 
 ### Cubic age
@@ -950,7 +926,7 @@ statistic). Continuous covariates are standardized by the pooled unadjusted
 standard deviation. Starred binary covariates are left on their raw 0/1 scale.
 Because the adjusted comparison uses sign-oriented outcome weights, a raw binary
 difference is a signed weighted-moment difference and need not compare two
-literal proportions when wrong-sign weights remain.
+literal proportions when opposite-oriented weights remain.
 </div>
 
 ```{r love-helpers, echo=FALSE}

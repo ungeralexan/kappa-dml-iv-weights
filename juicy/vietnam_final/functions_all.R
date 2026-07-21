@@ -828,6 +828,41 @@ weight_diag <- function(w, name) {
   )
 }
 
+# Compact diagnostics for a signed treated-control outcome-weight contrast.
+# The modified ESS is calculated overall and, following Chattopadhyay &
+# Zubizarreta (2023, Section 5.4), separately in the treated/control groups.
+outcome_weight_diagnostics <- function(w, D, name) {
+  w <- as.numeric(w); D <- as.numeric(D)
+  if (!length(w) || length(w) != length(D)) stop("w and D must be nonempty vectors of equal length.")
+  if (any(!is.finite(w)) || any(!D %in% c(0, 1))) return(data.frame(
+    Estimator=name, Sum_w=NA_real_, Mass_T=NA_real_, Mass_C=NA_real_, ESS_mod_all=NA_real_,
+    ESS_mod_T=NA_real_, ESS_mod_C=NA_real_, Wrong_mass_T=NA_real_, Wrong_mass_C=NA_real_,
+    Max_abs_w=NA_real_, stringsAsFactors=FALSE))
+  oriented <- ifelse(D == 1, w, -w)
+  ess_mod <- function(x) { den <- sum(x^2); if (!length(x) || den == 0) NA_real_ else sum(abs(x))^2 / den }
+  wrong_mass <- function(x) { den <- sum(abs(x)); if (!length(x) || den == 0) NA_real_ else sum(abs(x[x < 0])) / den }
+  data.frame(Estimator=name, Sum_w=sum(w), Mass_T=sum(oriented[D == 1]), Mass_C=sum(oriented[D == 0]),
+    ESS_mod_all=ess_mod(w), ESS_mod_T=ess_mod(w[D == 1]), ESS_mod_C=ess_mod(w[D == 0]),
+    Wrong_mass_T=wrong_mass(oriented[D == 1]), Wrong_mass_C=wrong_mass(oriented[D == 0]),
+    Max_abs_w=max(abs(w)), stringsAsFactors=FALSE)
+}
+
+outcome_weight_diag <- function(w, D, name) {
+  x <- outcome_weight_diagnostics(w, D, name)
+  fmt_pair <- function(a,b,digits) if (any(!is.finite(c(a,b)))) NA_character_ else paste0(formatC(a,format="f",digits=digits)," / ",formatC(b,format="f",digits=digits))
+  data.frame(Estimator=x$Estimator, Sum_w=round(x$Sum_w,8), `Mass T/C`=fmt_pair(x$Mass_T,x$Mass_C,3),
+    `ESS mod overall`=round(x$ESS_mod_all,0), `ESS mod T/C`=fmt_pair(x$ESS_mod_T,x$ESS_mod_C,0),
+    `ESS mod/N T/C`=fmt_pair(x$ESS_mod_T/sum(D == 1),x$ESS_mod_C/sum(D == 0),3),
+    `Opposite-sign mass T/C (%)`=fmt_pair(100*x$Wrong_mass_T,100*x$Wrong_mass_C,1),
+    `Max |w|`=round(x$Max_abs_w,6), check.names=FALSE, stringsAsFactors=FALSE)
+}
+
+positive_weight_ess <- function(w) {
+  w <- as.numeric(w)
+  if (!length(w) || any(!is.finite(w)) || any(w < 0) || sum(w^2) == 0) return(NA_real_)
+  sum(w)^2 / sum(w^2)
+}
+
 
 
 # ==============================================================================

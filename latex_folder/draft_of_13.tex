@@ -1829,26 +1829,40 @@ Analysis sample
 \section{Outcome-weight diagnostics}
 \label{sec:outcome_weight_diagnostics}
 
-Section~\ref{subsec:knaus_framework} showed how the estimators considered in this
-thesis can be represented through observation-level outcome weights. 
-As this framework follows \citet{knaus2024treatment} the empirical
-diagnostic analysis begins by verifying that the extracted weights reproduce the
-corresponding fitted estimate within numerical tolerance. This identity check is
-essential because only then can the weight vector be interpreted as an exact
-representation of the estimator and used in subsequent diagnostics.\\
+
+
+Section~\ref{subsec:knaus_framework} represented each fitted estimator, whenever the
+required representation is available, as
+\(\widehat\tau=\sum_{i=1}^{N}\omega_iY_i\). The empirical analysis begins by
+verifying the identity
+\(\sum_i\omega_iY_i=\widehat\tau\) to numerical tolerance.
 Once this condition is satisfied, the weights reveal how the estimator combines the
-observations in the sample. Their total and group-specific masses describe the
-normalization properties discussed above, while their signs, range, and absolute
-magnitudes indicate whether the estimator relies on unusual or highly concentrated
-comparisons. These summaries provide a first assessment of the finite-sample weight
-structure, but they do not show whether the weighted treatment groups are comparable
-in terms of observed characteristics or how broadly the weight mass is distributed.\\
-The analysis therefore focuses more closely on two complementary dimensions.
-Standardized mean differences and Love plots are used to assess covariate balance,
-whereas conventional and modified effective sample size measures summarize weight
-dispersion and concentration. Together, these diagnostics show how each estimator
-arrives at its point estimate and whether that estimate is supported by a broad and
-covariate-balanced comparison. The following subsection first introduces the
+observations in the sample.
+Conditional on this check, the diagnostics address three distinct features of the
+finite-sample comparison. First, the overall and treatment-specific masses
+\begin{equation}
+    M=\sum_i\omega_i,\qquad
+    M_1=\sum_iD_i\omega_i,\qquad
+    M_0=-\sum_i(1-D_i)\omega_i
+    \label{eq:weight_masses}
+\end{equation}
+describe normalization. A fully normalized outcome contrast satisfies
+\((M,M_1,M_0)=(0,1,1)\). Second, the magnitudes of the weights describe
+concentration. I therefore report \(\max_i|\omega_i|\) and
+\(\sum_i|\omega_i|\), together with the scale-invariant modified effective sample size
+\begin{equation}
+    ESS_{\mathrm{mod}}
+    =\frac{\left(\sum_i|\omega_i|\right)^2}{\sum_i\omega_i^2}.
+    \label{eq:ess_modified}
+\end{equation}
+This quantity lies between one and \(N\) and reduces to the usual Kish expression
+when the weights are nonnegative. The raw share of observations with
+\(\omega_i<0\) is also reported descriptively, but it is not by itself an
+extrapolation measure. Potential wrong-sign contributions become
+meaningful only relative to treatment status, as formalized below. Third,
+covariate-balance diagnostics examine the observed characteristics of the treatment
+components entering the fitted contrast. 
+The following subsection first introduces the
 covariate-balance measures used in the empirical applications.
 
 
@@ -1856,82 +1870,84 @@ covariate-balance measures used in the empirical applications.
 \subsection{Covariate balance}
 \label{subsec:covariate_balance}
 
-A central concern in causal inference is understanding the comparison on which an
-estimated effect is based. In
-observational and conditionally randomized settings, treated and untreated units may
-also differ in pretreatment characteristics that are related to treatment selection. Examining these characteristics is therefore important for understanding
-the comparison on which an estimated effect is based.\\
-A point estimate alone does not reveal which observations contribute most strongly to
-that comparison. Two estimators may produce similar treatment-effect estimates while
-placing weight on very different parts of the sample. Once the outcome weights derived
-in Section~\ref{subsec:knaus_framework} are available, the implicit comparison generated
-by each estimator can be examined directly. In particular, the weights show whether the
-treated and untreated observations that contribute to the fitted estimate are similar in
-their observed covariates.\\
-This perspective is especially useful for the DML estimators considered in this thesis.
-Their final estimates result from nuisance-function estimation, residualization,
-cross-fitting, and aggregation, so the observation-level comparison is not immediately
-visible from the reported coefficient. The outcome-weight representation makes this
-otherwise less transparent comparison accessible to the same balance diagnostics that
-are commonly used for explicit weighting estimators. \\
-The primary balance measure used in the empirical analysis is the standardized mean
-difference. For covariate \(X_j\), let
-\(\bar X^{\,\omega}_{1j}\) and \(\bar X^{\,\omega}_{0j}\) denote the weighted means
-among treated and untreated observations, respectively. The standardized mean
-difference is
+Two estimators can produce similar point estimates while relying on different
+observations. Outcome-weight balance makes this comparison visible, including for the
+DML estimators whose weights arise only after nuisance estimation, cross-fitting, and
+aggregation.
+Here, the final object of interest is the comparison between the treatment
+components \(D=1\) and \(D=0\), not the balance between the instrument groups.
+Because untreated outcomes ordinarily enter an outcome contrast with the opposite
+sign, I first place both treatment components on a common orientation by defining
 \begin{equation}
-    \operatorname{SMD}_j
-    =
-    \frac{
-        \bar X^{\,\omega}_{1j}
-        -
-        \bar X^{\,\omega}_{0j}
-    }{
-        s_j
-    },
-    \label{eq:smd_definition}
+    a_i=\omega_i(2D_i-1).
+    \label{eq:balance_oriented_weights}
 \end{equation}
-where \(s_j\) is a fixed measure of the dispersion of covariate \(X_j\). The empirical
-analysis reports the absolute value,
-\(\lvert\operatorname{SMD}_j\rvert\), because the magnitude of the imbalance is of
-primary interest.\\
-Standardization makes differences comparable across covariates measured in different
-units. Unlike significance tests of differences in means, the SMD is also not
-mechanically driven by the sample size. For a binary covariate, the weighted mean equals
-the weighted proportion, so the numerator in
-Equation~\eqref{eq:smd_definition} measures the difference in the prevalence of that
-characteristic between the two weighted groups. SMDs can therefore be applied to both
-continuous and binary covariates, although unusually large values for rare binary
-characteristics should also be interpreted alongside the underlying weighted
-proportions.
+Thus, \(a_i=\omega_i\) for treated observations and
+\(a_i=-\omega_i\) for untreated observations. The transformation reverses the
+orientation of the untreated component,
+it does not force the diagnostic weights to
+be nonnegative. For each covariate \(X_j\) and treatment state \(d\), the corresponding
+group mean is
+\begin{equation}
+    \bar X^{\,a}_{dj}
+    =
+    \frac{\sum_i\mathbf{1}\{D_i=d\}a_iX_{ij}}
+         {\sum_i\mathbf{1}\{D_i=d\}a_i},
+    \qquad d\in\{0,1\},
+    \label{eq:signed_weighted_mean}
+\end{equation}
+provided that the group-specific denominator is nonzero. This group normalization
+makes the balance statistic invariant to a common rescaling of the weights within a
+treatment component.\\
+The implemented balance measure distinguishes continuous and binary covariates. Let
+\(s_{dj}^2\) denote the unweighted variance of a continuous covariate in treatment
+group \(d\), and define
+\(s_{j,\mathrm{pool}}=[(s_{1j}^2+s_{0j}^2)/2]^{1/2}\). This denominator is held
+fixed for the unadjusted and weighted comparisons. I report
+\begin{equation}
+    B_j(a)=
+    \begin{cases}
+      \displaystyle
+      \frac{\left|\bar X^{\,a}_{1j}-\bar X^{\,a}_{0j}\right|}
+           {s_{j,\mathrm{pool}}},
+      & X_j \text{ continuous},\\[10pt]
+      \left|\bar X^{\,a}_{1j}-\bar X^{\,a}_{0j}\right|,
+      & X_j \text{ binary}.
+    \end{cases}
+    \label{eq:mixed_balance_measure}
+\end{equation}
+Continuous covariates are therefore expressed in units of the pooled standard
+deviation. Binary covariates remain on their raw zero--one scale. This avoids inflating
+the reported imbalance of rare binary indicators through standardization. With
+nonnegative weights, the binary means are weighted proportions and their difference
+has a percentage-point interpretation. With the signed diagnostic weights in
+Equation~\eqref{eq:balance_oriented_weights}, however, a weighted mean can lie outside
+\([0,1]\). It is then an algebraic mean of an indicator rather than a literal
+proportion. Exact balance may consequently reflect cancellation involving negative
+weights and does not by itself establish two conventional positive-weight
+pseudo-populations.
+
+
 
 
 \subsubsection{Implementation and visualization}
+The statistics are computed with \texttt{cobalt} and displayed in Love plots. Uniform weights provide the unadjusted comparison, and the
+estimator-specific \(a_i\) provide the adjusted comparison. Binary covariates are
+marked separately in the plots. The reference line at \(0.1\) denotes one tenth of a
+pooled standard deviation for continuous covariates and a raw difference of \(0.10\)
+for binary covariates. 
+The Card application additionally reports a design-stage diagnostic based on positive
+instrument inverse-probability weights. Specifically, the \(Z=1\) and \(Z=0\) groups
+are reweighted by separately H\'ajek-normalized versions of
+\(Z_i/\widehat p_i\) and \((1-Z_i)/(1-\widehat p_i)\), respectively. That diagnostic
+asks whether the fitted instrument propensity score balances observed covariates
+across instrument states. Equation~\eqref{eq:mixed_balance_measure}, applied to the
+signed outcome weights, instead describes the final treatment-group comparison that
+generates the fitted outcome contrast. Reporting both separates propensity-model
+performance from the geometry of the final estimator.
 
 
-To assess covariate balance, the estimator-specific outcome weights are converted into
-group-oriented diagnostic weights. Since untreated observations conventionally enter
-the outcome-weight representation with the opposite sign, their weights are reversed
-before the balance statistics are calculated. Specifically, the diagnostic weight is
-defined as
-\[
-    a_i=\omega_i(2D_i-1),
-\]
-so that the treated and untreated components are expressed with a common orientation.
-This transformation does not necessarily make every diagnostic weight nonnegative,
-because wrong-sign weights may remain within either treatment group.\\
-The resulting weights are supplied to the \texttt{cobalt} package, which computes
-covariate balance before and after weighting. For each covariate, the empirical
-analysis compares the unadjusted standardized mean difference with the corresponding
-outcome-weighted standardized mean difference. Binary covariates are also standardized
-in the implementation, placing continuous and binary variables on a common scale.\\
-The balance statistics are displayed in Love plots, with one row for each covariate
-and separate markers for the unadjusted and weighted comparisons. A reference line at
-\(\lvert\operatorname{SMD}\rvert=0.1\) is included as a conventional descriptive
-benchmark for residual imbalance. The plots therefore show whether a given estimator
-reduces or increases the initial covariate imbalance and whether this pattern differs
-across estimator families and nuisance learners. The reference value is used to
-facilitate comparison and is not interpreted as a formal test of identification.
+
 
 
 \newpage

@@ -679,9 +679,17 @@ outside this main analysis notebook.
 # 4. Weight Diagnostics
 
 <div class="note-box">
-**Reading the tables.** `Sum_w ≈ 0` confirms translation invariance.
-**`ESS_mod`** = modified effective sample size `(Σ|ωᵢ|)²/Σωᵢ²`
-(Chattopadhyay & Zubizarreta 2023), valid under negative weights. Unlike
+**Reading the tables.** `Sum_w ≈ 0` checks translation invariance and
+`Mass T/C ≈ 1 / 1` checks treated/control normalization. Following
+Chattopadhyay and Zubizarreta (2023, Section 5.4), modified ESS is reported
+separately for treated and control observations, with the overall value kept
+as a supplementary concentration summary. `ESS mod/N T/C` divides each
+arm-specific value by that arm's observed size, making concentration comparable
+across unequal groups. `Opposite-sign mass T/C` measures
+the share of absolute mass opposite to the conventional treated/control
+orientation and reveals cancellation that ESS alone cannot show; it is not by
+itself evidence of an invalid IV estimator. Conventional Kish ESS is not reported
+for these signed outcome weights. Unlike
 Card (one grf fit per cell), AE98's Section 2 fit
 **both** untuned and tuned honest forests, so both appear here as separate
 rows — this lets you see whether `tune.parameters="all"` changed the weight
@@ -695,7 +703,7 @@ simply omitted rather than breaking the table.
 kw_labor  <- kappa_weights_bundle(Z_labor,  D_labor,  X_labor_kappa)
 kw_income <- kappa_weights_bundle(Z_income, D_income, X_income_kappa)
 
-DIAG_ALIGN <- c("l","r","r","r","r","r")
+DIAG_ALIGN <- c("l","r","c","r","c","c","c","r")
 
 # Pull imported XGBoost weight vectors + identity flags, defensively (NULL/NA if not run yet).
 get_xgb_w  <- function(sample_label, tuned_label) {
@@ -770,23 +778,24 @@ status_tbl %>%
       align = c("l","l","l","c","c")) %>%
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = FALSE, font_size = 12) %>%
-  footnote(general = "XGBoost estimates are imported in Section 3. XGBoost weights enter the Section 4 diagnostics whenever the corresponding export contains omega vectors. identity_ok = FALSE means the weights are present but do not exactly reproduce the reported coefficient via sum(omega*Y), so these rows should be read as learner-sensitivity diagnostics rather than clean algebraic benchmarks.")
+  footnote(general = "XGBoost estimates are imported in Section 3. XGBoost weights enter the exact Section 4 diagnostics only when identity_ok is TRUE. FALSE identities remain estimate-level learner-sensitivity results.")
 
-# Skip a row cleanly if the weight vector is NULL/empty, rather than erroring.
-safe_diag_row <- function(w, label) if (is.null(w) || length(w) == 0) NULL else weight_diag(w, label)
+# Exclude missing or non-exact weight representations from exact diagnostics.
+exact_xgb_w <- function(w, ok) if (!is.null(w) && length(w) && isTRUE(ok)) w else NULL
+safe_diag_row <- function(w, D, label) if (is.null(w) || length(w) == 0) NULL else outcome_weight_diag(w, D, label)
 
-dml_diag_cell <- function(w_untuned, w_tuned, kw) {
+dml_diag_cell <- function(w_untuned, w_tuned, kw, D) {
   do.call(rbind, Filter(Negate(is.null), list(
-    weight_diag(w_untuned$plriv,    "PLR-IV (untuned forest)"),
-    weight_diag(w_untuned$waldaipw, "Wald-AIPW (untuned forest)"),
-    weight_diag(w_tuned$plriv,      "PLR-IV (tuned forest)"),
-    weight_diag(w_tuned$waldaipw,   "Wald-AIPW (tuned forest)"),
-    weight_diag(kw$tau_cb_u,        "\u03c4_cb_u (kappa)"),
-    weight_diag(kw$tau_ml_u,        "\u03c4_ml_u (kappa)"),
-    weight_diag(kw$tau_ml_a10,      "\u03c4_ml_a10 (kappa)"),
-    weight_diag(kw$tau_ml_a,        "\u03c4_ml_a (kappa)"),
-    weight_diag(kw$tau_ml_t,        "\u03c4_ml_t (kappa)"),
-    weight_diag(kw$tau_ml_a0,       "\u03c4_ml_a0 (kappa)")
+    outcome_weight_diag(w_untuned$plriv,    D, "PLR-IV (untuned forest)"),
+    outcome_weight_diag(w_untuned$waldaipw, D, "Wald-AIPW (untuned forest)"),
+    outcome_weight_diag(w_tuned$plriv,      D, "PLR-IV (tuned forest)"),
+    outcome_weight_diag(w_tuned$waldaipw,   D, "Wald-AIPW (tuned forest)"),
+    outcome_weight_diag(kw$tau_cb_u,        D, "\u03c4_cb_u (kappa)"),
+    outcome_weight_diag(kw$tau_ml_u,        D, "\u03c4_ml_u (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a10,      D, "\u03c4_ml_a10 (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a,        D, "\u03c4_ml_a (kappa)"),
+    outcome_weight_diag(kw$tau_ml_t,        D, "\u03c4_ml_t (kappa)"),
+    outcome_weight_diag(kw$tau_ml_a0,       D, "\u03c4_ml_a0 (kappa)")
   )))
 }
 style_dml_diag <- function(df, cap) {
@@ -796,21 +805,21 @@ style_dml_diag <- function(df, cap) {
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     row_spec(seq_len(n_dml), background = "#eef6ff") %>%
-    footnote(general = "Blue = grf honest-forest DML (untuned + tuned). Sum_w close to 0 indicates translation invariance. ESS_mod is the modified effective sample size.")
+    footnote(general = "Blue = grf honest-forest DML. T/C entries report treated / sign-oriented control values. Arm-specific modified ESS is the headline concentration diagnostic.")
 }
 
-learner_diag_block <- function(kw, family, w_linear, w_ranger, w_xgb_untuned, w_xgb_tuned) {
+learner_diag_block <- function(D, kw, family, w_linear, w_ranger, w_xgb_untuned, w_xgb_tuned) {
   do.call(rbind, Filter(Negate(is.null), list(
-    safe_diag_row(w_linear,      paste0(family, " (linear", ifelse(family == "Wald-AIPW", "+logit", ""), ")")),
-    safe_diag_row(w_ranger,      paste0(family, " (ranger)")),
-    safe_diag_row(w_xgb_untuned, paste0(family, " (XGBoost, untuned)")),
-    safe_diag_row(w_xgb_tuned,   paste0(family, " (XGBoost, tune_on_folds=TRUE)")),
-    weight_diag(kw$tau_cb_u,     "\u03c4_cb_u (kappa, CBPS)"),
-    weight_diag(kw$tau_ml_u,     "\u03c4_ml_u (kappa, MLE)"),
-    weight_diag(kw$tau_ml_a10,   "\u03c4_ml_a10 (kappa, MLE)"),
-    weight_diag(kw$tau_ml_a,     "\u03c4_ml_a (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_t,     "\u03c4_ml_t (kappa, unnorm)"),
-    weight_diag(kw$tau_ml_a0,    "\u03c4_ml_a0 (kappa, unnorm)")
+    safe_diag_row(w_linear, D,      paste0(family, " (linear", ifelse(family == "Wald-AIPW", "+logit", ""), ")")),
+    safe_diag_row(w_ranger, D,      paste0(family, " (ranger)")),
+    safe_diag_row(w_xgb_untuned, D, paste0(family, " (XGBoost, untuned)")),
+    safe_diag_row(w_xgb_tuned, D,   paste0(family, " (XGBoost, tune_on_folds=TRUE)")),
+    outcome_weight_diag(kw$tau_cb_u,   D, "\u03c4_cb_u (kappa, CBPS)"),
+    outcome_weight_diag(kw$tau_ml_u,   D, "\u03c4_ml_u (kappa, MLE)"),
+    outcome_weight_diag(kw$tau_ml_a10, D, "\u03c4_ml_a10 (kappa, MLE)"),
+    outcome_weight_diag(kw$tau_ml_a,   D, "\u03c4_ml_a (kappa, unnorm)"),
+    outcome_weight_diag(kw$tau_ml_t,   D, "\u03c4_ml_t (kappa, unnorm)"),
+    outcome_weight_diag(kw$tau_ml_a0,  D, "\u03c4_ml_a0 (kappa, unnorm)")
   )))
 }
 style_learner_diag <- function(df, cap, family) {
@@ -820,7 +829,7 @@ style_learner_diag <- function(df, cap, family) {
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     row_spec(seq_len(n_learn), background = "#eef6ff") %>%
-    footnote(general = sprintf("Blue = %s DoubleML/mlr3 learners. XGBoost rows are imported from the corresponding tuning export and omitted if the export is unavailable. ESS_mod is the modified effective sample size. Check the XGBoost status table above: identity_ok = FALSE means weights are available but do not exactly reproduce the coefficient.", family))
+    footnote(general = sprintf("Blue = %s DoubleML/mlr3 learners. XGBoost rows appear only when identity_ok is TRUE. T/C entries report treated / sign-oriented control values.", family))
 }
 ```
 
@@ -829,14 +838,14 @@ style_learner_diag <- function(df, cap, family) {
 ### Labor (workedm)
 
 ```{r dml-diag-labor}
-style_dml_diag(dml_diag_cell(w_labor_untuned, w_labor_tuned, kw_labor),
+style_dml_diag(dml_diag_cell(w_labor_untuned, w_labor_tuned, kw_labor, D_labor),
                "Weight Diagnostics -- DML (untuned + tuned forest) vs. Kappa | Labor")
 ```
 
 ### Income (lincomem)
 
 ```{r dml-diag-income}
-style_dml_diag(dml_diag_cell(w_income_untuned, w_income_tuned, kw_income),
+style_dml_diag(dml_diag_cell(w_income_untuned, w_income_tuned, kw_income, D_income),
                "Weight Diagnostics -- DML (untuned + tuned forest) vs. Kappa | Income")
 ```
 
@@ -846,9 +855,10 @@ style_dml_diag(dml_diag_cell(w_income_untuned, w_income_tuned, kw_income),
 
 ```{r ext-diag-labor}
 style_learner_diag(
-  learner_diag_block(kw_labor, "PLR-IV",
+  learner_diag_block(D_labor, kw_labor, "PLR-IV",
                      pliv_lm_labor$w, pliv_rf_labor$w,
-                     w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned),
+                     exact_xgb_w(w_xgb_pliv_labor_untuned, ok_xgb_pliv_labor_untuned),
+                     exact_xgb_w(w_xgb_pliv_labor_tuned, ok_xgb_pliv_labor_tuned)),
   "Weight Diagnostics -- PLR-IV learners vs. Kappa | Labor",
   "PLR-IV")
 ```
@@ -857,9 +867,10 @@ style_learner_diag(
 
 ```{r ext-diag-income}
 style_learner_diag(
-  learner_diag_block(kw_income, "PLR-IV",
+  learner_diag_block(D_income, kw_income, "PLR-IV",
                      pliv_lm_income$w, pliv_rf_income$w,
-                     w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned),
+                     exact_xgb_w(w_xgb_pliv_income_untuned, ok_xgb_pliv_income_untuned),
+                     exact_xgb_w(w_xgb_pliv_income_tuned, ok_xgb_pliv_income_tuned)),
   "Weight Diagnostics -- PLR-IV learners vs. Kappa | Income",
   "PLR-IV")
 ```
@@ -868,9 +879,10 @@ style_learner_diag(
 
 ```{r ext-diag-wald-labor}
 style_learner_diag(
-  learner_diag_block(kw_labor, "Wald-AIPW",
+  learner_diag_block(D_labor, kw_labor, "Wald-AIPW",
                      lm_labor$w, rf_labor$w,
-                     w_xgb_labor_untuned, w_xgb_labor_tuned),
+                     exact_xgb_w(w_xgb_labor_untuned, ok_xgb_labor_untuned),
+                     exact_xgb_w(w_xgb_labor_tuned, ok_xgb_labor_tuned)),
   "Weight Diagnostics -- Wald-AIPW learners vs. Kappa | Labor",
   "Wald-AIPW")
 ```
@@ -879,9 +891,10 @@ style_learner_diag(
 
 ```{r ext-diag-wald-income}
 style_learner_diag(
-  learner_diag_block(kw_income, "Wald-AIPW",
+  learner_diag_block(D_income, kw_income, "Wald-AIPW",
                      lm_income$w, rf_income$w,
-                     w_xgb_income_untuned, w_xgb_income_tuned),
+                     exact_xgb_w(w_xgb_income_untuned, ok_xgb_income_untuned),
+                     exact_xgb_w(w_xgb_income_tuned, ok_xgb_income_tuned)),
   "Weight Diagnostics -- Wald-AIPW learners vs. Kappa | Income",
   "Wald-AIPW")
 ```
@@ -892,10 +905,10 @@ style_learner_diag(
 **What this is.** For every estimator, `weight_bridge()` reports the outcome
 weights Overall / Treated / Control (control sign-flipped, Knaus's
 convention -- "Control mass" reads \u2248 1 when normalized, not \u2212 1; see
-`child_xgb_tuning.Rmd`'s footnote for the same point), alongside the modified
-effective sample size. `Neg. share` is reported on the zero-to-one scale used
-numerically by Knaus's summary method, whose printed label is “% Negative.”
-The headline is **ESS mod**.
+`child_xgb_tuning.Rmd`'s footnote for the same point), alongside modified ESS.
+`Neg. share` remains only to reproduce Knaus's observation-count statistic and
+must not be confused with the oriented opposite-sign absolute-mass measure in the
+headline tables. Conventional Kish ESS is omitted for signed outcome weights.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
@@ -933,19 +946,23 @@ bridge_cells <- list(
   "PLR-IV | Labor (workedm)" = list(D = D_labor, w = pliv_weight_list(
     w_labor_untuned, w_labor_tuned,
     pliv_lm_labor$w, pliv_rf_labor$w,
-    w_xgb_pliv_labor_untuned, w_xgb_pliv_labor_tuned, kw_labor)),
+    exact_xgb_w(w_xgb_pliv_labor_untuned, ok_xgb_pliv_labor_untuned),
+    exact_xgb_w(w_xgb_pliv_labor_tuned, ok_xgb_pliv_labor_tuned), kw_labor)),
   "PLR-IV | Income (lincomem)" = list(D = D_income, w = pliv_weight_list(
     w_income_untuned, w_income_tuned,
     pliv_lm_income$w, pliv_rf_income$w,
-    w_xgb_pliv_income_untuned, w_xgb_pliv_income_tuned, kw_income)),
+    exact_xgb_w(w_xgb_pliv_income_untuned, ok_xgb_pliv_income_untuned),
+    exact_xgb_w(w_xgb_pliv_income_tuned, ok_xgb_pliv_income_tuned), kw_income)),
   "Wald-AIPW | Labor (workedm)" = list(D = D_labor, w = waldaipw_weight_list(
     w_labor_untuned, w_labor_tuned,
     lm_labor$w, rf_labor$w,
-    w_xgb_labor_untuned, w_xgb_labor_tuned, kw_labor)),
+    exact_xgb_w(w_xgb_labor_untuned, ok_xgb_labor_untuned),
+    exact_xgb_w(w_xgb_labor_tuned, ok_xgb_labor_tuned), kw_labor)),
   "Wald-AIPW | Income (lincomem)" = list(D = D_income, w = waldaipw_weight_list(
     w_income_untuned, w_income_tuned,
     lm_income$w, rf_income$w,
-    w_xgb_income_untuned, w_xgb_income_tuned, kw_income))
+    exact_xgb_w(w_xgb_income_untuned, ok_xgb_income_untuned),
+    exact_xgb_w(w_xgb_income_tuned, ok_xgb_income_tuned), kw_income))
 )
 
 bridge_table <- function(wlist, D, cap) {
@@ -965,7 +982,7 @@ bridge_table <- function(wlist, D, cap) {
                        "Concentration" = 1, "Effective sample size" = 1)) %>%
     column_spec(9, bold = TRUE, background = "#eef6ff")
   for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
-  kk %>% footnote(general = "Neg. share is in [0,1], matching Knaus's numerical output. Control rows use Knaus's sign-flipped convention (mass reads around 1 when normalized, not -1). ESS mod equals the squared sum of absolute weights divided by the sum of squared weights.")
+  kk %>% footnote(general = "Neg. share is Knaus's observation-count statistic in [0,1]. Control rows use the sign-flipped convention. Headline tables report modified ESS and opposite-sign absolute mass separately by treatment arm.")
 }
 ```
 
@@ -1012,7 +1029,7 @@ statistic). Continuous covariates are standardized by the pooled unadjusted
 standard deviation. Starred binary covariates are left on their raw 0/1 scale.
 Because the adjusted comparison uses sign-oriented outcome weights, a raw binary
 difference is a signed weighted-moment difference and need not compare two
-literal proportions when wrong-sign weights remain. XGBoost panels are shown
+literal proportions when opposite-oriented weights remain. XGBoost panels are shown
 when the imported export contains the corresponding weight vectors.
 </div>
 
