@@ -245,136 +245,233 @@ double machine learning.
 \pagenumbering{arabic}
 \setcounter{page}{1}
 
+\section{Introduction}
+Causal estimates should not depend on an arbitrary choice of measurement units. 
+A change from dollars to cents therefore translates every logged outcome by the same
+constant without changing the underlying economic comparison. An estimator of an effect
+on log wages or income should consequently be unchanged. Yet this requirement need not
+hold for all finite-sample weighting estimators of the local average treatment effect
+(LATE). \citet{sloczynski2025abadie} show that several consistent but unnormalized
+estimators can react strongly to the centering of the outcome and to the monetary unit
+chosen before taking logarithms. Normalization is therefore not merely a presentational
+choice. It can determine whether an estimate respects an economically irrelevant
+transformation of the data.\\
+This issue is particularly relevant when instrument validity is conditional on observed
+covariates. Applied work commonly handles such settings with additive two-stage least
+squares (2SLS). A clean LATE interpretation, however, requires the covariate specification
+to capture the relevant conditional structure of instrument assignment
+\citep{sloczynski2021when,blandhol2026tsls}. The kappa theorem of
+\citet{abadie2003semiparametric} offers a flexible alternative. It represents moments of
+the latent complier population through observed-data weights that depend on the
+conditional instrument propensity score. The same population identification result gives
+rise to several sample estimators because alternative expressions for the complier share
+need not coincide in finite samples. These estimators can target the same population
+parameter while assigning different coefficients to the observed outcomes.\\
+Flexible estimation of the required conditional relationships has become possible within
+the double machine learning (DML) framework of \citet{chernozhukov2018double}. Orthogonal
+scores and cross-fitting allow nuisance functions to be estimated with parametric models
+or machine-learning methods. They do not by themselves reveal how a fitted multi-step
+procedure combines the observations in a realized sample. The outcome-weight framework
+of \citet{knaus2024treatment} supplies this missing finite-sample perspective. It represents a fitted estimate as a weighted sum of the observed outcomes. This
+common representation makes classical kappa estimators, partially linear IV estimators,
+and augmented estimators comparable at the level of the sample that produces the reported
+estimate.
+
+\subsection{Related literature}
+
+The starting point is the interpretation of instrumental-variable estimands under
+heterogeneous treatment effects. \citet{angrist1995identification} and
+\citet{angrist1996identification} establish conditions under which a binary instrument
+identifies the average treatment effect for compliers. \citet{imbens1997compliers} extend
+this perspective from the complier mean to the marginal distributions of potential
+outcomes for compliers. Their analysis also demonstrates that conventional IV procedures
+implicitly construct weighted outcome distributions. \citet{abadie2003semiparametric}
+then develops a general semiparametric representation for complier moments when
+instrument assignment is valid conditional on covariates. His kappa weights make the
+complier population statistically accessible even though individual compliance types are
+unobserved.\\
+Subsequent work translated conditional LATE identification into flexible estimators.
+\citet{tan2006regression} develops regression and weighting procedures that adjust the
+instrument comparison for covariates. \citet{frolich2007nonparametric} derives a
+nonparametric estimator based on the ratio of weighted reduced-form and first-stage
+contrasts. This unnormalized ratio became the main weighting construction in the
+subsequent methodological literature, although weighting estimators of the LATE remain
+uncommon in empirical practice \citep{sloczynski2025abadie}. \citet{uysal2011three}
+proposes a separately normalized version of this estimator. More generally, Abadie's
+alternative representations of the complier share generate several consistent sample
+analogues. The resulting estimator multiplicity is a finite-sample issue because the
+corresponding population denominators are equal under the identifying assumptions.\\
+Normalization has a longer history in survey sampling and inverse-probability weighting
+\citep{hajek1971comment,busso2014finite}. Its role in conditional IV estimation is linked
+closely to the estimation of the instrument propensity score. Covariate-balancing methods
+choose propensity-score parameters to satisfy balance conditions rather than only to fit
+instrument assignment \citep{imai2014covariate}. \citet{heiler2022efficient} adapts this
+principle to LATE estimation and obtains exact finite-sample balance across instrument
+groups together with normalized treatment-effect estimates. Building on this literature,
+\citet{sloczynski2025abadie} provide a unified analysis of five kappa-based LATE
+estimators. They show that only two are fully normalized and use translation invariance
+and logarithmic scale invariance as criteria for distinguishing the normalized from the
+unnormalized estimators. They also show that the normalized estimator proposed by
+\citet{uysal2011three} retains useful denominator properties under either form of
+one-sided noncompliance. Their simulations and three empirical applications motivate its
+use as the principal normalized benchmark in this thesis.\\
+A parallel literature studies what the implied weights of an estimator reveal about its
+finite-sample behavior. \citet{chattopadhyay2023implied} derive observation-level weights
+for linear regression and use them to examine covariate balance, representativeness,
+extrapolation, and effective support. \citet{knaus2024treatment} provides a general
+construction for pseudo-IV estimators and derives outcome weights for prominent DML and
+generalized-random-forest estimators. His results show that implementation choices
+determine whether exact outcome weights are available and which normalization properties
+they satisfy. In particular, partially linear estimators may have zero total weight mass
+without assigning masses of one and minus one to the treated and untreated components.
+The framework also permits diagnostic tools developed for explicit weighting estimators
+to be applied to causal machine-learning procedures.\\
+This last development requires a distinction between several uses of the term weight.
+Abadie's kappa weights are identification objects that recover moments of the complier
+population. Balancing weights are chosen to satisfy prespecified covariate moments.
+Outcome weights are the realized observation-level coefficients that reproduce a fitted estimate as a weighted sum of the observed outcomes. They also differ from effect weights, which
+describe how an estimator aggregates heterogeneous causal effects under additional
+population assumptions \citep{knaus2024treatment}. This thesis is concerned primarily
+with outcome weights. Instrument-balancing weights enter separately when the conditional
+instrument propensity score is assessed.
+
+
+
+
+\subsection{Contribution and empirical approach}
+
+This thesis combines the normalization analysis of \citet{sloczynski2025abadie} with
+the outcome-weight framework of \citet{knaus2024treatment}. It applies this combination
+to classical and data-adaptive LATE estimators. Its main question is what observation-level
+outcome weights reveal about the finite-sample behavior of kappa weighting estimators and
+DML estimators of the LATE. It asks which fitted estimators satisfy the relevant
+normalization and invariance properties. It then examines differences in effective
+support, concentration, sign cancellation, and covariate balance. Finally, it studies how
+these properties vary with the propensity specification, nuisance learner, and IV design.\\
+The analysis makes three contributions. First, it implements five kappa estimators and
+two instrument-propensity estimators in the same R workflow as partially linear IV and
+Wald augmented inverse-probability-weighted estimators. Candidate outcome weights are
+recovered and checked against the reported point estimates before they enter the
+diagnostic analysis. Second, the classical outcome-recoding exercises are extended to the
+complete DML procedure. Nuisance estimation, cross-fitting, and tuning are rerun after
+each transformation rather than holding one fitted weight vector fixed. Third, every
+valid outcome-weight vector is examined with a common diagnostic sequence. The sequence
+covers normalization, modified effective sample size, maximum absolute weights, sign
+cancellation, and covariate balance. A separate positive instrument-IPW diagnostic in the
+Card application evaluates the design-stage propensity model without conflating it with
+the final outcome contrast.\\
+The empirical analysis returns to the three applications studied by
+\citet{sloczynski2025abadie}. This preserves comparability with their normalization
+results while creating a deliberate progression across IV designs. The Vietnam draft
+lottery of \citet{angrist1990lifetime} provides a low-dimensional benchmark with
+institutionally randomized assignment conditional on birth cohort. The college-proximity
+design of \citet{card1993using} introduces an observational instrument, richer covariate
+adjustment, and two binary schooling margins with different first-stage strength. The
+fertility design of \citet{angrist1996children} adds a large parent sample, a binary
+labor-supply outcome, and a logged monetary outcome. Together, the applications reveal
+whether the diagnostic conclusions persist when the source of instrument variation, the
+covariate structure, and the outcome scale change.
+
+% TODO: Revisit this paragraph after all final application tables and robustness checks
+% have been completed. Add two or three quantitative headline comparisons.
+The results currently establish several broad patterns. The normalized kappa estimators
+are stable under the examined outcome translations, whereas the unnormalized estimators
+can change materially when only the outcome origin or monetary unit changes. The
+outcome-weight representation traces this sensitivity to their realized normalization
+properties. The DML estimators are generally stable in the low-dimensional Vietnam
+design, but their finite-sample weights depend on the nuisance implementation. This
+dependence becomes more consequential in the observational Card design, where an
+untuned boosted-tree specification produces extreme weights and little effective support.
+The diagnostics also show that similar point estimates or similar covariate balance need
+not imply similar normalization or sign composition. Point estimates and conventional
+balance plots therefore provide only a partial account of how an estimator uses the
+sample.\\
+The remainder of the thesis first introduces the conditional LATE framework and defines
+the kappa and DML estimators. It then develops their outcome-weight representations and
+the links among normalization and outcome invariance. The diagnostic section defines the
+finite-sample measures used in the Vietnam, Card, and Angrist and Evans applications. The
+final sections synthesize the cross-application evidence, discuss limitations, and
+conclude.
+
+
+
+
+
+
+
+ 
+
 
 \section{Econometric Framework}
+\subsection{Conditional instrumental variables, compliance types, and LATE}
+\label{subsec:conditional_iv_late}
 
-\subsection{Instrumental variables LATE, and compliers}
-The causal effect of schooling on later earnings is a classical problem in empirical economics
-\citep{griliches1977estimating,card1993using}.
-Individuals with more schooling often display higher wages, but this gap cannot be interpreted directly as the effect of education.
-Schooling decisions are related to family background, ability, motivation, and local opportunities,
-which may also affect later labour-market outcomes.
-A naive comparison between more and less educated individuals would therefore combine the causal effect of schooling with selection into education.
-Instrumental variables provide one way to address this problem. The idea is to use variation in treatment that is induced by an external source. The instrument shifts treatment take-up, while being otherwise unrelated to potential outcomes except through treatment.\\
-In the classical linear IV model, this logic is often introduced through two-stage least squares (2SLS).
-Consider the structural equation
+Let $Y_i$ denote the observed outcome, $D_i\in\{0,1\}$ the treatment,
+$Z_i\in\{0,1\}$ the instrument, and $X_i$ a vector of pretreatment
+covariates. Treatment is endogenous when treatment status is related to
+unobserved determinants of the potential outcomes, so a direct comparison
+of treated and untreated observations need not identify a causal effect.
+Instrumental-variable methods instead use variation in treatment induced by
+$Z_i$. Under heterogeneous treatment effects, the resulting estimand depends
+on whose treatment status responds to the instrument, which motivates a
+potential-outcomes formulation.
+Let $D_i(z)$ denote the treatment status that individual $i$ would
+receive under instrument value $z\in\{0,1\}$. The observed treatment is
 \begin{equation}
-    Y_i = \alpha + \theta D_i + U_i,
+    D_i = Z_iD_i(1) + (1-Z_i)D_i(0).
 \end{equation}
-where $D_i$ is the treatment, $Y_i$ is the outcome and $U_i$ entails the unobserved determinants of the outcome. 
-Ordinary least squares is generally inconsistent if 
-$D_i$ is endogenous, that is, if $D_i$ is correlated with $U_i$.
-2SLS adresses this problem by using only the part of the treatment variation that is predicted by the instrument. 
-In the first stage, the endogenous treatment is regressed on the instrument. \begin{equation}
-D_i = \pi_0 + \pi_1 Z_i + v_i,
-\end{equation}
-This regression captures the relationship between the instrument and treatment take-up. The fitted values from this regression are denoted by $\widehat D_i$. In the second stage, the outcome is regressed on this predicted treatment,
+Before imposing exclusion, let $Y_i(z,d)$ denote the potential outcome
+under instrument value $z$ and treatment status $d$. The exclusion
+restriction implies
 \begin{equation}
-Y_i = \alpha + \theta \widehat D_i + \varepsilon_i.
+    Y_i(1,d)=Y_i(0,d)=Y_i(d), \qquad d\in\{0,1\},
 \end{equation}
-The second stage hence uses the variation in treatment that is induced by the instrument.
-In this simple linear IV model, the two core requirements are instrument relevance and instrument exogeneity \citep{wooldridge2016introductory}:
+so that the observed outcome satisfies
 \begin{equation}
-\operatorname{Cov}(Z_i, D_i) \neq 0, \qquad \operatorname{Cov}(Z_i, U_i) = 0   
+    Y_i = D_iY_i(1)+(1-D_i)Y_i(0).
 \end{equation}
-The first is relevance, which means that the instrument affects treatment take up.
-The second is exogeneity, which means that the the instrument is unrelated to the unobserved determinants of the outcome.
-Under homogeneous treatment effects, 2SLS recovers the common causal effect $\theta$ \citep{angrist1995identification,angrist1996identification}.
-For a binary instrument and a binary treatment, the corresponding IV estimand can be written as the Wald ratio \citep{wald1940fitting}:
-\begin{equation}
-    \theta^{Wald} = \frac{E[Y|Z=1] - E[Y|Z=0]}{E[D|Z=1] - E[D|Z=0]}
-\end{equation}
-The numerator is the reduced-form effect of the instrument on the outcome. It measures how average outcomes differ between individuals with $Z_i=1$ and individuals with $Z_i=0$. 
-The denominator is the first stage. It measures how strongly the instrument shifts the probability of receiving treatment.Hence, the Wald ratio scales the effect of the instrument on the outcome by the effect of the instrument on treatment.\\
-In the just-identified case with a binary instrument and no additional covariates, the 2SLS coefficient is algebraically equivalent to this Wald ratio. Under homogeneous treatment effects, this implies $\theta^{Wald}=\theta$.\\
-Once treatment effects are allowed to differ across individuals, the Wald ratio no longer generally represents the average treatment effect in the full population. The reason is that the instrument does not necessarily change treatment status for every individual. Instead, the reduced form is generated by those individuals whose treatment status reacts to the instrument. This motivates the potential-outcomes formulation of instrumental variables.
-Let $D_i(1)$ and $D_i(0)$ denote individual (i)'s potential treatment status under instrument values $Z_i=1$ and $Z_i=0$, respectively. The observed treatment status is therefore
-\begin{equation}
-    D_i = Z_iD_i(1)+(1-Z_i)D_i(0).
-\end{equation}
-This notation makes explicit that individuals may differ in how their treatment status responds to the instrument.
-Some individuals may take the treatment regardless of the instrument, some may never take it, and others may be induced into treatment only when $(Z_i=1)$.
-Before imposing the exclusion restriction, potential outcomes may depend on both the instrument and the treatment.
-I denote these potential outcomes by $Y_i(z,d)$, where $z \in \{0,1\}$ is the 
-instrument value and $d \in \{0,1\}$ is the treatment status. Thus, $Y_i(1,0)$ 
-is the outcome individual $i$ would realize if assigned $Z_i=1$ but not treated, 
-while $Y_i(1,1)$ is the outcome under $Z_i=1$ and treatment.\\
-The exclusion restriction rules out a direct effect of the instrument on the outcome. Formally,
-\begin{equation}
-    Y_i(1,d)=Y_i(0,d)=Y_i(d), \qquad d \in \{0,1\}.
-\end{equation}
-After imposing this restriction, the instrument can affect the outcome only through 
-treatment. The potential outcomes can therefore be written simply as $Y_i(1)$ and 
-$Y_i(0)$, and the observed outcome satisfies
-\begin{equation}
-    Y_i = D_i Y_i(1) + (1-D_i) Y_i(0)
-\end{equation}
-The pair $(D_i(1),D_i(0))$ classifies individuals into four compliance types \citep{angrist1996identification}:
-$$\begin{array}{c|cc}
+
+The pair $(D_i(1),D_i(0))$ partitions the population into four latent
+compliance types \citep{angrist1996identification}:
+\[
+\begin{array}{c|cc}
  & D_i(0)=0 & D_i(0)=1 \\
 \hline
 D_i(1)=0 & \text{Never-taker} & \text{Defier} \\
-D_i(1)=1 & \text{Complier} & \text{Always-taker}
-\end{array}$$
-Never-takers are untreated irrespective of the instrument, $D_i(1)=D_i(0)=0$. 
-Always-takers are treated irrespective of the instrument, $D_i(1)=D_i(0)=1$. 
-Compliers are induced into treatment by the instrument, $D_i(1)=1$ and $D_i(0)=0$. 
-Defiers move in the opposite direction, $D_i(1)=0$ and $D_i(0)=1$.
-This classification is important because the first stage is determined by the change in treatment status induced by the instrument:
+D_i(1)=1 & \text{Complier} & \text{Always-taker}.
+\end{array}
+\]
+Always- and never-takers do not change treatment status with the instrument.
+Compliers respond in the direction encouraged by the instrument, whereas
+defiers respond in the opposite direction. Let
+$C_i=\mathbf{1}\{D_i(1)>D_i(0)\}$ indicate that individual $i$ is a
+complier. The target parameter is the local average treatment effect
+\citep{angrist1995identification,angrist1996identification},
 \begin{equation}
-D_i(1)-D_i(0).
+    \tau_{\mathrm{LATE}}
+    =E\bigl[Y_i(1)-Y_i(0)\mid C_i=1\bigr].
+    \label{eq:late_definition}
 \end{equation}
-For never-takers and always-takers this difference is zero, so these groups do not contribute to the first stage. For compliers it equals one, while for defiers it equals minus one. Without further restrictions, the reduced form may therefore combine treatment effects of compliers and defiers with opposite signs.
-In order to rule out defiers the monotonicity assumption is imposed 
-\begin{equation}
-D_i(1) \geq D_i(0)
-\end{equation}
-for all (i).
-Hence, the instrument may increase treatment take-up, but it may not induce any individual to move in the opposite direction.
-Under instrument independence and monotonicity, the denominator of the Wald ratio equals the population share of compliers.
-Thus, the same Wald ratio has two different interpretations depending on the maintained assumptions. Under homogeneous treatment effects, it recovers the common treatment effect. Under heterogeneous treatment effects, instrument independence, exclusion, a non-zero first stage, and monotonicity, it identifies the Local Average Treatment Effect, meaning the average treatment effect for compliers\citep{angrist1995identification, angrist1996identification}.
 
 
+In many applications, the instrument is plausibly as good as randomly
+assigned only after conditioning on pretreatment covariates. This matters for
+estimation, as with heterogeneous treatment effects, additive covariate-adjusted
+TSLS does not generally identify a positively weighted average of complier
+effects. Without additional parametric restrictions, a conventional LATE
+interpretation requires saturated adjustment for the covariates
+\citep{blandhol2026tsls}. This motivates methods that incorporate the
+conditional instrument propensity score directly. The kappa theorem of
+\citet{abadie2003semiparametric} provides such a route by representing
+moments of the latent complier population as weighted moments of observed
+data.
 
+\subsection{Abadie's kappa theorem}
 
-
-\subsubsection{From unconditional to conditional IV}
-
-The previous argument establishes the LATE interpretation in the binary-instrument, binary-treatment setting. This benchmark is most transparent when the instrument comparison is valid unconditionally. In many empirical applications, however, instrument validity is more plausibly stated conditional on observed covariates. Individuals differ in observed characteristics $(X_i)$, and these characteristics may be related to instrument assignment. For example, in a schooling application, college proximity may be related to region, family background, or urban residence. A simple comparison of individuals with $Z_i=1$ and $Z_i=0$ would then not compare otherwise similar individuals.
-
-The IV independence assumption is therefore more naturally formulated conditionally,
-\begin{equation}
-\big(Y_i(0,0),Y_i(0,1),Y_i(1,0),Y_i(1,1),D_i(0),D_i(1)\big)
-\perp Z_i \mid X_i .
-\end{equation}
-Under this condition, the relevant comparison is no longer the unconditional contrast between all individuals with $Z_i=1$ and all individuals with $Z_i=0$, but a comparison within covariate strata. This introduces the conditional instrument propensity score
-\begin{equation}
-    p(X_i)=P(Z_i=1\mid X_i),
-\end{equation}
-which measures the probability of receiving the instrument for individuals with observed characteristics $X_i$.\\
-In linear 2SLS with covariates, covariate adjustment can be understood through the
-Frisch--Waugh--Lovell theorem. According the identifying variation in the instrument is the part
-that remains after linearly projecting \(Z_i\) on the included covariates. Let
-\begin{equation}
-    \tilde Z_i = Z_i - \mathbb{L}[Z_i\mid X_i],
-\end{equation}
-where \(\mathbb{L}[Z_i\mid X_i]\) denotes the linear projection of the instrument on the
-included covariates. A clean LATE interpretation of covariate-adjusted TSLS requires that this linear projection
-captures the relevant conditional instrument propensity score. A central sufficient condition
-is the rich-covariates condition,
-\begin{equation}
-    \mathbb{L}[Z\mid X] = \mathbb{E}[Z\mid X] = P(Z=1\mid X),
-\end{equation}
-which holds, for example, under saturated covariate specifications but need not hold with
-simple additive controls \citep{blandhol2022tsls}.
-This motivates an alternative route that uses the conditional instrument propensity score explicitly, rather than through a linear projection of $Z_i$ on $X_i$. The kappa theorem in \citet{abadie2003semiparametric} provides such a route, identifying moments of the complier population as reweighted moments of the observed data, under the conditions stated next.
-
-\subsection{Abadie's kappa weights}
-
-The conditional-IV framework extends the binary LATE setting by allowing the instrument
-to be as good as randomly assigned only after conditioning on observed covariates.
-Following \citet{abadie2003semiparametric}, let
-$p(X_i)=P(Z_i=1\mid X_i)$ denote the instrument propensity score. We impose the following conditions.
+Abadie's representation formalizes this conditional-IV approach. Following
+\citet{abadie2003semiparametric}, let $p(X_i)=P(Z_i=1\mid X_i)$ denote
+the conditional instrument propensity score. The identification result relies
+on the following conditions.\\
 \textbf{Assumption (Conditional IV).}
 \begin{enumerate}
     \item[(i)] Independence:
@@ -396,8 +493,28 @@ $p(X_i)=P(Z_i=1\mid X_i)$ denote the instrument propensity score. We impose the 
     P(D_i(1)\geq D_i(0)\mid X_i)=1.
     \]
 \end{enumerate}
-Condition (i) restates the conditional independence assumption introduced above. Conditions (ii) and (iv) are the conditional analogues of the exclusion restriction and the monotonicity assumption from Section~2.1. Condition (iii) combines overlap, which rules out values of $X_i$ for which one of the two instrument values is never observed, with a conditional first-stage requirement.
-Define the three kappa weights
+Condition (i) requires the instrument to be as good as randomly assigned within
+covariate strata. Condition (ii) rules out a direct effect of the instrument on
+the outcome. Condition (iii) combines overlap with a positive conditional first
+stage, while condition (iv) rules out defiers. Under conditions (i) and (iv) for almost every covariate value \(x\),
+\begin{align}
+    &E[D_i\mid Z_i=1,X_i=x]-E[D_i\mid Z_i=0,X_i=x] \notag\\
+    &\qquad=E[D_i(1)-D_i(0)\mid X_i=x]
+    =P(C_i=1\mid X_i=x).
+    \label{eq:conditional_complier_share}
+\end{align}
+Thus, the conditional first stage equals the conditional complier share.
+Always- and never-takers contribute zero, whereas each complier contributes
+one. Equation~\eqref{eq:conditional_complier_share} clarifies which population
+supplies the identifying treatment variation, but individual compliance status
+remains latent. Abadie's key result is that moments of this latent group,
+including the potential-outcome means in
+Equation~\eqref{eq:late_definition}, can nevertheless be recovered from
+observed data.\\
+For this purpose, define the three kappa weights
+
+
+
 \begin{equation}
     \kappa_{0i} = (1-D_i)\,\frac{(1-Z_i)-(1-p(X_i))}{p(X_i)\big(1-p(X_i)\big)}, \qquad
     \kappa_{1i} = D_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)},
@@ -414,19 +531,17 @@ Define the three kappa weights
 \end{align}
 Equations (a)-(c) also hold conditional on $X_i$.
 The theorem makes the complier population statistically tractable even though complier
-status is not observed.
- By choosing \(g\), \(g_0\), and \(g_1\) appropriately, moments of the
+status is not observed. By choosing \(g\), \(g_0\), and \(g_1\) appropriately, moments of the
 complier distribution can be written as weighted moments of the observed data.
 In particular, setting \(g(Y_i,D_i,X_i)=1\) gives
 \begin{equation}
     E[\kappa_i]=P(D_i(1)>D_i(0)).
 \end{equation}
-Using the definition
-$\tau_{LATE}=E[Y_i(1)-Y_i(0)\mid D_i(1)>D_i(0)],$
-setting $g_0(Y_i(0),X_i)=Y_i(0)$ and
+Applying parts (b) and (c) to the LATE defined in
+Equation~\eqref{eq:late_definition}, set $g_0(Y_i(0),X_i)=Y_i(0)$ and
 $g_1(Y_i(1),X_i)=Y_i(1)$ yields
 \begin{equation}
-    \tau_{LATE}
+    \tau_{\mathrm{LATE}}
     =
     \frac{E[\kappa_{1i}Y_i]-E[\kappa_{0i}Y_i]}
     {P(D_i(1)>D_i(0))}
@@ -440,14 +555,14 @@ Since $
 \frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))},
 $ this can also be written as
 \begin{equation}
-    \tau_{LATE} = \frac{1}{P(D_i(1)>D_i(0))}\,E\!\left[Y_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)}\right].
+    \tau_{\mathrm{LATE}} = \frac{1}{P(D_i(1)>D_i(0))}\,E\!\left[Y_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)}\right].
 \end{equation}
 It is worth noting already that $P(D_i(1)>D_i(0))$ can equivalently be written as
 $E[\kappa_i]$, $E[\kappa_{0i}]$, or $E[\kappa_{1i}]$. All three representations are valid
 in population under Assumption (Conditional IV) and coincide there. Their sample
 analogues, however, need not coincide in finite samples, whether $p(X_i)$ is known or
 estimated. This finite-sample ambiguity in the denominator is the source of the different
-weighting estimators of $\tau_{LATE}$ developed in the next section.
+weighting estimators of $\tau_{\mathrm{LATE}}$ developed in the next section.
 
 \section{The estimators}
 \subsection{Kappa and weighting estimators of the LATE}
@@ -501,11 +616,11 @@ it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly
     \left(\sum_{i=1}^N \kappa_{0i}\right)^{-1}\sum_{i=1}^N \kappa_{0i}Y_i.
     \label{eq:tau_a10}
 \end{equation}
-Here each component has its own normlaization denominator. 
+Here each component has its own normalization denominator. 
 Consequently, the $\kappa_1$ weights in the first component and the $\kappa_0$ weights in the second component each sum to one within the sample.\\
 The remaining estimators are also valid sample analogues of the population identification result:
 \[
-\tau_{LATE}
+\tau_{\mathrm{LATE}}
 = P(D_i(1)>D_i(0))^{-1}
 E\!\left[
 Y_i\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}
@@ -1829,81 +1944,167 @@ Analysis sample
 \section{Outcome-weight diagnostics}
 \label{sec:outcome_weight_diagnostics}
 
+The preceding sections establish the outcome-weight representation and its
+normalization classes. The diagnostic analysis uses these results to describe the
+finite-sample comparison behind each estimate. It starts from the numerical identity
+\begin{equation}
+    \widehat\tau=\sum_{i=1}^{N}\omega_iY_i.
+    \label{eq:diagnostic_identity}
+\end{equation}
+The identity is checked to numerical tolerance for every fitted estimator. 
+In this thesis the following diagnostic workflow examines four properties of every exact weight vector. The
+weight masses describe the normalization of the fitted contrast. The distribution of
+absolute weight magnitudes describes effective support and concentration. The sign
+composition records the degree of cancellation within each treatment component. The
+covariate diagnostics characterize the observed comparison generated by the final
+weights. These properties are reported together because they describe different
+features of the same estimator.
 
 
-Section~\ref{subsec:knaus_framework} represented each fitted estimator, whenever the
-required representation is available, as
-\(\widehat\tau=\sum_{i=1}^{N}\omega_iY_i\). The empirical analysis begins by
-verifying the identity
-\(\sum_i\omega_iY_i=\widehat\tau\) to numerical tolerance.
-Once this condition is satisfied, the weights reveal how the estimator combines the
-observations in the sample.
-Conditional on this check, the diagnostics address three distinct features of the
-finite-sample comparison. First, the overall and treatment-specific masses
+\subsection{Normalization in the empirical diagnostics}
+
+The normalization classes and their implications for translation invariance have
+already been derived in Section~\ref{subsec:knaus_framework} and
+Section~\ref{subsec:translation_invariance}. The empirical tables implement that
+classification directly. They report the total mass \(C\) and the treated mass
+\(C_1\) from Equation~\eqref{eq:knaus_weight_masses}. The untreated mass is displayed
+as \(-C_0\). This sign change places both treatment components on the same positive
+orientation. A fully normalized contrast therefore appears as \(C=0\) and
+\(C_1=-C_0=1\).\\
+This presentation serves two purposes. It verifies the normalization properties
+predicted by the estimator formulas. It also makes departures from unit-mass
+normalization comparable across kappa and DML estimators. The calculation is applied
+to the realized weight vector rather than inferred from the estimator name. This
+follows the implementation emphasis of \citet{knaus2024treatment}, since learner and
+smoother choices can determine the normalization properties of DML outcome weights.
+\subsection{Effective support and concentration}
+\label{subsec:effective_support}
+
+An estimator may reproduce a normalized contrast while assigning most of its absolute
+weight mass to a small part of the sample. I measure this concentration with the
+modified effective sample size proposed by
+\citet[Section~5.4]{chattopadhyay2023implied}. For treatment state
+\(d\in\{0,1\}\), it is
 \begin{equation}
-    M=\sum_i\omega_i,\qquad
-    M_1=\sum_iD_i\omega_i,\qquad
-    M_0=-\sum_i(1-D_i)\omega_i
-    \label{eq:weight_masses}
+    ESS_{\mathrm{mod},d}
+    =
+    \frac{
+      \left(\sum_i\mathbf 1\{D_i=d\}|\omega_i|\right)^2
+    }{
+      \sum_i\mathbf 1\{D_i=d\}\omega_i^2
+    }.
+    \label{eq:ess_modified_group}
 \end{equation}
-describe normalization. A fully normalized outcome contrast satisfies
-\((M,M_1,M_0)=(0,1,1)\). Second, the magnitudes of the weights describe
-concentration. I therefore report \(\max_i|\omega_i|\) and
-\(\sum_i|\omega_i|\), together with the scale-invariant modified effective sample size
+The absolute values preserve information about weight magnitudes when both signs are
+present. The measure lies between one and the number of observations in the respective
+treatment group. It coincides with the conventional Kish effective sample size when
+the weights are nonnegative and normalized \citep{kish1965survey}.\\
+\citet[Section~5.4]{chattopadhyay2023implied} recommend computing the measure
+separately for treated and control observations for both the URI and MRI regression
+weights studied in their paper. I apply the same group-specific diagnostic principle
+to the signed IV outcome weights. In this setting, the measure is interpreted as a
+scale-invariant summary of absolute-weight concentration. \\
+The empirical tables report both the group-specific level and its share of the
+available treatment arm. Let
 \begin{equation}
-    ESS_{\mathrm{mod}}
-    =\frac{\left(\sum_i|\omega_i|\right)^2}{\sum_i\omega_i^2}.
-    \label{eq:ess_modified}
+    N_d=\sum_{i=1}^{N}\mathbf 1\{D_i=d\},
+    \qquad
+    \rho_d=\frac{ESS_{\mathrm{mod},d}}{N_d}.
+    \label{eq:ess_retention}
 \end{equation}
-This quantity lies between one and \(N\) and reduces to the usual Kish expression
-when the weights are nonnegative. The raw share of observations with
-\(\omega_i<0\) is also reported descriptively, but it is not by itself an
-extrapolation measure. Potential wrong-sign contributions become
-meaningful only relative to treatment status, as formalized below. Third,
-covariate-balance diagnostics examine the observed characteristics of the treatment
-components entering the fitted contrast. 
-The following subsection first introduces the
-covariate-balance measures used in the empirical applications.
+The value \(\rho_d\) is bounded by zero and one. A value close to one indicates that
+the absolute weight magnitudes are distributed almost uniformly within treatment arm
+\(d\). A smaller value indicates that the same component relies on a narrower part of
+the observed arm. 
+The overall modified effective sample size is retained as a supplementary summary.
+The group-specific values are the main diagnostic because concentration in one
+treatment component can be hidden by the combined measure. I also report
+\(\max_i|\omega_i|\). It records the largest observation-level coefficient in the
+fitted outcome contrast. The modified effective sample size describes the full
+distribution of magnitudes, while the maximum records its most pronounced tail.
+
+\subsection{Sign composition and cancellation}
+\label{subsec:weight_cancellation}
+
+The treated and untreated components enter an outcome contrast with opposite aggregate
+signs. Following the orientation used for the descriptive weight analysis in
+\citet[Section~5]{knaus2024treatment}, I define
+\begin{equation}
+    a_i=\omega_i(2D_i-1).
+    \label{eq:balance_oriented_weights}
+\end{equation}
+The treated weights remain unchanged and the untreated weights are multiplied by
+minus one. Positive values of \(a_i\) therefore follow the conventional orientation
+in both treatment arms.\\
+The empirical analysis summarizes the remaining negative component by its share of
+absolute weight mass
+\begin{equation}
+    R_d^{-}
+    =
+    \frac{
+      \sum_i\mathbf 1\{D_i=d\}|a_i|\mathbf 1\{a_i<0\}
+    }{
+      \sum_i\mathbf 1\{D_i=d\}|a_i|
+    }.
+    \label{eq:opposite_sign_mass}
+\end{equation}
+This statistic gives greater importance to a large opposite-oriented weight than to a
+numerically negligible one. It therefore differs from an unweighted count of negative
+observations.
+The statistic measures cancellation. Let \(P_d\) denote positive oriented mass and
+let \(N_d^{-}\) denote the absolute mass of negative oriented weights. The signed
+group mass is \(P_d-N_d^{-}\), while total absolute mass is \(P_d+N_d^{-}\). Hence
+\(R_d^{-}=N_d^{-}/(P_d+N_d^{-})\). Values close to one half indicate that sizeable
+positive and negative components offset each other. Values closer to zero indicate
+that most absolute mass follows one orientation. 
+The cancellation statistic complements the modified effective sample size. The latter
+depends on absolute magnitudes and is invariant to their signs. A weight vector can
+therefore have a large modified effective sample size and still contain substantial
+cancellation. Reading \(ESS_{\mathrm{mod},d}\), \(\rho_d\), \(R_d^{-}\), and
+\(\max_i|\omega_i|\) together separates diffuse weighting from sign offsetting and
+individual weight dominance.
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 \subsection{Covariate balance}
 \label{subsec:covariate_balance}
 
-Two estimators can produce similar point estimates while relying on different
-observations. Outcome-weight balance makes this comparison visible, including for the
-DML estimators whose weights arise only after nuisance estimation, cross-fitting, and
-aggregation.
-Here, the final object of interest is the comparison between the treatment
-components \(D=1\) and \(D=0\), not the balance between the instrument groups.
-Because untreated outcomes ordinarily enter an outcome contrast with the opposite
-sign, I first place both treatment components on a common orientation by defining
-\begin{equation}
-    a_i=\omega_i(2D_i-1).
-    \label{eq:balance_oriented_weights}
-\end{equation}
-Thus, \(a_i=\omega_i\) for treated observations and
-\(a_i=-\omega_i\) for untreated observations. The transformation reverses the
-orientation of the untreated component,
-it does not force the diagnostic weights to
-be nonnegative. For each covariate \(X_j\) and treatment state \(d\), the corresponding
-group mean is
+The concentration diagnostics describe how the sample is weighted. Covariate balance
+describes the observed comparison produced by those weights. This is useful when two
+estimators yield similar point estimates but construct their fitted contrasts from
+different regions of the covariate distribution. It also permits the kappa and DML
+estimators to be assessed with the same sample-level object.
+For covariate \(X_j\) and treatment state \(d\), the oriented weighted mean is
 \begin{equation}
     \bar X^{\,a}_{dj}
     =
-    \frac{\sum_i\mathbf{1}\{D_i=d\}a_iX_{ij}}
-         {\sum_i\mathbf{1}\{D_i=d\}a_i},
-    \qquad d\in\{0,1\},
+    \frac{\sum_i\mathbf 1\{D_i=d\}a_iX_{ij}}
+         {\sum_i\mathbf 1\{D_i=d\}a_i},
+         \qquad d\in\{0,1\},
     \label{eq:signed_weighted_mean}
 \end{equation}
-provided that the group-specific denominator is nonzero. This group normalization
-makes the balance statistic invariant to a common rescaling of the weights within a
-treatment component.\\
+provided that the denominator is nonzero. This normalization makes the comparison
+invariant to a common rescaling within either treatment component.
 The implemented balance measure distinguishes continuous and binary covariates. Let
 \(s_{dj}^2\) denote the unweighted variance of a continuous covariate in treatment
-group \(d\), and define
-\(s_{j,\mathrm{pool}}=[(s_{1j}^2+s_{0j}^2)/2]^{1/2}\). This denominator is held
-fixed for the unadjusted and weighted comparisons. I report
+group \(d\). Define the pooled scale as
+\(s_{j,\mathrm{pool}}=[(s_{1j}^2+s_{0j}^2)/2]^{1/2}\). The same denominator is used
+for the unadjusted and weighted comparisons. The reported balance statistic is
+
+
+
+
 \begin{equation}
     B_j(a)=
     \begin{cases}
@@ -1918,33 +2119,50 @@ fixed for the unadjusted and weighted comparisons. I report
 \end{equation}
 Continuous covariates are therefore expressed in units of the pooled standard
 deviation. Binary covariates remain on their raw zero--one scale. This avoids inflating
-the reported imbalance of rare binary indicators through standardization. With
-nonnegative weights, the binary means are weighted proportions and their difference
-has a percentage-point interpretation. With the signed diagnostic weights in
-Equation~\eqref{eq:balance_oriented_weights}, however, a weighted mean can lie outside
-\([0,1]\). It is then an algebraic mean of an indicator rather than a literal
-proportion. Exact balance may consequently reflect cancellation involving negative
-weights and does not by itself establish two conventional positive-weight
-pseudo-populations.
+the reported imbalance of rare binary indicators through standardization. 
+The weighted means require careful interpretation when some \(a_i\) are negative. A
+binary weighted mean is then an algebraic mean of an indicator. It need not lie between
+zero and one. The balance statistic remains a valid moment comparison, but it does not
+describe two nonnegative weighted proportions. The opposite-sign mass in
+Equation~\eqref{eq:opposite_sign_mass} shows how much cancellation accompanies the
+reported balance.
+
 
 
 
 
 \subsubsection{Implementation and visualization}
-The statistics are computed with \texttt{cobalt} and displayed in Love plots. Uniform weights provide the unadjusted comparison, and the
-estimator-specific \(a_i\) provide the adjusted comparison. Binary covariates are
-marked separately in the plots. The reference line at \(0.1\) denotes one tenth of a
-pooled standard deviation for continuous covariates and a raw difference of \(0.10\)
-for binary covariates. 
-The Card application additionally reports a design-stage diagnostic based on positive
-instrument inverse-probability weights. Specifically, the \(Z=1\) and \(Z=0\) groups
-are reweighted by separately H\'ajek-normalized versions of
-\(Z_i/\widehat p_i\) and \((1-Z_i)/(1-\widehat p_i)\), respectively. That diagnostic
-asks whether the fitted instrument propensity score balances observed covariates
-across instrument states. Equation~\eqref{eq:mixed_balance_measure}, applied to the
-signed outcome weights, instead describes the final treatment-group comparison that
-generates the fitted outcome contrast. Reporting both separates propensity-model
-performance from the geometry of the final estimator.
+The balance statistics are displayed with Love plots constructed using the
+\texttt{cobalt} package \citep{greifer2024cobalt}. This follows the application of
+outcome weights to canonical covariate-balance plots in
+\citet[Section~5]{knaus2024treatment}. Uniform weights provide the unadjusted
+treatment comparison. The estimator-specific \(a_i\) provide the adjusted comparison.
+Continuous and binary covariates are marked separately. A reference line at \(0.1\)
+corresponds to one tenth of a pooled standard deviation for continuous covariates and
+to a raw difference of \(0.10\) for binary covariates.
+
+
+
+\subsubsection{Instrument-propensity diagnostics}
+
+The Card application also evaluates the fitted instrument propensity score before
+examining the final outcome contrast. The two instrument groups receive positive
+inverse-probability weights proportional to
+\(Z_i/\widehat p_i\) and \((1-Z_i)/(1-\widehat p_i)\). Each group is normalized
+separately. Covariate balance then records how closely the weighted \(Z=1\) and
+\(Z=0\) samples resemble each other. Conventional Kish effective sample size is
+reported within each instrument group because these design weights are nonnegative.\\
+This diagnostic concerns the construction of the instrument propensity model. The
+outcome-weight diagnostics concern the final comparison between \(D=1\) and \(D=0\)
+that reproduces the reported estimate. Their joint use connects the estimated design
+stage to the geometry of the fitted estimator without treating the two comparisons as
+equivalent.\\
+The empirical applications now apply this diagnostic sequence to three distinct IV
+designs. Each application first establishes the relevant data and point estimates. It
+then examines normalization, effective support, sign composition, and covariate
+balance for the exact outcome-weight representations. The Vietnam draft lottery
+provides the first application and serves as the low-dimensional benchmark for the
+subsequent Card and Angrist and Evans comparisons.
 
 
 
