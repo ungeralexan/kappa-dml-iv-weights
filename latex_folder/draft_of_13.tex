@@ -194,12 +194,11 @@
 \section*{Abstract}
 \addcontentsline{toc}{section}{Abstract}
 
-This thesis studies how classical kappa weighting estimators and causal
-machine-learning estimators of the local average treatment effect behave in finite
-samples. It combines \citet{abadie2003semiparametric} kappa framework with recent results on estimator
+This thesis studies classical kappa estimators of the LATE together with
+machine-learning-assisted IV estimators, focusing on Wald-AIPW and PLR-IV. It combines \citet{abadie2003semiparametric} kappa framework with recent results on estimator
 normalization and outcome weights to place both estimator classes within a common
-diagnostic framework. In particular, the thesis derives observation-level outcome
-weights for five kappa-based LATE estimators and uses them to examine normalization,
+diagnostic framework. In particular, the thesis constructs and implements outcome weights for five kappa-based
+estimators and uses them to examine normalization,
 covariate balance, weight concentration, and sensitivity to outcome transformations.
 
 A central contribution is the extension of translation-invariance analysis from
@@ -211,12 +210,10 @@ lottery, Card's college-proximity design, and the Angrist--Evans fertility desig
 compare normalized and unnormalized kappa estimators with PLR-IV and Wald-AIPW
 implemented using several nuisance learners.
 
-The results show that normalization is closely linked to invariance under outcome
-recoding, while data-adaptive estimators must be assessed at the level of the complete
-estimation pipeline. Across the applications, the outcome-weight perspective also
-reveals substantial differences in covariate balance, effective sample size, negative
-weights, and weight concentration. These diagnostics provide information that is not
-visible from point estimates alone.
+The empirical analysis examines whether normalization is reflected in
+translation invariance and whether outcome-weight diagnostics reveal differences
+in effective support, concentration, negative weights, and covariate balance that
+are not visible from point estimates alone.
 
 \bigskip
 \noindent\textbf{Keywords:} local average treatment effect, instrumental variables,
@@ -326,7 +323,8 @@ they satisfy. In particular, partially linear estimators may have zero total wei
 without assigning masses of one and minus one to the treated and untreated components.
 The framework also permits diagnostic tools developed for explicit weighting estimators
 to be applied to causal machine-learning procedures.\\
-This last development requires a distinction between several uses of the term weight.
+The term “weight” refers to different objects in these literatures, and
+these objects must be separated for the empirical analysis below.
 Abadie's kappa weights are identification objects that recover moments of the complier
 population. Balancing weights are chosen to satisfy prespecified covariate moments.
 Outcome weights are the realized observation-level coefficients that reproduce a fitted estimate as a weighted sum of the observed outcomes. They also differ from effect weights, which
@@ -368,9 +366,11 @@ institutionally randomized assignment conditional on birth cohort. The college-p
 design of \citet{card1993using} introduces an observational instrument, richer covariate
 adjustment, and two binary schooling margins with different first-stage strength. The
 fertility design of \citet{angrist1996children} adds a large parent sample, a binary
-labor-supply outcome, and a logged monetary outcome. Together, the applications reveal
-whether the diagnostic conclusions persist when the source of instrument variation, the
-covariate structure, and the outcome scale change.
+labor-supply outcome, and a logged monetary outcome.
+The applications differ in the source of instrument variation, the complexity
+of the covariate adjustment, sample size, treatment definition, and outcome
+scale. This variation allows the diagnostic findings to be compared across
+substantively different IV settings.
 
 % TODO: Revisit this paragraph after all final application tables and robustness checks
 % have been completed. Add two or three quantitative headline comparisons.
@@ -405,14 +405,13 @@ conclude.
 \section{Econometric Framework}
 \subsection{Conditional instrumental variables, compliance types, and LATE}
 \label{subsec:conditional_iv_late}
-
+When treatment selection is related to potential outcomes, treated and
+untreated observations are not directly comparable. Instrumental-variable
+methods instead use treatment variation induced by the instrument.
 Let $Y_i$ denote the observed outcome, $D_i\in\{0,1\}$ the treatment,
 $Z_i\in\{0,1\}$ the instrument, and $X_i$ a vector of pretreatment
-covariates. Treatment is endogenous when treatment status is related to
-unobserved determinants of the potential outcomes, so a direct comparison
-of treated and untreated observations need not identify a causal effect.
-Instrumental-variable methods instead use variation in treatment induced by
-$Z_i$. Under heterogeneous treatment effects, the resulting estimand depends
+covariates.
+ Under heterogeneous treatment effects, the resulting estimand depends
 on whose treatment status responds to the instrument, which motivates a
 potential-outcomes formulation.
 Let $D_i(z)$ denote the treatment status that individual $i$ would
@@ -452,8 +451,9 @@ complier. The target parameter is the local average treatment effect
     =E\bigl[Y_i(1)-Y_i(0)\mid C_i=1\bigr].
     \label{eq:late_definition}
 \end{equation}
-
-
+The parameter is defined independently of whether it can be recovered from the
+observed data, identification requires the conditional-IV assumptions stated
+below.\\
 In many applications, the instrument is plausibly as good as randomly
 assigned only after conditioning on pretreatment covariates. This matters for
 estimation, as with heterogeneous treatment effects, additive covariate-adjusted
@@ -466,13 +466,14 @@ conditional instrument propensity score directly. The kappa theorem of
 moments of the latent complier population as weighted moments of observed
 data.
 
-\subsection{Abadie's kappa theorem}
+\subsection{Abadie's kappa representation of complier moments}
 
-Abadie's representation formalizes this conditional-IV approach. Following
-\citet{abadie2003semiparametric}, let $p(X_i)=P(Z_i=1\mid X_i)$ denote
-the conditional instrument propensity score. The identification result relies
-on the following conditions.\\
-\textbf{Assumption (Conditional IV).}
+Let $p(X_i)=P(Z_i=1\mid X_i)$ denote the conditional probability of
+instrument assignment. The following conditions are Abadie's
+\citeyearpar[Assumption~2.1]{abadie2003semiparametric} conditional version of
+the standard binary-IV assumptions. Their formulation here follows the
+notation used by \citet[Assumption~IV]{sloczynski2025abadie}.\\
+\textbf{Assumptions (Conditional IV).}
 \begin{enumerate}
     \item[(i)] Independence:
     \[
@@ -493,26 +494,24 @@ on the following conditions.\\
     P(D_i(1)\geq D_i(0)\mid X_i)=1.
     \]
 \end{enumerate}
-Condition (i) requires the instrument to be as good as randomly assigned within
-covariate strata. Condition (ii) rules out a direct effect of the instrument on
-the outcome. Condition (iii) combines overlap with a positive conditional first
-stage, while condition (iv) rules out defiers. Under conditions (i) and (iv) for almost every covariate value \(x\),
+Condition (i) makes instrument assignment conditionally independent of the
+potential variables, while condition (ii) requires the instrument to affect the
+outcome only through treatment. Condition (iii) imposes overlap and a positive
+first stage in every relevant covariate stratum. Finally condition (iv) excludes
+defiers. Under this assumption, Abadie's
+\citeyearpar[Lemma~2.1]{abadie2003semiparametric} result gives, for almost every
+covariate value \(x\),
 \begin{align}
     &E[D_i\mid Z_i=1,X_i=x]-E[D_i\mid Z_i=0,X_i=x] \notag\\
     &\qquad=E[D_i(1)-D_i(0)\mid X_i=x]
-    =P(C_i=1\mid X_i=x).
+    =P(C_i=1\mid X_i=x)>0.
     \label{eq:conditional_complier_share}
 \end{align}
-Thus, the conditional first stage equals the conditional complier share.
-Always- and never-takers contribute zero, whereas each complier contributes
-one. Equation~\eqref{eq:conditional_complier_share} clarifies which population
-supplies the identifying treatment variation, but individual compliance status
-remains latent. Abadie's key result is that moments of this latent group,
-including the potential-outcome means in
-Equation~\eqref{eq:late_definition}, can nevertheless be recovered from
-observed data.\\
-For this purpose, define the three kappa weights
-
+The conditional first stage therefore measures the share of compliers at
+$X_i=x$. Always- and never-takers contribute zero to $D_i(1)-D_i(0)$, whereas
+compliers contribute one. Although an individual's compliance type is not
+observed, Abadie's main identification result recovers complier moments from
+the distribution of the observed data. To state it, define
 
 
 \begin{equation}
@@ -523,23 +522,27 @@ For this purpose, define the three kappa weights
     \kappa_i = \kappa_{0i}\big(1-p(X_i)\big)+\kappa_{1i}\,p(X_i) = 1-\frac{D_i(1-Z_i)}{1-p(X_i)}-\frac{(1-D_i)Z_i}{p(X_i)}.
 \end{equation}
 
-\textbf{Lemma (Abadie's kappa theorem; \citealp{abadie2003semiparametric}).} Let $g(\cdot)$, $g_0(\cdot)$, and $g_1(\cdot)$ be measurable functions with finite first moments. Under Assumption (Conditional IV),
+\noindent\textbf{Kappa representation.} The following result is due to
+\citet[Theorem~3.1]{abadie2003semiparametric}; the notation with separate
+functions $g$, $g_0$, and $g_1$ follows
+\citet[Lemma~2.1]{sloczynski2025abadie}. Let these functions be measurable and
+have finite first moments. Under the Conditional IV assumption,
 \begin{align}
     E\big[g(Y_i,D_i,X_i)\mid D_i(1)>D_i(0)\big] &= \frac{E\big[\kappa_i\, g(Y_i,D_i,X_i)\big]}{P(D_i(1)>D_i(0))}, \tag{a}\\
     E\big[g_0(Y_i(0),X_i)\mid D_i(1)>D_i(0)\big] &= \frac{E\big[\kappa_{0i}\, g_0(Y_i,X_i)\big]}{P(D_i(1)>D_i(0))}, \tag{b}\\
     E\big[g_1(Y_i(1),X_i)\mid D_i(1)>D_i(0)\big] &= \frac{E\big[\kappa_{1i}\, g_1(Y_i,X_i)\big]}{P(D_i(1)>D_i(0))}. \tag{c}
 \end{align}
-Equations (a)-(c) also hold conditional on $X_i$.
-The theorem makes the complier population statistically tractable even though complier
-status is not observed. By choosing \(g\), \(g_0\), and \(g_1\) appropriately, moments of the
-complier distribution can be written as weighted moments of the observed data.
-In particular, setting \(g(Y_i,D_i,X_i)=1\) gives
+Conditional versions of (a)-(c) hold as well. The functions $\kappa_i$,
+$\kappa_{0i}$, and $\kappa_{1i}$ are identification weights, not probabilities,
+in particular, $\kappa_i$ may be negative when $D_i\neq Z_i$
+\citep[p.~237]{abadie2003semiparametric}.
+Setting $g(Y_i,D_i,X_i)=1$ in part (a) identifies the population complier share:
 \begin{equation}
     E[\kappa_i]=P(D_i(1)>D_i(0)).
 \end{equation}
-Applying parts (b) and (c) to the LATE defined in
-Equation~\eqref{eq:late_definition}, set $g_0(Y_i(0),X_i)=Y_i(0)$ and
-$g_1(Y_i(1),X_i)=Y_i(1)$ yields
+For the LATE, choose $g_0(Y_i(0),X_i)=Y_i(0)$ and
+$g_1(Y_i(1),X_i)=Y_i(1)$ in parts (b) and (c). This specialization, also used
+by \citet[Section~2]{sloczynski2025abadie}, yields
 \begin{equation}
     \tau_{\mathrm{LATE}}
     =
@@ -557,41 +560,35 @@ $ this can also be written as
 \begin{equation}
     \tau_{\mathrm{LATE}} = \frac{1}{P(D_i(1)>D_i(0))}\,E\!\left[Y_i\,\frac{Z_i-p(X_i)}{p(X_i)\big(1-p(X_i)\big)}\right].
 \end{equation}
-It is worth noting already that $P(D_i(1)>D_i(0))$ can equivalently be written as
-$E[\kappa_i]$, $E[\kappa_{0i}]$, or $E[\kappa_{1i}]$. All three representations are valid
-in population under Assumption (Conditional IV) and coincide there. Their sample
-analogues, however, need not coincide in finite samples, whether $p(X_i)$ is known or
-estimated. This finite-sample ambiguity in the denominator is the source of the different
-weighting estimators of $\tau_{\mathrm{LATE}}$ developed in the next section.
+Parts (b) and (c) with constant functions similarly imply
+$E[\kappa_{0i}]=E[\kappa_{1i}]=P(D_i(1)>D_i(0))$. Hence,
+\begin{equation}
+E[\kappa_i]=E[\kappa_{0i}]=E[\kappa_{1i}]=P(D_i(1)>D_i(0)).
+\label{eq:kappa_denominator_equality}
+\end{equation}
+This equality follows from Abadie's theorem. Its estimator-selection consequence
+is emphasized by \citet[Remark~2.2]{sloczynski2025abadie}: the corresponding
+sample averages generally differ, even though all three estimate the same
+population quantity. This distinction generates the alternative kappa estimators
+considered next.
 
-\section{The estimators}
-\subsection{Kappa and weighting estimators of the LATE}
-The previous section established Abadie's kappa representation of the LATE. For
-the empirical analysis, the relevant implication is that this representation
-identifies the population parameter, but does not by itself select a unique
-finite-sample estimator. In population, the complier share
-$P(D_i(1)>D_i(0))$ can be written as $E[\kappa_i]$, $E[\kappa_{1i}]$, or
-$E[\kappa_{0i}]$. These objects are equal under the IV assumptions, but their
-sample analogues need not be equal. As a result, the same identification result
-leads to several natural weighting estimators once the population moments are
-replaced by sample averages.
-Following \citet{sloczynski2025abadie}, both normalized and unnormalized weighting
-estimators are considered. The distinction is whether the component weights are rescaled
-to form separately normalized weighted means. Its consequences for translation
-invariance and scale equivariance are developed in
-Section~\ref{sec:translation_invariance}.
-To reproduce the analysis of \citet{sloczynski2025abadie}, the set of estimators considered here includes the estimator $\hat\tau_u$, originally proposed by \citet{uysal2011three}, and the estimator $\hat\tau_{a,10}$, considered by \citet{abadie2018econometric}.
-Both estimators are normalized, although they arise from different representations of the LATE.
-The remaining estimators 
-$\hat\tau_a$, $\hat\tau_t(=\hat\tau_{a,1})$, and $\hat\tau_{a,0}$, are
-unnormalized sample analogues. 
-The present subsection defines the estimators and shows how their respective weights are
-constructed and normalized.\\
-For notational simplicity, the formulas below are written in terms of thd population instrument propensity score $p(X_i)$. As it is common in empirical applications that $p(X_i)$ is unknown, it is replaced by the fitted propensity score $\hat p(X_i)$.
-The first estimator is  $\hat\tau_u$ originally proposed in \citep{uysal2011three} and moreover the preferred estimator in \citet{sloczynski2025abadie}. 
-It is constructed as 
-the ratio of two separately Hájek-normalized inverse-probability-weighted
-contrasts,
+\section{Kappa and DML-IV estimators}
+\subsection{Kappa-based LATE estimators}
+Following \citet[Section~3]{sloczynski2025abadie}, I compare estimators that
+differ in how they translate Equation~\eqref{eq:kappa_denominator_equality} into
+a sample denominator. The central distinction is normalization. A normalized
+estimator rescales each component of an outcome contrast to have weights summing
+to one, whereas an unnormalized estimator uses one estimated complier share for both
+components. Section~\ref{sec:translation_invariance} examines the resulting
+implications for translation invariance and scale equivariance.
+The formulas initially treat $p(X_i)$ as known. In the applications it is
+replaced by a fitted probability $\hat p(X_i)$. The first estimator,
+$\hat\tau_u$, was proposed by \citet{uysal2011three} and is recommended within
+this class by \citet[Section~3.1]{sloczynski2025abadie}. It is the ratio of
+separately Hájek-normalized inverse-probability-weighted contrasts for the
+effect of $Z_i$ on $Y_i$ and on $D_i$:
+
+
 \begin{equation}
     \hat\tau_u =
     \frac{
@@ -605,10 +602,11 @@ contrasts,
     }.
     \label{eq:tau_u}
 \end{equation}
-The numerator is a normalized inverse-probability-weighted estimate of the effect of the instrument on the outcome.
-The denominator is the corresponding normalized estimate of the effect of the instrument on treatment. Within each instrument group, the inverse-probability weights are rescaled to sum to one before the respective differences are formed. The normalization of these component weights is demonstrated in Appendix~\ref{app:normalization_estimators}.\\
-The second normalized estimator, $\hat\tau_{a,10}$, considered by \citet{abadie2018econometric} and \citet{sant2022covariate}. Rather than normalizing the instrument-group IPW means as in \(\hat\tau_u\),
-it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly,
+Thus, the inverse-probability weights are normalized within each instrument
+group before either contrast is formed. Appendix~\ref{app:normalization_estimators}
+shows the normalization algebra.\\
+The second normalized estimator, $\hat\tau_{a,10}$, instead normalizes the
+$\kappa_1$- and $\kappa_0$-weighted outcome means separately:
 \begin{equation}
     \hat\tau_{a,10} =
     \left(\sum_{i=1}^N \kappa_{1i}\right)^{-1}\sum_{i=1}^N \kappa_{1i}Y_i
@@ -616,61 +614,45 @@ it normalizes the \(\kappa_1\)- and \(\kappa_0\)-weighted outcome means directly
     \left(\sum_{i=1}^N \kappa_{0i}\right)^{-1}\sum_{i=1}^N \kappa_{0i}Y_i.
     \label{eq:tau_a10}
 \end{equation}
-Here each component has its own normalization denominator. 
-Consequently, the $\kappa_1$ weights in the first component and the $\kappa_0$ weights in the second component each sum to one within the sample.\\
-The remaining estimators are also valid sample analogues of the population identification result:
-\[
-\tau_{\mathrm{LATE}}
-= P(D_i(1)>D_i(0))^{-1}
-E\!\left[
-Y_i\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}
-\right].
-\]
-Their lack of normalization arises because a common estimate of the complier share is used as the denominator of both weighted outcome sums:
+This estimator has been considered by \citet{abadie2018econometric} and
+\citet{sant2022covariate}. Its two sets of component weights each sum to one in
+the sample. By contrast, using one of the three sample analogues of the complier
+share as a common denominator gives
 \begin{align}
     \hat\tau_a &= \left(N^{-1}\sum_{i=1}^N \kappa_i\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_a}\\
     \hat\tau_t \;(=\hat\tau_{a,1}) &= \left(N^{-1}\sum_{i=1}^N \kappa_{1i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}, \label{eq:tau_t}\\
     \hat\tau_{a,0} &= \left(N^{-1}\sum_{i=1}^N \kappa_{0i}\right)^{-1} N^{-1}\sum_{i=1}^N Y_i\,\frac{Z_i-p(X_i)}{p(X_i)(1-p(X_i))}. \label{eq:tau_a0}
 \end{align}
-These three estimators are consistent under the same population argument, but
-their finite-sample weights are not normalized. In particular, the two components
-of the implied outcome contrast are not both forced to sum to one. 
-Among the unnormalized estimators, $\hat\tau_t$ is the one most commonly used in
-the applied literature, following \citet{tan2006regression} and
-\citet{frolich2007nonparametric} and later applications such as
-\citet{macurdy2011flexible},
-\citet{donald2014inverse,donald2014testing}, and
-\citet{abdulkadirouglu2017research}.
+With $p(X_i)$ known or consistently estimated, these estimators inherit
+consistency from the same population identification argument, but both sides of
+their implied outcome contrast are not separately normalized. The identity
+$\hat\tau_t=\hat\tau_{a,1}$ and the prominence of this estimator in applied work are documented by
+\citet[Remark~3.1]{sloczynski2025abadie}.
 
-\subsubsection*{Estimating the propensity score}
-Following \citet{sloczynski2025abadie}, two estimators of $\alpha$ are used to
-obtain the instrument propensity score $\hat p(X_i)$.
-The first is standard maximum likelihood,
-denoted $\hat\alpha^{ml}$. For this the the parametric logit model
-\[
-F(X_i,\alpha)=\frac{\exp(X_i'\alpha)}{1+\exp(X_i'\alpha)}.
-\] is used.
-The second is the covariate balancing propensity
-score estimator of \citet{imai2014covariate}, denoted $\hat\alpha^{cb}$, which
-solves
+\subsubsection {Estimating the propensity score}
+I estimate the instrument propensity score by the two methods considered by
+\citet[Section~3.5]{sloczynski2025abadie}. The first fits the logit model
+\begin{equation}
+    F(X_i,\alpha)=\frac{\exp(X_i'\alpha)}{1+\exp(X_i'\alpha)}.
+\end{equation}
+by maximum likelihood, producing $\hat\alpha^{ml}$. The second uses the
+covariate-balancing approach of \citet{imai2014covariate}, the estimate
+$\hat\alpha^{cb}$ solves
 \begin{equation}
     N^{-1}\sum_{i=1}^N \frac{Z_i}{F(X_i,\hat\alpha^{cb})}X_i =
     N^{-1}\sum_{i=1}^N \frac{1-Z_i}{1-F(X_i,\hat\alpha^{cb})}X_i.
     \label{eq:cbps_moment}
 \end{equation}
-Rather than maximizing the likelihood of $Z_i$ given $X_i$, this condition
-chooses $\alpha$ so that the reweighted covariate means are balanced across
-instrument groups.  
-I use a superscript to indicate which propensity score enters a given
-estimato. For example,
+The balancing equation targets equality of reweighted covariate moments across
+the two instrument groups. Superscripts indicate which fitted propensity score
+enters an estimator. For example,
 $\hat\tau_u^{ml}$ and $\hat\tau_u^{cb}$ are obtained by plugging in
 $\hat p^{ml}(X_i)=F(X_i,\hat\alpha^{ml})$ and
-$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively. \\
-This convention matters as under maximum likelihood, the
-finite-sample denominator ambiguity remains, and
-$\hat\tau_u^{ml}$, $\hat\tau_{a,10}^{ml}$, $\hat\tau_a^{ml}$, $\hat\tau_t^{ml}$,
-and $\hat\tau_{a,0}^{ml}$ generally differ from one another. Under covariate balancing with a constant included
-in $X_i$, \citet{sloczynski2025abadie} show the exact finite-sample identity
+$\hat p^{cb}(X_i)=F(X_i,\hat\alpha^{cb})$, respectively.\\
+With maximum-likelihood propensity scores, the alternative sample denominators
+generally remain distinct. With covariate balancing and a constant in $X_i$,
+however, \citet[Proposition~3.5]{sloczynski2025abadie} establish the exact
+finite-sample identity
 \[
 \hat\tau_u^{cb}
 =
@@ -682,14 +664,10 @@ in $X_i$, \citet{sloczynski2025abadie} show the exact finite-sample identity
 =
 \hat\tau_{a,10}^{cb}.
 \]
-The unnormalized estimator $\hat\tau_a^{cb}$ is not part of this equivalence and can differ from
-the others even under covariate balancing.
-This result determines how I report the estimates in the empirical sections.
-Reporting all these CBPS-based estimates separately would not add
-information, because they coincide by construction in the sample. I therefore report
-$\hat\tau_u^{cb}$ as the CBPS-based estimate.
-The remaining estimators are
-reported with maximum-likelihood propensity scores. \\
+The estimator $\hat\tau_a^{cb}$ is not covered by this equivalence. Accordingly,
+the empirical sections report $\hat\tau_u^{cb}$ once, rather than repeating
+identical CBPS estimates, and report the remaining variants with
+maximum-likelihood propensity scores.\\
 An important consideration for the code implementation is that no existing
 software implements the full set of required features in R.\citet{bodory2018causalweight}'s \texttt{causalweight} package
 implements $\hat\tau_u$ in R, but does not support covariate balancing
@@ -1872,68 +1850,6 @@ classical kappa results as a benchmark and examines whether the same invariance 
 preserved across increasingly data-adaptive IV estimation procedures.
 The resulting analysis uses the classical kappa results as a benchmark and examines whether the same invariance is preserved across increasingly data-adaptive IV estimation procedures. Table~\ref{tab:invariance_checks_overview} summarizes the outcome transformations, estimators, learner specifications, and analysis samples considered in each empirical application.
 
-\begin{table}[htbp]
-\centering
-\caption{Overview of the empirical invariance checks}
-\label{tab:invariance_checks_overview}
-\small
-\begin{tabular}{lccc}
-\toprule
- & Vietnam & Card & Angrist--Evans \\
-\midrule
-Outcome examined
-    & Log wage
-    & Log wage
-    & Labor force participation / log income \\
-
-Transformation
-    & Dollars to cents
-    & Dollars to cents
-    & \(Y+1\) / alternative income units \\
-
-Kappa estimators
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-Linear IV benchmark
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-PLR-IV rerun
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-Wald-AIPW rerun
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-Parametric learners
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-\texttt{ranger}
-    & \checkmark
-    & \checkmark
-    & \checkmark \\
-
-Tuned XGBoost
-    & \checkmark
-    & Primary cells
-    & Labor and income workflows \\
-
-Analysis sample
-    & Replication sample
-    & Replication sample
-    & Diagnostic subsamples \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 
 \newpage
 
@@ -2176,13 +2092,7 @@ subsequent Card and Angrist and Evans comparisons.
 
 \subsection{Data and Design}
 \label{subsec:vietnam_data}
-\begin{quotation}
-\noindent\textit{``Tonight for the first time in 27 years the United
-States has again started a draft lottery.''}
 
-\smallskip
-\noindent\hfill --- Roger Mudd, CBS News, 1 December 1969
-\end{quotation}
 The economic consequences of military service have long been a central question in the evaluation of veterans' compensation and labour-market policy. In the United States, this question is especially relevant for the Vietnam era, where military service was politically contested and where the long-run civilian outcomes of veterans remained difficult to assess. A simple comparison between veterans and nonveterans, however, does not provide a credible causal estimate of the effect of military service on earnings. Men who served in the military were not selected at random. They may differ from nonveterans in health, education, ability, labour-market opportunities, or willingness to enlist. As a result, observed earnings differences may reflect both the causal effect of service and the characteristics that selected individuals into military service.\\
 This is the selection problem adressed in \citet{angrist1990lifetime}.
 Key to his idea to overcome it is to use the Vietnam-era draft lottery as a source of quasi random variation in the probability of taking on military service. 
