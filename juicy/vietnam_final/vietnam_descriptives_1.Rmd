@@ -1,0 +1,448 @@
+---
+title: "Angrist (1990) — Design and Descriptive Diagnostics"
+subtitle: "Sample construction · treatment uptake · IV building blocks · overlap and balance"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+h3   { color: #444; margin-top: 20px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.key-box  { background:#fdeaea; border-left:4px solid #d7191c; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 11, fig.height = 5.5, dpi = 110)
+```
+
+```{r packages, include=FALSE}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(AER)
+library(sandwich)
+library(lmtest)
+library(scales)
+library(cobalt)
+
+source("functions_all.R")
+
+# Consistent palette
+col_z1   <- "#2c7bb6"   # Z = 1 (draft eligible)
+col_z0   <- "#d7191c"   # Z = 0 (draft ineligible)
+col_grey <- "#4d4d4d"
+```
+
+```{r data, include=FALSE}
+data_candidates <- c("sipp.dta", file.path("vietnam_final", "sipp.dta"))
+data_file <- data_candidates[file.exists(data_candidates)][1]
+if (is.na(data_file)) stop("Could not find sipp.dta in the notebook or project directory.")
+
+sipp_raw <- read_dta(data_file)
+
+# Sample restriction (suw_jbes_replicate.do): drop rsncode==999, missing educ / kwage
+sipp <- sipp_raw[sipp_raw$rsncode != 999 &
+                   !is.na(sipp_raw$educ) &
+                   !is.na(sipp_raw$kwage), ]
+
+# Variable definitions follow the SUW Stata replication: age equals age_5.
+sipp$age     <- sipp$age_5
+sipp$age2    <- sipp$age_5^2
+sipp$age3    <- sipp$age_5^3
+sipp$age_fac <- factor(sipp$age_5)
+
+sipp$Z      <- as.integer(sipp$rsncode)   # instrument: draft-eligibility indicator
+sipp$nvstat <- as.integer(sipp$nvstat)    # treatment: Vietnam-era veteran status
+sipp$lwage  <- log(sipp$kwage)            # outcome (log wage, dollars)
+
+# Design matrices (with intercept) for the three age specifications
+X_lin <- model.matrix(~ age,               sipp)
+X_cub <- model.matrix(~ age + age2 + age3, sipp)
+X_sat <- model.matrix(~ age_fac,           sipp)
+
+# Propensity scores p(X) = Pr(Z = 1 | X) under each spec  (engine: logit_mle)
+sipp$p_lin <- logit_mle(sipp$Z, X_lin)
+sipp$p_cub <- logit_mle(sipp$Z, X_cub)
+sipp$p_sat <- logit_mle(sipp$Z, X_sat)
+```
+
+<div class="note-box">
+**Purpose.** This notebook documents the analysis sample and the empirical features that matter for the draft-lottery IV design before the main estimators are compared. Following the SUW replication, the conditioning variable is `age = age_5` (respondent age, not birth cohort), entered linearly, cubically, or through age indicators. Estimator-specific weight diagnostics remain in the main analysis notebook.
+</div>
+
+---
+
+# 1. Sample Construction and Data Quality
+
+<div class="note-box">
+The analysis sample follows the SUW restriction by excluding `rsncode == 999` and observations with missing education or wages. The complete variable inventory is retained as a reproducibility check and is not intended as a thesis table.
+</div>
+
+```{r sample-size}
+n_drop <- nrow(sipp_raw) - nrow(sipp)
+data.frame(
+  Stage = c("Raw file", "Drop rsncode==999 / missing educ / missing kwage", "Analysis sample"),
+  N     = c(nrow(sipp_raw), n_drop, nrow(sipp)),
+  check.names = FALSE
+) %>%
+  kbl(caption = "Sample construction", align = c("l","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 14) %>%
+  row_spec(3, bold = TRUE)
+```
+
+```{r missingness}
+miss_tab <- data.frame(
+  Variable    = names(sipp_raw),
+  Class       = vapply(sipp_raw, function(x) class(x)[1], character(1)),
+  n_missing   = vapply(sipp_raw, function(x) sum(is.na(x)), integer(1)),
+  pct_missing = round(100 * vapply(sipp_raw, function(x) mean(is.na(x)), numeric(1)), 2),
+  n_unique    = vapply(sipp_raw, function(x) length(unique(x)), integer(1)),
+  row.names   = NULL
+)
+miss_tab <- miss_tab[order(-miss_tab$n_missing), ]
+
+miss_tab %>%
+  kbl(caption = "Variable inventory and missingness (raw file, sorted by missing count)",
+      col.names = c("Variable","Class","# missing","% missing","# unique"),
+      align = c("l","l","r","r","r"), row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  row_spec(which(miss_tab$n_missing > 0), background = "#fdeaea") %>%
+  scroll_box(height = "360px") %>%
+  footnote(general = "Highlighted rows have at least one missing value. After the restriction the analysis sample is used everywhere below.")
+```
+
+---
+
+# 2. Distributions of Z, D, and Y
+
+<div class="note-box">
+**Instrument:** draft eligibility. **Treatment:** Vietnam-era veteran status (`nvstat`). **Outcome:** log wage in dollars. Age is the conditioning variable throughout the main analysis.
+</div>
+
+```{r dist-binary, fig.height=3.6}
+bin_df <- bind_rows(
+  data.frame(Variable = "Z (draft eligible)", value = sipp$Z),
+  data.frame(Variable = "D: veteran (nvstat)", value = sipp$nvstat)
+) %>%
+  group_by(Variable) %>%
+  summarise(`= 1` = mean(value), `= 0` = 1 - mean(value), .groups = "drop") %>%
+  pivot_longer(c(`= 1`, `= 0`), names_to = "level", values_to = "share")
+
+ggplot(bin_df, aes(x = Variable, y = share, fill = level)) +
+  geom_col(width = 0.55, alpha = 0.9) +
+  geom_text(aes(label = sprintf("%.1f%%", 100 * share)),
+            position = position_stack(vjust = 0.5), size = 3.4, colour = "white") +
+  scale_fill_manual(values = c("= 1" = col_z1, "= 0" = "#bdbdbd")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  coord_flip() +
+  labs(title = "Binary variables: instrument Z and treatment D", x = NULL, y = NULL, fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.major.y = element_blank(),
+        plot.title = element_text(face = "bold"))
+```
+
+```{r dist-y, fig.height=4.6}
+sipp %>%
+  mutate(Zlab = factor(ifelse(Z == 1, "Z = 1 (eligible)", "Z = 0 (ineligible)"),
+                       levels = c("Z = 1 (eligible)", "Z = 0 (ineligible)"))) %>%
+  ggplot(aes(x = lwage, fill = Zlab)) +
+  geom_histogram(bins = 40, alpha = 0.65, colour = "white", position = "identity") +
+  geom_vline(xintercept = mean(sipp$lwage), linetype = "dashed", colour = col_grey) +
+  scale_fill_manual(values = c("Z = 1 (eligible)" = col_z1, "Z = 0 (ineligible)" = col_z0)) +
+  labs(title = "Outcome: log wage, by instrument status",
+       subtitle = "Dashed line = overall mean log wage.",
+       x = "log(wage)", y = "Count", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10))
+```
+
+```{r dist-y-summary}
+data.frame(
+  Group = c("All", "Z = 1 (eligible)", "Z = 0 (ineligible)"),
+  N     = c(nrow(sipp), sum(sipp$Z == 1), sum(sipp$Z == 0)),
+  Mean  = c(mean(sipp$lwage), mean(sipp$lwage[sipp$Z==1]), mean(sipp$lwage[sipp$Z==0])),
+  SD    = c(sd(sipp$lwage),   sd(sipp$lwage[sipp$Z==1]),   sd(sipp$lwage[sipp$Z==0])),
+  Min   = c(min(sipp$lwage),  min(sipp$lwage[sipp$Z==1]),  min(sipp$lwage[sipp$Z==0])),
+  Max   = c(max(sipp$lwage),  max(sipp$lwage[sipp$Z==1]),  max(sipp$lwage[sipp$Z==0]))
+) %>%
+  mutate(across(c(Mean,SD,Min,Max), ~round(., 3))) %>%
+  kbl(caption = "Log wage summary by instrument status", align = c("l","r","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 13)
+```
+
+---
+
+# 3. Instrument–Treatment Composition
+
+<div class="note-box">
+The table reports unconditional veteran rates by eligibility. Under unconditional instrument independence and monotonicity, the three rate combinations also identify principal-strata shares. Because eligibility varies systematically with age and the analysis conditions on age, they are presented here as descriptive contrasts rather than direct estimates of those shares.
+</div>
+
+```{r compliance}
+compliance_block <- function(D, treat_name) {
+  tab <- table(Z = sipp$Z, D = D)
+  p_d_z1 <- mean(D[sipp$Z == 1])
+  p_d_z0 <- mean(D[sipp$Z == 0])
+  data.frame(
+    Treatment       = treat_name,
+    `n(Z=0,D=0)`    = tab["0","0"], `n(Z=0,D=1)` = tab["0","1"],
+    `n(Z=1,D=0)`    = tab["1","0"], `n(Z=1,D=1)` = tab["1","1"],
+    `Pr(D=1|Z=1)`   = round(p_d_z1, 3),
+    `Pr(D=1|Z=0)`   = round(p_d_z0, 3),
+    `Unadjusted gap`       = round(p_d_z1 - p_d_z0, 3),
+    `Treatment rate, Z=0` = round(p_d_z0, 3),
+    `Non-treatment, Z=1`  = round(1 - p_d_z1, 3),
+    check.names = FALSE
+  )
+}
+
+compliance_block(sipp$nvstat, "nvstat (veteran)") %>%
+  kbl(caption = "Instrument–treatment cells and unconditional treatment-rate contrasts",
+      align = c("l", rep("r", 9))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  add_header_above(c(" " = 1, "Cell counts" = 4, "Conditional treatment rates" = 2,
+                     "Descriptive contrasts" = 3)) %>%
+  column_spec(9, bold = TRUE, color = "#2c7bb6") %>%
+  footnote(general = "The unadjusted gap is Pr(D=1|Z=1) − Pr(D=1|Z=0). Veteran service among ineligible men documents incomplete take-up of assignment, but a principal-strata interpretation additionally requires the relevant unconditional IV assumptions.")
+```
+
+---
+
+# 4. First Stage, Reduced Form, and Linear-IV Benchmarks
+
+<div class="note-box">
+The first stage, reduced form, and their ratio provide transparent linear-IV benchmarks for the three age specifications. For the single instrument, the reported HC1-robust statistic is the squared robust t-statistic. The conventional threshold of 10 is shown only as a descriptive screen.
+</div>
+
+```{r first-stage-table}
+fs_diagnostic <- function(formula, data) {
+  fit <- lm(formula, data = data)
+  ct  <- coeftest(fit, vcov = vcovHC(fit, type = "HC1"))
+  c(first_stage = unname(ct["Z", "Estimate"]),
+    robust_se   = unname(ct["Z", "Std. Error"]),
+    robust_t2   = unname((ct["Z", "Estimate"] / ct["Z", "Std. Error"])^2))
+}
+
+LIN_RHS <- "age"
+CUB_RHS <- "age + age2 + age3"
+SAT_RHS <- "age_fac"
+
+fs_rows <- rbind(
+  data.frame(Spec="Linear age",    t(fs_diagnostic(as.formula(paste("nvstat ~ Z +", LIN_RHS)), sipp))),
+  data.frame(Spec="Cubic age",     t(fs_diagnostic(as.formula(paste("nvstat ~ Z +", CUB_RHS)), sipp))),
+  data.frame(Spec="Saturated age", t(fs_diagnostic(as.formula(paste("nvstat ~ Z +", SAT_RHS)), sipp)))
+)
+fs_rows$first_stage <- round(fs_rows$first_stage, 4)
+fs_rows$robust_se   <- round(fs_rows$robust_se, 4)
+fs_rows$robust_t2   <- round(fs_rows$robust_t2, 1)
+fs_rows$Screen <- ifelse(fs_rows$robust_t2 >= 10, "Above 10", "Below 10")
+
+fs_rows %>%
+  kbl(caption = "First-stage strength: effect of draft eligibility (Z) on veteran status",
+      col.names = c("Spec","First stage δ̂","Robust SE","Robust t²","Screen"),
+      align = c("l","r","r","r","c")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  row_spec(which(fs_rows$robust_t2 < 10), background = "#fdeaea", bold = TRUE) %>%
+  footnote(general = "Robust t² is the squared HC1 t-statistic for Z. Values below 10 would be highlighted as a conventional descriptive warning; the threshold is not a formal robust weak-IV test.")
+```
+
+```{r rf-wald-table}
+rf_coef <- function(rhs) {
+  fit <- lm(as.formula(paste("lwage ~ Z +", rhs)), data = sipp)
+  ct  <- coeftest(fit, vcov = vcovHC(fit, type = "HC1"))
+  unname(ct["Z","Estimate"])
+}
+fs_coef <- function(rhs) unname(fs_diagnostic(as.formula(paste("nvstat ~ Z +", rhs)), sipp)["first_stage"])
+raw_wald <- function() {
+  num <- mean(sipp$lwage[sipp$Z==1]) - mean(sipp$lwage[sipp$Z==0])
+  den <- mean(sipp$nvstat[sipp$Z==1]) - mean(sipp$nvstat[sipp$Z==0])
+  num / den
+}
+
+wald_block <- function(spec, rhs) {
+  fs <- fs_coef(rhs); rf <- rf_coef(rhs)
+  data.frame(
+    Spec = spec,
+    `First stage δ̂` = round(fs, 4),
+    `Reduced form γ̂` = round(rf, 4),
+    `Wald = γ̂/δ̂ (adj.)` = round(rf / fs, 4),
+    `Raw Wald (no cov.)` = round(raw_wald(), 4),
+    check.names = FALSE
+  )
+}
+
+rbind(
+  wald_block("Linear age",    LIN_RHS),
+  wald_block("Cubic age",     CUB_RHS),
+  wald_block("Saturated age", SAT_RHS)
+) %>%
+  kbl(caption = "Linear-IV building blocks (Y = log wage in dollars)",
+      align = c("l","r","r","r","r")) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  column_spec(4, bold = TRUE) %>%
+  footnote(general = "With the same linear age controls in both equations, the adjusted ratio equals the just-identified 2SLS coefficient. These are linear-IV benchmarks; a conditional LATE interpretation requires the additional conditions discussed in the thesis.")
+```
+
+## First Stage by Age (design-specific)
+
+<div class="note-box">
+Because draft-eligibility ceilings differ across cohorts, eligibility and veteran rates vary with age. The figure displays the treatment contrast within observed age cells; it is a descriptive view of first-stage heterogeneity rather than a separate identification test.
+</div>
+
+```{r first-stage-age-plot, fig.height=5}
+age_keep <- sipp %>% count(age_5) %>% filter(n >= 50) %>% pull(age_5)
+
+fs_age <- sipp %>%
+  filter(age_5 %in% age_keep) %>%
+  mutate(Zlab = factor(ifelse(Z == 1, "Z = 1 (eligible)", "Z = 0 (ineligible)"),
+                       levels = c("Z = 0 (ineligible)", "Z = 1 (eligible)"))) %>%
+  group_by(age_5, Zlab) %>%
+  summarise(vet_rate = mean(nvstat), .groups = "drop")
+
+pooled_fs <- mean(sipp$nvstat[sipp$Z==1]) - mean(sipp$nvstat[sipp$Z==0])
+
+ggplot(fs_age, aes(x = factor(age_5), y = vet_rate, fill = Zlab)) +
+  geom_col(position = position_dodge(0.7), width = 0.62, alpha = 0.9) +
+  scale_fill_manual(values = c("Z = 0 (ineligible)" = col_z0, "Z = 1 (eligible)" = col_z1)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "First stage: veteran rate by draft eligibility and age",
+       subtitle = sprintf("Pooled unadjusted gap = %.3f. Ineligible-group bars show service without draft eligibility.", pooled_fs),
+       x = "Age (age_5)", y = "Pr(veteran)", fill = NULL,
+       caption = "Age cells with fewer than 50 observations excluded.") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.major.x = element_blank(),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10),
+        plot.caption = element_text(colour = "grey50", size = 9))
+```
+
+---
+
+# 5. Propensity Score: Concentration & Overlap
+
+<div class="note-box">
+The propensity score is p(X) = Pr(Z = 1 | X), fitted with the same `logit_mle` implementation used by the analysis code. Eligibility varies with age, but the fitted probabilities remain away from zero and one in this sample. This section therefore assesses empirical support for the later inverse-propensity components without treating overlap as evidence for all IV assumptions.
+</div>
+
+## Summary Statistics
+
+```{r ps-summary}
+ps_summary <- function(p, name) {
+  data.frame(Specification = name,
+             Min = min(p), P05 = quantile(p,0.05), P25 = quantile(p,0.25),
+             Mean = mean(p), P75 = quantile(p,0.75), P95 = quantile(p,0.95),
+             Max = max(p), SD = sd(p),
+             `near 0/1` = mean(p < 0.05 | p > 0.95),
+             check.names = FALSE)
+}
+ps_tab <- bind_rows(ps_summary(sipp$p_lin, "Linear age"),
+                    ps_summary(sipp$p_cub, "Cubic age"),
+                    ps_summary(sipp$p_sat, "Saturated age"))
+ps_tab[,2:10] <- lapply(ps_tab[,2:10], function(x) round(x, 4))
+
+ps_tab %>%
+  kbl(caption = "Propensity score p̂(X) = Pr(Z=1|X): summary by specification",
+      align = c("l", rep("r", 9))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  column_spec(9, bold = TRUE) %>%
+  column_spec(10, bold = TRUE, color = "#d7191c") %>%
+  footnote(general = "Dispersion reflects the age structure of draft eligibility. The near-boundary share records the fraction of fitted probabilities below 0.05 or above 0.95.")
+```
+
+## Distribution by Instrument Status
+
+```{r ps-dist-plot, fig.height=7}
+ps_long <- sipp %>%
+  select(p_lin, p_cub, p_sat, Z) %>%
+  pivot_longer(c(p_lin, p_cub, p_sat), names_to = "spec", values_to = "p_hat") %>%
+  mutate(Specification = factor(spec, levels = c("p_lin", "p_cub", "p_sat"),
+                                labels = c("Linear age", "Cubic age", "Saturated age")),
+         Zlab = factor(ifelse(Z == 1, "Z = 1 (eligible)", "Z = 0 (ineligible)"),
+                       levels = c("Z = 1 (eligible)", "Z = 0 (ineligible)")))
+
+ggplot(ps_long, aes(x = p_hat, fill = Zlab)) +
+  geom_histogram(bins = 40, alpha = 0.7, colour = "white", position = "identity") +
+  geom_vline(xintercept = mean(sipp$Z), linetype = "dashed", colour = col_grey) +
+  facet_wrap(~ Specification, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c("Z = 1 (eligible)" = col_z1, "Z = 0 (ineligible)" = col_z0)) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Propensity score distribution by instrument status",
+       subtitle = "The distributions show how eligibility probabilities vary with age and where empirical support may be limited.",
+       x = expression(hat(p)(X) == Pr(Z == 1 ~ "|" ~ X)), y = "Count", fill = NULL,
+       caption = "Dashed line = pooled Pr(Z=1).") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 9.5),
+        plot.caption = element_text(colour = "grey50", size = 9))
+```
+
+---
+
+# 6. Unadjusted Covariate Balance
+
+<div class="note-box">
+Standardized mean differences describe the age composition of the two eligibility groups before adjustment. The differences are expected because eligibility rules vary by cohort and motivate conditioning on age; they are not a direct test of instrument validity. Kolmogorov–Smirnov statistics supplement the mean differences.
+</div>
+
+```{r unadj-balance, fig.height=4.5}
+covs <- data.frame(age = sipp$age, age2 = sipp$age2, age3 = sipp$age3)
+
+# stats/binary declared in bal.tab() so cobalt computes KS upstream of love.plot()
+bal <- bal.tab(covs, treat = sipp$Z,
+               binary = "std", s.d.denom = "pooled",
+               stats  = c("mean.diffs", "ks.statistics"))
+
+love.plot(bal,
+          stats      = c("mean.diffs", "ks.statistics"),
+          binary     = "std",
+          abs        = TRUE,
+          thresholds = c(m = 0.1),
+          var.order  = "unadjusted",
+          colors     = col_z1,
+          shapes     = "circle",
+          title      = "Unadjusted covariate balance across the instrument Z (age polynomial)")
+```
+
+```{r unadj-balance-table}
+smd_tab <- bal$Balance
+smd_tab$Variable <- rownames(smd_tab)
+keep_cols <- intersect(c("Variable","Type","Diff.Un"), names(smd_tab))
+smd_tab[, keep_cols] %>%
+  arrange(desc(abs(Diff.Un))) %>%
+  mutate(Diff.Un = round(Diff.Un, 3)) %>%
+  kbl(caption = "Unadjusted standardized differences across Z (sorted by |SMD|)",
+      col.names = c("Variable","Type","SMD (unadjusted)"),
+      align = c("l","l","r"), row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE, font_size = 12.5) %>%
+  footnote(general = "SMD across the instrument. |SMD| > 0.1 (a common rule of thumb) flags covariates imbalanced with respect to Z — here, the age structure the design adjusts for.")
+```
