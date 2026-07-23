@@ -46,6 +46,8 @@ N_CF <- 5
 TUNE_EVALS <- 15
 INNER_FOLDS <- 3
 EXTRACT_WEIGHTS <- TRUE
+RERUN_TUNING <- FALSE
+EXPORT_PATH <- "vietnam_xgb_pliv_tuning_export.rds"
 ```
 
 <div class="note-box">
@@ -55,6 +57,9 @@ XGBoost nuisances for cubic and saturated age, evaluates their out-of-fold
 prediction losses, extracts outcome weights, checks the outcome-weight
 identity, and exports all downstream objects. The main Vietnam notebook
 imports the export and never retunes XGBoost during an ordinary knit.
+By default, `RERUN_TUNING = FALSE` renders the report from the verified
+export. It should be changed to `TRUE` only when the nested tuning procedure
+itself is deliberately re-estimated.
 </div>
 
 <div class="warn-box">
@@ -80,8 +85,13 @@ Z <- as.integer(sipp$rsncode)
 X_cub <- make_X(~0+age+I(age^2)+I(age^3),data=sipp)
 X_sat_full <- make_X(~0+age_fac,data=sipp)
 X_sat <- X_sat_full[,-1,drop=FALSE]
-cat(sprintf("N=%d | cubic=%d covariates | saturated=%d covariates\n",
-            nrow(sipp),ncol(X_cub),ncol(X_sat)))
+data.frame(
+  Quantity=c("Analysis sample","Cubic-age covariates",
+             "Saturated-age covariates"),
+  Value=c(format(nrow(sipp),big.mark=","),ncol(X_cub),ncol(X_sat))
+) %>%
+  kbl(caption="Analysis dimensions") %>%
+  kable_styling(bootstrap_options=c("striped","condensed"),full_width=FALSE)
 ```
 
 ```{r learners-and-tuning}
@@ -142,14 +152,23 @@ cells <- list("Cubic age"=list(Y=Y,D=D,Z=Z,X=X_cub),
 
 # Fit: untuned versus tuned XGBoost
 
-```{r fit-all, cache=TRUE}
-results <- list()
-for(cn in names(cells)) {
-  cell <- cells[[cn]]; dat <- make_dml_data(cell$Y,cell$D,cell$Z,cell$X)
-  results[[cn]] <- list(
-    untuned=fit_cell(dat,make_xgb_learners(),paste(cn,"pliv-xgb-untuned"),FALSE),
-    tuned=fit_cell(dat,make_xgb_learners(),paste(cn,"pliv-xgb-tuned"),TRUE))
-  cat(sprintf("Finished: %s\n",cn))
+```{r fit-all, include=FALSE}
+if (RERUN_TUNING) {
+  results <- list()
+  for(cn in names(cells)) {
+    cell <- cells[[cn]]
+    dat <- make_dml_data(cell$Y,cell$D,cell$Z,cell$X)
+    results[[cn]] <- list(
+      untuned=fit_cell(dat,make_xgb_learners(),
+                       paste(cn,"pliv-xgb-untuned"),FALSE),
+      tuned=fit_cell(dat,make_xgb_learners(),
+                     paste(cn,"pliv-xgb-tuned"),TRUE))
+  }
+} else {
+  if (!file.exists(EXPORT_PATH)) {
+    stop("Verified PLR-IV XGBoost export not found. Set RERUN_TUNING=TRUE to rebuild it.")
+  }
+  stored_export <- readRDS(EXPORT_PATH)
 }
 ```
 
@@ -157,9 +176,13 @@ for(cn in names(cells)) {
 
 ```{r comparison-table}
 fmt_est <- function(r)if(is.null(r))"—"else sprintf("%.3f (%.3f)",r$coef,r$se)
-rows <- do.call(rbind,lapply(names(results),function(cn){R<-results[[cn]]
-  data.frame(Cell=cn,Learner=c("PLR-IV XGB untuned","PLR-IV XGB tuned (tune_on_folds=TRUE)"),
-             `Estimate (SE)`=c(fmt_est(R$untuned),fmt_est(R$tuned)),check.names=FALSE)}))
+if (RERUN_TUNING) {
+  rows <- do.call(rbind,lapply(names(results),function(cn){R<-results[[cn]]
+    data.frame(Cell=cn,Learner=c("PLR-IV XGB untuned","PLR-IV XGB tuned (tune_on_folds=TRUE)"),
+               `Estimate (SE)`=c(fmt_est(R$untuned),fmt_est(R$tuned)),check.names=FALSE)}))
+} else {
+  rows <- stored_export$estimate_comparison
+}
 rows %>% kbl(caption="Vietnam PLR-IV: XGBoost untuned vs. fold-specifically tuned",
              align=c("l","l","c")) %>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
@@ -171,22 +194,52 @@ rows %>% kbl(caption="Vietnam PLR-IV: XGBoost untuned vs. fold-specifically tune
 ## 2. Nuisance-prediction losses
 
 ```{r nuisance-loss-table}
-loss_rows <- do.call(rbind,lapply(names(results),function(cn){R<-results[[cn]];cell<-cells[[cn]]
-  u<-calc_nuisance_losses(R$untuned,cell);t<-calc_nuisance_losses(R$tuned,cell)
-  data.frame(Cell=cn,Learner=c("PLR-IV XGB untuned","PLR-IV XGB tuned"),
-    `Outcome l RMSE`=c(u["outcome_l_rmse"],t["outcome_l_rmse"]),
-    `Instrument m RMSE`=c(u["instrument_m_rmse"],t["instrument_m_rmse"]),
-    `Treatment r RMSE`=c(u["treatment_r_rmse"],t["treatment_r_rmse"]),
-    check.names=FALSE,row.names=NULL)}))
+if (RERUN_TUNING) {
+  loss_rows <- do.call(rbind,lapply(names(results),function(cn){R<-results[[cn]];cell<-cells[[cn]]
+    u<-calc_nuisance_losses(R$untuned,cell);t<-calc_nuisance_losses(R$tuned,cell)
+    data.frame(Cell=cn,Learner=c("PLR-IV XGB untuned","PLR-IV XGB tuned"),
+      `Outcome l RMSE`=c(u["outcome_l_rmse"],t["outcome_l_rmse"]),
+      `Instrument m RMSE`=c(u["instrument_m_rmse"],t["instrument_m_rmse"]),
+      `Treatment r RMSE`=c(u["treatment_r_rmse"],t["treatment_r_rmse"]),
+      check.names=FALSE,row.names=NULL)}))
+} else {
+  loss_rows <- stored_export$nuisance_losses
+}
 loss_rows %>% kbl(digits=4,caption="PLR-IV nuisance losses: untuned vs. tuned (lower is better)") %>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
   collapse_rows(columns=1,valign="middle") %>%
   row_spec(which(loss_rows$Learner=="PLR-IV XGB tuned"),background="#eef6ff")
 ```
 
-## 3. Selected hyperparameters
+## 3. Tuning protocol
 
-```{r hyperparameter-summary}
+The tuned estimator does not have one final hyperparameter vector. The
+settings are selected separately within each outer training fold, and the
+corresponding fold-specific model produces the held-out predictions. The
+relevant reproducibility information is therefore the prespecified search
+design rather than a vector of medians assembled across different fitted
+models.
+
+```{r tuning-protocol}
+data.frame(
+  Component=c(
+    "Outer cross-fitting","Inner validation","Search algorithm","Budget",
+    "nrounds","max_depth","eta","min_child_weight",
+    "Outcome nuisance","Instrument nuisance","Treatment nuisance"
+  ),
+  Specification=c(
+    paste(N_CF,"folds"),paste(INNER_FOLDS,"folds"),"Random search",
+    paste(TUNE_EVALS,"evaluations per nuisance and outer fold"),
+    "50–400","2–5","0.02–0.20","1–8",
+    "RMSE","RMSE","RMSE"
+  )
+) %>%
+  kbl(caption="Nested XGBoost tuning protocol: PLR-IV") %>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),
+                full_width=FALSE)
+```
+
+```{r hyperparameter-summary, include=FALSE}
 extract_tuned_params <- function(r,cn){
   if(is.null(r)||!r$tuned)return(data.frame())
   src<-if(!is.null(r$params))r$params else r$tuning_result
@@ -199,18 +252,24 @@ extract_tuned_params <- function(r,cn){
                ifelse(grepl("ml_r",hp$Raw_name),"Treatment r","Unknown")))
   hp$Parameter<-sub(".*(nrounds|max_depth|eta|min_child_weight).*","\\1",hp$Raw_name);hp
 }
-hp_parts<-lapply(names(results),function(cn)extract_tuned_params(results[[cn]]$tuned,cn))
-hp_parts<-Filter(function(x)nrow(x)>0,hp_parts)
-hp_raw<-if(length(hp_parts))do.call(rbind,hp_parts)else data.frame()
-if(nrow(hp_raw)){
+if (RERUN_TUNING) {
+  hp_parts<-lapply(names(results),function(cn)extract_tuned_params(results[[cn]]$tuned,cn))
+  hp_parts<-Filter(function(x)nrow(x)>0,hp_parts)
+  hp_raw<-if(length(hp_parts))do.call(rbind,hp_parts)else data.frame()
+  if (!nrow(hp_raw)) stop("Fold-specific hyperparameters could not be extracted.")
   hp_summary<-hp_raw%>%filter(Nuisance!="Unknown")%>%group_by(Cell,Nuisance,Parameter)%>%
     summarise(Median_across_folds=median(Value),N_values_seen=n(),.groups="drop")
-  hp_summary%>%kbl(digits=3,caption="Selected PLR-IV XGBoost hyperparameters: fold-level median")%>%
-    kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-    collapse_rows(columns=c(1,2),valign="middle")%>%
-    footnote(general="These are descriptive fold-level summaries, not a reusable global recipe.")
-}else cat("No hyperparameters could be extracted automatically; inspect results[[...]]$tuned$obj$params.\n")
+} else {
+  hp_raw <- NULL
+  hp_summary <- stored_export$hyperparameters
+}
 ```
+
+<div class="note-box">
+The existing export retains the median fold summary for audit purposes.
+Future substantive reruns additionally save the underlying fold-specific
+values. Neither object is a reusable global XGBoost recipe.
+</div>
 
 ## 4. Outcome-weight diagnostics and export
 
@@ -229,15 +288,19 @@ one_diag_row<-function(cn,label,r,cell){
   wb<-weight_bridge(w,cell$D,label);ov<-wb[wb$Scope=="Overall",];tr<-wb[wb$Scope=="Treated",];co<-wb[wb$Scope=="Control",]
   data.frame(Cell=cn,Learner=label,Estimate=r$coef,ESS=ov$ESS_kish,ESS_mod=ov$ESS_mod,
     `Sigma omega`=ov$Sum_w,`Sigma abs omega`=ov$Sum_abs_w,`Treated mass`=tr$Sum_w,
-    `Control mass (-sum control weights)`=co$Sum_w,`max abs omega`=max(abs(w)),
+    `Control mass (-sum control weights)`=co$Sum_w,`max abs omega`=ov$Max_abs_w,
     `Identity ok`=tryCatch(check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
     `Weight status`="ok",check.names=FALSE)}
 ```
 
 ```{r weight-table}
-xgb_pliv_weight_table<-do.call(rbind,lapply(names(cells),function(cn){R<-results[[cn]];cell<-cells[[cn]]
-  rbind(one_diag_row(cn,"PLR-IV XGB untuned",R$untuned,cell),
-        one_diag_row(cn,"PLR-IV XGB tuned",R$tuned,cell))}))
+if (RERUN_TUNING) {
+  xgb_pliv_weight_table<-do.call(rbind,lapply(names(cells),function(cn){R<-results[[cn]];cell<-cells[[cn]]
+    rbind(one_diag_row(cn,"PLR-IV XGB untuned",R$untuned,cell),
+          one_diag_row(cn,"PLR-IV XGB tuned",R$tuned,cell))}))
+} else {
+  xgb_pliv_weight_table <- stored_export$weight_diagnostics
+}
 xgb_pliv_weight_table%>%kbl(digits=4,caption="Vietnam PLR-IV XGBoost outcome-weight diagnostics")%>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
   row_spec(which(xgb_pliv_weight_table$Learner=="PLR-IV XGB tuned"),background="#eef6ff")%>%
@@ -245,35 +308,42 @@ xgb_pliv_weight_table%>%kbl(digits=4,caption="Vietnam PLR-IV XGBoost outcome-wei
 ```
 
 ```{r omega-and-identities}
-xgb_pliv_omega_vectors<-lapply(names(cells),function(cn)list(
-  untuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$untuned,cells[[cn]])else NULL,
-  tuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$tuned,cells[[cn]])else NULL))
-names(xgb_pliv_omega_vectors)<-names(cells)
-xgb_pliv_identity_checks<-lapply(names(cells),function(cn){cell<-cells[[cn]];R<-results[[cn]];W<-xgb_pliv_omega_vectors[[cn]]
-  list(
-    untuned=tryCatch(if(is.null(W$untuned)||is.null(R$untuned))NA else
-      check_weight_identity(W$untuned,cell$Y,R$untuned$coef),error=function(e)NA),
-    tuned=tryCatch(if(is.null(W$tuned)||is.null(R$tuned))NA else
-      check_weight_identity(W$tuned,cell$Y,R$tuned$coef),error=function(e)NA))})
-names(xgb_pliv_identity_checks)<-names(cells)
+if (RERUN_TUNING) {
+  xgb_pliv_omega_vectors<-lapply(names(cells),function(cn)list(
+    untuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$untuned,cells[[cn]])else NULL,
+    tuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$tuned,cells[[cn]])else NULL))
+  names(xgb_pliv_omega_vectors)<-names(cells)
+  xgb_pliv_identity_checks<-lapply(names(cells),function(cn){cell<-cells[[cn]];R<-results[[cn]];W<-xgb_pliv_omega_vectors[[cn]]
+    list(
+      untuned=tryCatch(if(is.null(W$untuned)||is.null(R$untuned))NA else
+        check_weight_identity(W$untuned,cell$Y,R$untuned$coef),error=function(e)NA),
+      tuned=tryCatch(if(is.null(W$tuned)||is.null(R$tuned))NA else
+        check_weight_identity(W$tuned,cell$Y,R$tuned$coef),error=function(e)NA))})
+  names(xgb_pliv_identity_checks)<-names(cells)
+} else {
+  xgb_pliv_omega_vectors <- stored_export$omega_vectors
+  xgb_pliv_identity_checks <- stored_export$identity_checks
+}
 ```
 
-```{r export, cache=FALSE}
-xgb_pliv_export<-list(estimate_comparison=rows,nuisance_losses=loss_rows,
-  hyperparameters=if(exists("hp_summary"))hp_summary else NULL,
-  weight_diagnostics=xgb_pliv_weight_table,omega_vectors=xgb_pliv_omega_vectors,
-  identity_checks=xgb_pliv_identity_checks,
-  settings=list(seed=SEED,n_cf=N_CF,tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,
-    tune_on_folds=TRUE,learner="xgboost",dml_class="DoubleMLPLIV",
-    score="partialling out",extract_weights=EXTRACT_WEIGHTS,cells=names(cells)),
-  sample_info=list(n=nrow(sipp),mean_Z=mean(Z),mean_D=mean(D),outcome="log(kwage)",
-                   specifications=names(cells)))
-saveRDS(xgb_pliv_export,"vietnam_xgb_pliv_tuning_export.rds")
-cat("Saved: vietnam_xgb_pliv_tuning_export.rds\n")
+```{r export, include=FALSE}
+if (RERUN_TUNING) {
+  xgb_pliv_export<-list(estimate_comparison=rows,nuisance_losses=loss_rows,
+    hyperparameters=hp_summary,hyperparameters_raw=hp_raw,
+    weight_diagnostics=xgb_pliv_weight_table,omega_vectors=xgb_pliv_omega_vectors,
+    identity_checks=xgb_pliv_identity_checks,
+    settings=list(seed=SEED,n_cf=N_CF,tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,
+      tune_on_folds=TRUE,learner="xgboost",dml_class="DoubleMLPLIV",
+      score="partialling out",extract_weights=EXTRACT_WEIGHTS,cells=names(cells)),
+    sample_info=list(n=nrow(sipp),mean_Z=mean(Z),mean_D=mean(D),outcome="log(kwage)",
+                     specifications=names(cells)))
+  saveRDS(xgb_pliv_export,EXPORT_PATH)
+}
 ```
 
 <div class="note-box">
-The main analysis reads `vietnam_xgb_pliv_tuning_export.rds`. Because the
-tuned model uses fold-specific choices, downstream notebooks must import the
-saved estimates and weights rather than refit a single median recipe.
+The main analysis reads `vietnam_xgb_pliv_tuning_export.rds`. With
+`tune_on_folds = TRUE`, the exported estimate and weight vectors come from
+fold-specific fitted models. The median summaries are descriptive and must
+not be copied into a new fit.
 </div>
