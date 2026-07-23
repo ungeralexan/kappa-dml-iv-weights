@@ -2241,7 +2241,7 @@ uses five-fold cross-fitting. Cubic age and saturated age indicators are
 retained as the two richer encodings from the SUW replication. Using both
 shows whether the estimates depend on representing the cohort structure by a
 smooth polynomial or by separate age categories.\\
-Table~\ref{tab:vietnam_dml} reports the two DML estimates together with the
+Appendix Table~\ref{tab:vietnam_dml} reports the two DML estimates together with the
 normalised kappa estimators and 2SLS. The DML estimates are positive and
 closely grouped. PLR-IV equals \(0.243\) under cubic age and \(0.242\) under
 saturated age, while Wald-AIPW changes from \(0.229\) to \(0.244\). These
@@ -2252,40 +2252,6 @@ and \(0.254\).
 
 
 
-\begin{table}[htbp]
-\centering
-\caption{DML and benchmark estimates for log wages measured in dollars}
-\label{tab:vietnam_dml}
-\small
-\begin{threeparttable}
-\begin{tabular}{l cc cc}
-\toprule
- & \multicolumn{2}{c}{Cubic age}
- & \multicolumn{2}{c}{Saturated age} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-Estimator & Est. & SE & Est. & SE \\
-\midrule
-\addlinespace[2pt]
-\multicolumn{5}{l}{\textit{Panel A: DML}} \\[2pt]
-PLR-IV           & 0.243 & (0.228) & 0.242 & (0.228) \\
-Wald-AIPW        & 0.229 & (0.231) & 0.244 & (0.233) \\[4pt]
-\multicolumn{5}{l}{\textit{Panel B: Normalised kappa}} \\[2pt]
-$\hat{\tau}_{u}^{cb}$   & 0.210 & (0.233) & 0.241 & (0.229) \\
-$\hat{\tau}_{u}^{ml}$   & 0.202 & (0.235) & 0.241 & (0.229) \\
-$\hat{\tau}_{a,10}$     & 0.204 & (0.239) & 0.241 & (0.229) \\[4pt]
-\multicolumn{5}{l}{\textit{Panel C: 2SLS benchmark}} \\[2pt]
-2SLS             & 0.227 & (0.229) & 0.254 & (0.227) \\
-\bottomrule
-\end{tabular}
-\begin{tablenotes}
-\footnotesize
-\item \textit{Notes:} DML nuisance functions are estimated by tuned honest
-forests with five-fold cross-fitting. Standard errors are reported in
-parentheses. The kappa and 2SLS estimates correspond to the dollar columns of
-Appendix Table~\ref{tab:vietnam_kappa}.
-\end{tablenotes}
-\end{threeparttable}
-\end{table}
 The standard errors are between \(0.227\) and \(0.239\) across the estimators
 in the table. The point estimates are therefore similar relative to their
 sampling uncertainty, but none is estimated precisely. Agreement between
@@ -2320,100 +2286,256 @@ than the linear or logistic nuisance models, especially for PLR-IV.
 The Vietnam results are not driven by
 one particular nuisance learner or tuning choice. For clarity, the tuned
 honest forest remains the headline specification in
-Table~\ref{tab:vietnam_dml}; the other fits are treated as sensitivity
+Appendix Table~\ref{tab:vietnam_dml}; the other fits are treated as sensitivity
 checks. This dollars-only comparison is kept separate from the
 complete-pipeline translation exercise.
 
+\subsection{Translation Invariance under Complete Re-estimation}
+\label{subsec:vietnam_translation}
+The replication results show why translation invariance is an important
+property in this application. Measuring wages in cents instead of dollars
+adds \(\log(100)\) to the outcome but does not change the underlying economic
+quantity. The
+normalised kappa estimators in Section~\ref{subsec:vietnam_estimates} remain
+unchanged, while the unnormalised estimators move under the linear and cubic
+age specifications.
+I apply the same outcome translation to the DML estimators. For this purpose,
+each complete estimation procedure is fitted once to log wages in dollars and
+once to the translated outcome. The nuisance functions are re-estimated using
+the same cross-fitting design. Honest-forest tuning is repeated internally,
+and the XGBoost specifications repeat the nested tuning procedure within the
+outer training folds.
 
-
-
-
-
-
-
-
-\subsection{Outcome Weight Diagnostics and Covariate Balance}
-\label{subsec:vietnam_weights}
-The replication showed that the unnormalised kappa estimators respond to the
-dollars--cents recoding, whereas the normalised kappa estimators do not.
-Section~\ref{subsec:vietnam_dml} showed that the DML and normalised kappa
-estimates are also close when wages are measured in dollars. This agreement
-does not establish translation invariance for the DML procedures, which
-requires the separate complete-pipeline rerun. The present section examines
-the realised outcome weights as a complementary diagnostic.
 \begin{table}[htbp]
 \centering
-\caption{Outcome weight diagnostics: Vietnam draft lottery}
-\label{tab:vietnam_weights}
-\small
-\begin{tabular}{l cccc}
+\caption{Translation invariance under complete re-estimation}
+\label{tab:vietnam_translation}
+\footnotesize
+\begin{threeparttable}
+\begin{tabular}{l rrr rrr}
 \toprule
-Estimator & $\sum_i\omega_i$ & ESS & \% neg.\ & $\max|\omega_i|$ \\
+ & \multicolumn{3}{c}{Cubic age}
+ & \multicolumn{3}{c}{Saturated age} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Estimator
+& Dollars & Cents & Change
+& Dollars & Cents & Change \\
 \midrule
-\addlinespace[2pt]
-\multicolumn{5}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
-PLR-IV (DML)                      & 0.000 & 6 & 54.4 & 0.0125 \\
-Wald-AIPW (DML)                   & 0.000 & 5 & 54.4 & 0.0176 \\
-$\hat{\tau}_{u}^{cb}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0254 \\
-$\hat{\tau}_{u}^{ml}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0281 \\
-$\hat{\tau}_{a,10}$ (kappa)       & 0.000 & 5 & 54.4 & 0.0291 \\
-$\hat{\tau}_{a}$ (kappa)          & 0.048 & 5 & 54.4 & 0.0289 \\
-$\hat{\tau}_{t}$ (kappa)          & 0.046 & 5 & 54.4 & 0.0277 \\
-$\hat{\tau}_{a,0}$ (kappa)        & 0.049 & 5 & 54.4 & 0.0291 \\[4pt]
-\multicolumn{5}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
-PLR-IV (DML)                      & 0.000 & 6 & 54.4 & 0.0131 \\
-Wald-AIPW (DML)                   & 0.000 & 5 & 54.4 & 0.0169 \\
-$\hat{\tau}_{u}^{cb}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0178 \\
-$\hat{\tau}_{u}^{ml}$ (kappa)     & 0.000 & 5 & 54.4 & 0.0178 \\
-$\hat{\tau}_{a,10}$ (kappa)       & 0.000 & 5 & 54.4 & 0.0178 \\
-$\hat{\tau}_{a}$ (kappa)          & 0.000 & 5 & 54.4 & 0.0178 \\
-$\hat{\tau}_{t}$ (kappa)          & 0.000 & 5 & 54.4 & 0.0178 \\
-$\hat{\tau}_{a,0}$ (kappa)        & 0.000 & 5 & 54.4 & 0.0178 \\
+\multicolumn{7}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
+$\hat{\tau}_{u}^{cb}$  & 0.209995 & 0.209995 & 0.000000
+                       & 0.240810 & 0.240810 & 0.000000 \\
+$\hat{\tau}_{u}^{ml}$  & 0.202483 & 0.202483 & 0.000000
+                       & 0.240810 & 0.240810 & 0.000000 \\
+$\hat{\tau}_{a,10}$    & 0.204434 & 0.204434 & 0.000000
+                       & 0.240810 & 0.240810 & 0.000000 \\
+$\hat{\tau}_{a}$       & 0.314421 & 0.536590 & 0.222169
+                       & 0.240810 & 0.240810 & 0.000000 \\
+$\hat{\tau}_{t}$       & 0.302027 & 0.515439 & 0.213412
+                       & 0.240810 & 0.240810 & 0.000000 \\
+$\hat{\tau}_{a,0}$     & 0.316704 & 0.540486 & 0.223782
+                       & 0.240810 & 0.240810 & 0.000000 \\[4pt]
+\multicolumn{7}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
+PLR-IV                 & 0.242913 & 0.242913 & 0.000000
+                       & 0.241573 & 0.241573 & 0.000000 \\
+Wald-AIPW              & 0.229085 & 0.229085 & 0.000000
+                       & 0.244280 & 0.244297 & 0.000018 \\[4pt]
+\multicolumn{7}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
+PLR-IV, OLS            & 0.238774 & 0.238774 & 0.000000
+                       & 0.270119 & 0.270119 & 0.000000 \\
+Wald-AIPW, OLS/logit   & 0.217826 & 0.217826 & 0.000000
+                       & 0.246814 & 0.246814 & 0.000000 \\
+PLR-IV, \texttt{ranger}& 0.269686 & 0.269686 & 0.000000
+                       & 0.283419 & 0.283419 & 0.000000 \\
+Wald-AIPW, \texttt{ranger}
+                       & 0.246134 & 0.246134 & 0.000000
+                       & 0.260978 & 0.260978 & 0.000000 \\
+PLR-IV, tuned XGBoost  & 0.264828 & 0.267745 & 0.002917
+                       & 0.280918 & 0.280400 & $-0.000518$ \\
+Wald-AIPW, tuned XGBoost
+                       & 0.238268 & 0.237958 & $-0.000310$
+                       & 0.253258 & 0.251730 & $-0.001528$ \\
 \bottomrule
-\addlinespace[4pt]
 \end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} Log wages in cents equal log wages in dollars plus
+\(\log(100)\). ``Cents'' reports the estimate after the complete procedure has
+been re-estimated using the translated outcome. 
+\end{tablenotes}
+\end{threeparttable}
 \end{table}
-Table~\ref{tab:vietnam_weights} reports four weight diagnostics for every
-estimator. The weight sum $\sum_i \omega_i$, the effective sample size
-$\text{ESS} = 1/\sum_i \omega_i^2$, the share of negative weights, and the
-maximum absolute weight. \\
-The first column directly operationalises the translation-invariance criterion derived in
-Section~\ref{subsec:translation_invariance} which can be seen as the necessary and sufficient finite sample condition for translation invariance.
-In the cubic specification, $\sum_i\omega_i = 0$ holds 
-for PLR-IV, Wald-AIPW, and all three normalised kappa estimators.
-On the other hand the three
-unnormalised kappa estimators have weight sums between 0.046 and 0.049,
-accounting precisely for the instability observed in Table~\ref{tab:vietnam_kappa}.
- The result in Table~\ref{tab:vietnam_dml} extends to the alternative
-DoubleML learner specifications. The linear/logistic and \texttt{ranger}
-variants both pass the algebraic identity check
-\(\hat\tau=\sum_i\omega_iY_i\) and have \(\sum_i\omega_i=0\), so their
-recovered outcome weights can be interpreted as translation-invariant
-Wald-AIPW weights in this application. This is consistent with
-\citet{knaus2024treatment}, who shows that Wald-AIPW is normalized when
-the relevant outcome nuisance learners are affine smoothers.
-XGBoost is different. Although the recovered weights have an almost-zero
-sum, \(\sum_i\omega_i=-3.7\times10^{-6}\), they fail the algebraic identity
-\(\hat\tau=\sum_i\omega_iY_i\).
-This caveat is consistent with
-\citet{knaus2024treatment}, who notes that boosted trees can violate the
-affine-smoother condition required for the normalization results.
+Table~\ref{tab:vietnam_translation} first restates the kappa benchmark for the
+two specifications used in the DML analysis. The three normalised estimators
+are unchanged. By contrast, the cubic unnormalised estimates increase by
+between \(0.213\) and \(0.224\) log points. Under saturated age indicators,
+all six kappa estimators coincide. As discussed above, this is a feature of
+the age-cell specification in this sample and not a general invariance result
+for the unnormalised estimators.
+The honest-forest, OLS/logit, and \texttt{ranger} estimates are also
+numerically unchanged after complete re-estimation. The only nonzero
+honest-forest difference is \(0.000018\) for saturated Wald-AIPW, which is
+negligible at the reported precision. The tuned XGBoost estimates show small
+but visible changes. The largest is \(0.002917\) for cubic PLR-IV. These
+changes are minor relative to both the estimated effects and their standard
+errors, so the substantive conclusion of the Vietnam application is stable.
+At the same time, exact equality is not obtained for the tuned XGBoost
+procedures.
+This qualification is consistent with the discussion in
+\citet{knaus2024treatment}. Boosted-tree learners do not generally provide
+the affine-smoother structure used to establish the corresponding
+normalisation results. The XGBoost findings reported here refer to the
+implemented learner and nested tuning procedure. The next section examines
+the realised outcome weights to distinguish the reproduction of the point
+estimate from the normalisation and concentration of the recovered weights.
 
 
-The saturated specification does not make the unnormalised estimators translation invariant in general. Rather, in this application it estimates the instrument propensity score at the age-cell level, which aligns the sample normalisations of the kappa components closely enough that the implied outcome weights sum to zero. The disappearance of the cents--dollars discrepancy is therefore a feature of this saturated design, not a general robustness property of the unnormalised estimators.\\
-The remaining three columns of Table~\ref{tab:vietnam_weights} reveal a
-striking uniformity. In the cubic specification, every estimator has an ESS
-of either 5 or 6, a negative-weight share of exactly 54.4\%, and a maximum
-absolute weight below 0.030. These diagnostics are shared in the saturated specification.
-The uniformity is not a limitation of the diagnostics. It rather reflects a structural feature of the Vietnam design as with a near randomly assigned instrument and a single continuos adjustment variable, the instrument design determines the weight structure almost entirely. 
-The flexible
-DML model and the kappa estimates that are based on a parametric logistic model and on parametric moment conditions produce virtually the same outcome weights because the propensity-
-score surface is nearly flat.
-Hence it can be seen that in the Vietnam application, outcome weight properties are set by design, not the learner.
-% here design dominates the learner appears often maybe some source for that can be found or so. 
 
 
-\subsection{Love plots}
+
+
+\subsection{Normalization and Outcome-Weight Diagnostics}
+\label{subsec:vietnam_weights}
+Section~\ref{subsec:vietnam_translation} documents how the implemented
+estimators behave when the outcome is translated and the complete procedure
+is re-estimated. I now examine the realised outcome weights to determine
+whether they reproduce the reported estimate, how they are normalised, and
+whether they place substantial weight on a small part of the sample.
+
+\begin{sidewaystable}[p]
+\centering
+\caption{Outcome-weight representation, normalisation, and concentration}
+\label{tab:vietnam_weights}
+\footnotesize
+\begin{threeparttable}
+\begin{tabular}{l r r c c c r}
+\toprule
+Estimator
+& $|\omega'Y-\hat{\tau}|$
+& $\sum_i\omega_i$
+& Mass T/C
+& $\mathrm{ESS}_{\mathrm{mod}}/N$ T/C
+& Opposite-sign mass T/C
+& $\max_i|\omega_i|$ \\
+\midrule
+\multicolumn{7}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
+PLR-IV, tuned forest
+& $6.88\times10^{-15}$ & 0.000000 & 0.994/0.994
+& 0.963/0.921 & 43.5/46.6 & 0.012494 \\
+Wald-AIPW, tuned forest
+& $8.69\times10^{-15}$ & 0.000000 & 1.000/1.000
+& 0.952/0.910 & 43.4/46.7 & 0.017627 \\
+PLR-IV, tuned XGBoost
+& $1.18\times10^{-7}$ & 0.000627 & 0.993/0.993
+& 0.962/0.917 & 43.5/46.6 & 0.013060 \\
+Wald-AIPW, tuned XGBoost
+& $3.99\times10^{-9}$ & 0.000027 & 1.001/1.001
+& 0.951/0.907 & 43.3/46.7 & 0.019535 \\[2pt]
+$\hat{\tau}_{u}^{cb}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.958/0.908 & 43.5/46.8 & 0.025384 \\
+$\hat{\tau}_{u}^{ml}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.954/0.899 & 43.6/46.8 & 0.028108 \\
+$\hat{\tau}_{a,10}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.954/0.898 & 43.5/46.9 & 0.029078 \\
+$\hat{\tau}_{a}$
+& 0 & 0.048243 & 1.041/0.993
+& 0.954/0.898 & 43.5/46.9 & 0.028869 \\
+$\hat{\tau}_{t}$
+& 0 & 0.046342 & 1.000/0.954
+& 0.954/0.898 & 43.5/46.9 & 0.027731 \\
+$\hat{\tau}_{a,0}$
+& 0 & 0.048594 & 1.049/1.000
+& 0.954/0.898 & 43.5/46.9 & 0.029078 \\[4pt]
+
+\multicolumn{7}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
+PLR-IV, tuned forest
+& $5.33\times10^{-15}$ & 0.000000 & 0.999/0.999
+& 0.961/0.917 & 43.5/46.6 & 0.013128 \\
+Wald-AIPW, tuned forest
+& $5.97\times10^{-15}$ & 0.000000 & 1.005/1.005
+& 0.951/0.908 & 43.4/46.7 & 0.016866 \\
+PLR-IV, tuned XGBoost
+& $1.17\times10^{-7}$ & 0.000019 & 1.011/1.011
+& 0.961/0.920 & 43.4/46.6 & 0.012257 \\
+Wald-AIPW, tuned XGBoost
+& $3.46\times10^{-8}$ & $-0.000075$ & 1.005/1.005
+& 0.950/0.911 & 43.2/46.6 & 0.016570 \\[2pt]
+$\hat{\tau}_{u}^{cb}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{u}^{ml}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a,10}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{t}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a,0}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} T/C denotes treated and sign-oriented control values.
+The representation gap is the absolute difference between the weighted
+outcome sum and the reported estimate. The XGBoost rows use reconstructed
+weight vectors. Modified ESS is divided by the observed number of treated or
+control observations. Opposite-sign mass is reported in percent. The forest
+and XGBoost rows use the tuned specifications.
+\end{tablenotes}
+\end{threeparttable}
+\end{sidewaystable}
+The representation gap is reported before the weight statistics because the
+diagnostics are exact only when the recovered weights reproduce the estimate.
+The kappa weights do so by construction. The tuned-forest gaps are below
+\(10^{-14}\), which confirms the numerical representation. The reconstructed
+XGBoost gaps are also small, but they are larger and do not satisfy the exact
+numerical check used in the implementation. Their weight statistics are
+therefore interpreted as learner-specific diagnostics rather than as an exact
+decomposition of the reported estimate.\\
+The cubic kappa results provide the clearest normalisation comparison. The
+three normalised estimators have total weight zero and treated and control
+masses equal to one. The unnormalised estimators instead have total weights
+between \(0.0463\) and \(0.0486\). Their separate masses also show which part
+of the contrast remains unnormalised. For \(\hat{\tau}_{t}\), the treated mass
+equals one while the control mass is \(0.954\). For
+\(\hat{\tau}_{a,0}\), the control mass equals one while the treated mass is
+\(1.049\). These differences account for the translation sensitivity in
+Table~\ref{tab:vietnam_translation}.\\
+The concentration statistics add a separate finding. Despite their different
+normalisation, the cubic kappa estimators have almost identical modified ESS
+ratios, opposite-sign masses, and maximum absolute weights. Their modified ESS
+ratios are approximately \(0.95\) among treated observations and \(0.90\)
+among controls, while all maximum weights remain below \(0.030\). The outcome
+translation problem is therefore linked to the weight masses rather than to a
+small effective sample or a few dominant observations.\\
+The tuned-forest weights show a similar concentration pattern and have total
+weight zero in both age specifications. Their treated and control masses are
+also close to one. The reconstructed XGBoost weights have small total masses
+and comparable concentration statistics. Since these reconstructed weights
+do not reproduce the estimates exactly, their near-normalisation should not
+be interpreted as an exact finite-sample property.\\
+Under saturated age indicators, all six kappa estimators have the same weight
+statistics. This is consistent with their common point estimate and their
+unchanged rerun results in this sample. Appendix
+Table~\ref{tab:vietnam_weights_learners_appendix} reports the corresponding
+diagnostics for OLS/logit and \texttt{ranger}. These learner specifications
+lead to the same broad conclusion. The weights are not strongly concentrated,
+and the differences across learners are small relative to the distinction
+between normalised and unnormalised kappa weights under cubic age.
+
+
+
+
+\subsection{Covariate Balance}
 The weight sum diagnostics establish the translation invariance audit numerically, in this section Love plots follow to assess whether the implied outcome weights also achieve covariate balance in the conventional sense. 
 Figure~\ref{fig:vietnam_love_full} reports Love plots for all eight estimators
 in the cubic specification, plotting absolute standardised mean differences
@@ -3786,6 +3908,50 @@ the R estimator reproduces both the published estimate and its standard
 error. The analysis therefore retains the tightly balanced R result,
 \(0.210\;(0.233)\), while reporting the published value in the table note.
 
+\section{DML and Benchmark Estimates for the Vietnam Application}
+\begin{table}[htbp]
+\centering
+\caption{DML and benchmark estimates for log wages measured in dollars}
+\label{tab:vietnam_dml}
+\small
+\begin{threeparttable}
+\begin{tabular}{l cc cc}
+\toprule
+ & \multicolumn{2}{c}{Cubic age}
+ & \multicolumn{2}{c}{Saturated age} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Estimator & Est. & SE & Est. & SE \\
+\midrule
+\addlinespace[2pt]
+\multicolumn{5}{l}{\textit{Panel A: DML}} \\[2pt]
+PLR-IV           & 0.243 & (0.228) & 0.242 & (0.228) \\
+Wald-AIPW        & 0.229 & (0.231) & 0.244 & (0.233) \\[4pt]
+\multicolumn{5}{l}{\textit{Panel B: Normalised kappa}} \\[2pt]
+$\hat{\tau}_{u}^{cb}$   & 0.210 & (0.233) & 0.241 & (0.229) \\
+$\hat{\tau}_{u}^{ml}$   & 0.202 & (0.235) & 0.241 & (0.229) \\
+$\hat{\tau}_{a,10}$     & 0.204 & (0.239) & 0.241 & (0.229) \\[4pt]
+\multicolumn{5}{l}{\textit{Panel C: 2SLS benchmark}} \\[2pt]
+2SLS             & 0.227 & (0.229) & 0.254 & (0.227) \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} DML nuisance functions are estimated by tuned honest
+forests with five-fold cross-fitting. Standard errors are reported in
+parentheses. The kappa and 2SLS estimates correspond to the dollar columns of
+Appendix Table~\ref{tab:vietnam_kappa}.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+
+
+
+
+
+
+
 \newpage
 \section{DML learner and tuning sensitivity}
 \begin{table}[htbp]
@@ -3832,7 +3998,64 @@ regression nuisances throughout.
 \end{threeparttable}
 \end{table}
 
+\newpage
+\begin{sidewaystable}[p]
+\centering
+\caption{Learner-specific outcome-weight diagnostics: Vietnam draft lottery}
+\label{tab:vietnam_weights_learners_appendix}
+\footnotesize
+\begin{threeparttable}
+\begin{tabular}{l r r c c c r}
+\toprule
+Estimator
+& $|\omega'Y-\hat{\tau}|$
+& $\sum_i\omega_i$
+& Mass T/C
+& $\mathrm{ESS}_{\mathrm{mod}}/N$ T/C
+& Opposite-sign mass T/C
+& $\max_i|\omega_i|$ \\
+\midrule
+\multicolumn{7}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
+PLR-IV, OLS
+& $3.71\times10^{-9}$ & 0.000000 & 1.000/1.000
+& 0.966/0.924 & 43.6/46.7 & 0.014577 \\
+Wald-AIPW, OLS/logit
+& $1.20\times10^{-9}$ & 0.000000 & 0.991/0.991
+& 0.955/0.908 & 43.5/46.8 & 0.026926 \\
+PLR-IV, \texttt{ranger}
+& $2.22\times10^{-16}$ & 0.000000 & 0.999/0.999
+& 0.960/0.916 & 43.5/46.6 & 0.013538 \\
+Wald-AIPW, \texttt{ranger}
+& $4.11\times10^{-15}$ & 0.000000 & 0.999/0.999
+& 0.948/0.903 & 43.4/46.7 & 0.021647 \\[4pt]
 
+\multicolumn{7}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
+PLR-IV, OLS
+& $5.72\times10^{-15}$ & 0.000000 & 1.000/1.000
+& 0.960/0.916 & 43.5/46.6 & 0.013426 \\
+Wald-AIPW, OLS/logit
+& $3.37\times10^{-14}$ & 0.000000 & 1.000/1.000
+& 0.948/0.903 & 43.4/46.7 & 0.021773 \\
+PLR-IV, \texttt{ranger}
+& $2.11\times10^{-15}$ & 0.000000 & 1.003/1.003
+& 0.964/0.924 & 43.3/46.5 & 0.011886 \\
+Wald-AIPW, \texttt{ranger}
+& $3.77\times10^{-15}$ & 0.000000 & 1.005/1.005
+& 0.951/0.914 & 43.1/46.6 & 0.016211 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} T/C denotes treated and sign-oriented control values.
+The representation gap is the absolute difference between the weighted
+outcome sum and the reported estimate. Modified ESS is divided by the
+observed number of treated or control observations. Opposite-sign mass is
+reported in percent.
+\end{tablenotes}
+\end{threeparttable}
+\end{sidewaystable}
+
+\newpage
 \section{Subsampling Procedure for the Card framework}
 \label{app:subsampling}
 The diagnostic subsamples used in the Angrist--Evans application are constructed by proportional stratified subsampling without replacement.
