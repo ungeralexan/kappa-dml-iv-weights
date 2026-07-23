@@ -1587,7 +1587,7 @@ themselves change when a DML estimator is refitted.
 \subsection{Translation invariance}
 \label{subsec:translation_invariance}
 
-\label{subsubsec:translation_outcome_weights}
+
 Translation invariance is the main outcome-transformation property examined in this
 thesis. It requires that an estimated treatment effect remain unchanged when the same
 constant is added to every observed outcome. This property is emphasized by
@@ -1845,10 +1845,9 @@ XGBoost nuisance models for PLR-IV and Wald-AIPW are tuned separately because th
 two estimators require different nuisance functions and optimize different prediction
 problems. For the translated outcome, the nested tuning procedure is rerun under the
 same search design used for the original outcome.\\
-The resulting analysis  uses the
-classical kappa results as a benchmark and examines whether the same invariance is
-preserved across increasingly data-adaptive IV estimation procedures.
-The resulting analysis uses the classical kappa results as a benchmark and examines whether the same invariance is preserved across increasingly data-adaptive IV estimation procedures. Table~\ref{tab:invariance_checks_overview} summarizes the outcome transformations, estimators, learner specifications, and analysis samples considered in each empirical application.
+The resulting analysis uses the classical kappa results as a benchmark and
+examines whether the same invariance is preserved across increasingly
+data-adaptive IV estimation procedures.
 
 
 \newpage
@@ -2088,213 +2087,143 @@ subsequent Card and Angrist and Evans comparisons.
 
 \section{Empirical Application: Military Service and Wages}
 \label{sec:vietnam}
-% ==============================================================================
 
 \subsection{Data and Design}
 \label{subsec:vietnam_data}
 
-The economic consequences of military service have long been a central question in the evaluation of veterans' compensation and labour-market policy. In the United States, this question is especially relevant for the Vietnam era, where military service was politically contested and where the long-run civilian outcomes of veterans remained difficult to assess. A simple comparison between veterans and nonveterans, however, does not provide a credible causal estimate of the effect of military service on earnings. Men who served in the military were not selected at random. They may differ from nonveterans in health, education, ability, labour-market opportunities, or willingness to enlist. As a result, observed earnings differences may reflect both the causal effect of service and the characteristics that selected individuals into military service.\\
-This is the selection problem adressed in \citet{angrist1990lifetime}.
-Key to his idea to overcome it is to use the Vietnam-era draft lottery as a source of quasi random variation in the probability of taking on military service. 
-The lottery did not randomly assigned military service itself, instead, it randomly assigned draft risk.
+The first application revisits \citet{angrist1990lifetime}, who studies
+the effect of Vietnam-era military service on later earnings.
+A direct
+comparison of veterans and nonveterans is unlikely to identify this effect
+because military service was selective.
+This means, 
+individuals who served may also
+differ in health, education, labour-market opportunities, or willingness
+to enlist. 
+In order to overcome this issue the empirical design uses draft eligibility as an
+instrument for military service.
 
-\subsubsection{The Draft Lottery - The instrument}
-During the Vietnam-era draft lotteries, Random Sequence Numbers (RSNs) were assigned to dates of birth. For each birth cohort, the Department of Defense later announced an induction ceiling. Men with lottery numbers below the relevant cohort-specific ceiling were classified as draft-eligible, while men with higher lottery numbers were not. Formally, draft eligibility can be written as: 
+
+\subsubsection{Draft eligibility as an instrument}
+During the Vietnam-era draft lotteries, random sequence numbers were assigned
+to dates of birth. For each relevant birth cohort, an induction ceiling
+determined whether an individual was classified as draft eligible. Define
 \begin{equation}
-  Z_i \;=\; \indic\!\left\{RSN_i \leq c_{b(i)}\right\},
-  \label{eq:vietnam_z}
+    Z_i
+    =
+    \indic\!\left\{RSN_i \leq c_{b(i)}\right\},
+    \label{eq:vietnam_z}
 \end{equation}
-%
-where $RSN_i$ denotes individual $i$'s lottery number, $b(i)$ his birth
-cohort, and $c_{b(i)}$ the draft-eligibility ceiling for that cohort.
-Table~\ref{tab:vietnam_cutoffs} reports the cohort-specific ceilings
-for the four birth cohorts in the sample.
-\begin{table}[htbp]
-\centering
-\caption{Draft-eligibility ceilings by birth cohort (Vietnam application)}
-\label{tab:vietnam_cutoffs}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-Birth cohort & Lottery year & Eligibility ceiling \\
-\midrule
-1950 & 1970 & $RSN_i \leq 195$ \\
-1951 & 1971 & $RSN_i \leq 125$ \\
-1952 & 1972 & $RSN_i \leq 95$  \\
-1953 & 1973 & $RSN_i \leq 95$  \\
-\bottomrule
-\end{tabular}
-\end{table}
-Hence, draft eligibility did not determine military service perfectly, since some eligible men did not serve and other ineligible men volunteered. It however shift the probability of military service (Relevance).
-Furthermore, the RSN where randomly assigned to birth dates. As the birth is genuinly an event that is in a random relation to military services especially since partens did not have knowledge at the time that tehre was gonna be a lottery the usage of this instrument can also be seen as as good as randomly assigned.
-Finally the thought that eligibility would affect later earnings only over military service is an assumption that is plausible to take (Exclusion restriction).\\
-The cohort-specific nature of the lottery matters for the estimators
-used below. Lottery numbers were assigned randomly within each cohort,
-but the eligibility ceiling differed across cohorts, so the
-unconditional probability of draft eligibility varies with birth year:
-%
+where $RSN_i$ is individual $i$'s random sequence number, $b(i)$ denotes
+his birth cohort, and $c_{b(i)}$ is the corresponding eligibility ceiling.
+Table~\ref{tab:vietnam_cutoffs} reports the cohort-specific ceilings used
+in the sample.
+Draft eligibility did not determine military service perfectly. Some eligible
+men did not serve, while some ineligible men entered the military voluntarily.
+Eligibility nevertheless increased the probability of service and therefore
+provides the first-stage variation used in the analysis.
+Random sequence numbers were assigned within birth cohorts, whereas the
+eligibility ceilings differed across cohorts. Consequently,
 \begin{equation}
-  \Pr(Z_i = 1 \mid b(i)) \;=\; \Pr\!\left(RSN_i \leq c_{b(i)} \mid b(i)\right).
-  \label{eq:vietnam_propensity_cohort}
+    P(Z_i=1\mid b(i))
+    =
+    P\!\left(RSN_i\leq c_{b(i)}\mid b(i)\right)
+    \label{eq:vietnam_propensity_cohort}
 \end{equation}
-In the pooled sample, draft eligibility is therefore conditionally
-random given birth cohort, not unconditionally random. This is why
-controlling for age is required
-for the instrument propensity score $p(X_i) = \Pr(Z_i = 1 \mid X_i)$
-to be correctly specified.
+varies by cohort. Draft eligibility is therefore treated as conditionally
+random given birth cohort.
+The instrument propensity-score models below consequently include
+birth-cohort indicators, represented by the corresponding age categories in
+the data.
+
+
+
 \subsubsection{Sample, Variables, and Design Diagnostics}
 \label{subsubsec:vietnam_sample}
 
-The used sample in this thesis follows \citet{sloczynski2025abadie} in revisiting \citet{angrist1990lifetime}.
-Here it especially uses Angrists subsample of the 1984 Survey of Income and Program Participation
-(SIPP) which contains $N = 3{,}027$ white men born between 1950 and
-1953. Table~\ref{tab:vietnam_vars} summarises the three
-core variables of the IV design.
-
-\begin{table}[htbp]
-\centering
-\caption{IV design variables: Vietnam draft lottery application}
-\label{tab:vietnam_vars}
-\begin{tabular}{@{}llp{7.5cm}@{}}
-\toprule
-Role & Symbol & Definition \\
-\midrule
-Instrument  & $Z_i$ & Draft eligibility: $\indic\{RSN_i \leq c_{b(i)}\}$;
-                       randomly assigned within birth cohort \\[4pt]
-Treatment   & $D_i$ & Vietnam-era veteran status: indicator for
-                       military service \\[4pt]
-Outcome     & $Y_i$ & Log hourly wages \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Table~\ref{tab:vietnam_descr} summarizes the design diagnostics that are of most relevance for the estimator comaprison in the later outcome weights analysis.
-From the table it can be seen that the assignment probability $\Pr(Z_i = 1) = 0.456$ is close to one half,
-indicating that draft eligibility was distributed near-evenly in the
-pooled sample. This reflects the random nature of the RSN assignment
-within each cohort.
-The overall veteran rate $\Pr(D_i = 1) = 0.328$ is substantially higher
-among draft-eligible men ($\Pr(D_i=1 \mid Z_i=1) = 0.404$) than among
-draft-ineligible men ($\Pr(D_i=1 \mid Z_i=0) = 0.265$), yielding a
-first-stage estimate of $\hat\delta = 0.139$. Under the IV assumptions, this first stage can be interpreted as the estimated share of compliers, that is, individuals whose veteran status is shifted by draft eligibility.
-
-\begin{table}[htbp]
-\centering
-\caption{Design diagnostics: Vietnam draft lottery (SIPP 1984)}
-\label{tab:vietnam_descr}
-\begin{threeparttable}
-\begin{tabular}{@{}lc@{}}
-\toprule
-Quantity & Value \\
-\midrule
-Sample size $N$                              & $3{,}027$ \\
-$\Pr(Z_i = 1)$                               & $0.456$   \\
-$\Pr(D_i = 1)$                               & $0.328$   \\
-$\Pr(D_i = 1 \mid Z_i = 1)$                  & $0.404$   \\
-$\Pr(D_i = 1 \mid Z_i = 0)$                  & $0.265$   \\
-First stage $\hat\delta$                     & $0.139$   \\
-First-stage $F$, linear age\tnote{a}         & $30.1$    \\
-First-stage $F$, cubic age\tnote{a}          & $26.3$    \\
-First-stage $F$, saturated age\tnote{a}      & $27.2$    \\
-Complier share estimate\tnote{b}             & $13.9\,\%$ \\
-Compliance pattern                           & Incomplete \\
-\bottomrule
-\end{tabular}
-\begin{tablenotes}
-  \footnotesize
-  \item[$^a$] HC1-robust Wald statistic for the coefficient on \(Z_i\)
-  in the first-stage regression of \(D_i\) on \(Z_i\) and the corresponding
-  age controls. With one excluded instrument, this statistic equals the
-  squared robust \(t\)-statistic.
-\end{tablenotes}
-\end{threeparttable}
-\end{table}
-The first-stage (F)-statistics exceed 26 across all three age specifications. Thus, weak-instrument concerns are not central in this application.
-At the same time, the nonzero treatment rate $\Pr(D_i=1 \mid Z_i=0) = 0.265$ among draft-ineligible men shows that the design exhibits incomplete compliance. Draft eligibility increases the probability of military service, but it does not determine veteran status. This distinction is important for the outcome-weight diagnostics below. The identifying variation comes from the margin shifted by the instrument, not from the full sample. Consequently, the effective sample size of the outcome weights may be much smaller than (N), especially when the weights concentrate on the complier-relevant variation.\\
-Figure~\ref{fig:vietnam_firststage} illustrates the first stage across
-age groups. The blue bars show the veteran rate among draft-eligible men
-($Z_i = 1$) and the red bars among draft-ineligible men ($Z_i = 0$).
-Across age groups, veteran rates are higher among draft-eligible men than among draft-ineligible men, providing a visual check of the instrument relevance condition. At the same time, the positive veteran rates among draft-ineligible men show that the design exhibits incomplete compliance.
-
-
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.85\textwidth]{pics/fs_visu.png}
-\caption{Veteran rates by draft eligibility and age group.
-  Blue bars: $\Pr(D_i=1 \mid Z_i=1)$; red bars:
-  $\Pr(D_i=1 \mid Z_i=0)$. The gap between bars is the
-  cohort-specific first-stage estimate $\hat\delta$.
-  Non-zero red bars confirm incomplete compliance across
-  all age groups. Dashed line: pooled first stage
-  $\hat\delta = 0.139$.}
-\label{fig:vietnam_firststage}
-\end{figure}
-
-\newpage
-\paragraph{Instrument propensity score.}
-A final design feature is the distribution of the estimated instrument propensity score $\hat{p}(X_i) = \Pr(Z_i = 1 \mid X_i)$.
-The quantity enters all kappa-based estimators and will be therefore relevant for the weight diagnostics below. Extreme or highly dispersed propensity scores can generate more concentrated outcome weights and lower effective sample size. In the Vietnam application, however, the covariate adjustment problem is low-dimensional because $(X_i)$ consists only of age controls.
-\begin{table}[htbp]
-\centering
-\caption{Propensity score summary statistics by covariate specification}
-\label{tab:vietnam_pscore_stats}
-\begin{threeparttable}
-\renewcommand{\arraystretch}{1.2}
-\begin{tabular}{@{}lcccccc@{}}
-\toprule
-Specification & Min & P25 & Mean & P75 & Max & SD \\
-\midrule
-Linear age    & 0.2810 & 0.3793 & 0.4556 & 0.5258 & 0.6341 & 0.1011 \\
-Cubic in age  & 0.1373 & 0.4110 & 0.4556 & 0.5464 & 0.5501 & 0.1146 \\
-Saturated age & 0.2093 & 0.3707 & 0.4556 & 0.5482 & 0.5671 & 0.1200 \\
-\bottomrule
-\end{tabular}
-\end{threeparttable}
-\end{table}
-The estimated instrument
-propensity scores remain centered around the pooled draft-eligibility rate,
-with a mean of \(0.456\) in all three specifications.
-The main difference across specifications is the amount and shape of variation
-around this mean. The linear age specification produces fitted values between
-\(0.281\) and \(0.634\), while the cubic and saturated specifications allow more
-flexibility at the lower end. In particular, the cubic specification reaches a
-minimum of \(0.137\), indicating that it assigns substantially lower draft-
-eligibility probabilities to some age observations. The saturated specification
-has the largest standard deviation, \(0.120\), reflecting its discrete age-cell
-structure.
-Appendix Figure~\ref{fig:vietnam_pscore} illustrates this difference visually. Relative to the linear specification, the cubic and saturated specifications produce more clustered fitted values, with the saturated model generating distinct mass points by age group.
-This makes evere inverse-propensity instability unlikely in this application.
+The thesis follows \citet{sloczynski2025abadie} and uses the
+\citet{angrist1990lifetime} subsample of the 1984 Survey of Income and
+Program Participation.
+The final sample contains \(N=3{,}027\) white men
+born between 1950 and 1953 with observed lottery, education, and wage
+information.
+In the notation of Section~\ref{subsec:conditional_iv_late},
+\(Z_i\) denotes draft eligibility, \(D_i\) veteran status, and \(Y_i\)
+log hourly wages.
+ Age is the only conditioning variable and represents the
+cohort-specific assignment structure of the draft lottery.
+Table~\ref{tab:vietnam_descr} reports the main design diagnostics. In the
+pooled sample, \(45.6\%\) of observations are draft eligible. Veteran
+rates are \(40.4\%\) among eligible men and \(26.5\%\) among ineligible men,
+giving an unadjusted uptake difference of \(13.9\) percentage points.\\
+Conditioning on age reduces the estimated first stage to approximately nine
+percentage points, but the instrument remains statistically relevant in all
+three specifications. 
+The squared robust first-stage \(t\)-statistics range from \(26.3\) to
+\(30.1\), providing no indication that the subsequent comparison is driven by
+a weak first stage. At the same time, positive veteran rates among ineligible
+men and incomplete service among eligible men show that draft eligibility
+does not determine treatment. Under the conditional IV assumptions, the resulting estimand concerns the effect of military service for individuals whose service status is shifted by draft eligibility.\\
+The three age specifications serve different purposes. Linear age provides a
+parsimonious benchmark, while the cubic specification allows for a smoother
+nonlinear relationship. The saturated specification assigns a separate
+eligibility probability to each observed age category and therefore most
+directly reflects the discrete cohort structure of the lottery. It is used as
+the main flexible specification below, with the linear and cubic models
+providing sensitivity checks.\\
+Estimated instrument propensity scores remain well inside the unit interval.
+Across the three specifications, fitted probabilities range from
+approximately \(0.14\) to \(0.63\), and none falls below \(0.05\) or above
+\(0.95\). Limited estimated instrument overlap is therefore not a central
+concern in this application. Appendix Figure~\ref{fig:vietnam_pscore} shows
+the fitted propensity-score distributions. Relative to the linear
+specification, the cubic and saturated models produce more clustered fitted
+values, with the saturated model generating distinct mass points by age
+group. Severe inverse-propensity instability is therefore unlikely in this
+application. Age-specific treatment-rate differences are heterogeneous and
+not uniformly positive in the realised sample. These cell-level differences
+are descriptive and do not, by themselves, test individual-level
+monotonicity.
 
 
 
 
 
-\subsection{Point Estimates and Replication}
+\subsection{Replication of the Classical Kappa Results}
 \label{subsec:vietnam_estimates}
-A central finite-sample concern in kappa-based LATE estimation is that some estimators are sensitive to arbitrary transformations of the outcome variable.
-\citet{sloczynski2025abadie}
-provide a a direct illustration of this problem because wages can be measured either in dollars or in cents before taking logarithms $$\log(100 \cdot wage_i)=\log(wage_i)+\log(100),$$
-the two outcomes differ only by an additive constant. Any change in the estimated treatment effect across these two codings therefore reflects a failure of translation invariance in the log-outcome scale.
-Table 6 uses this recoding exercise to benchmark the kappa estimators, especially with a purpose of not only to reproduce the pattern documented by \citet{sloczynski2025abadie}, but also to establish the point-estimate insights that the outcome-weight diagnostics maybe can explain in the next section.\\
-The normalized estimators are essentially unchanged by the recoding of wages. Across the linear and cubic specifications, $(\hat\tau_u^{cb})$,$ (\hat\tau_u^{ml}),$ and $(\hat\tau_{a,10})$ remain close to the corresponding 2SLS benchmarks. This is the expected behaviour for translation-invariant estimatiors.
-On the other hand the unnormalized estimators display the opposite pattern.
-In the linear-age specification, the estimates are negative when wages are
-measured in cents but close to zero and positive when wages are measured in
-dollars.
-$\hat{\tau}_a$ moves from $-0.429$ to $0.015$, an implied gap of
-$0.444$ log points.
- In the cubic specification, the sign does not change, but the magnitude remains strongly affected by the outcome coding. Interestingly, in the saturated specification all estimators coincide. 
-This is rather due to the fully flexible age-cell specification of the instrument propensity score rather than a general robustness property of the unnormalized estimators.
-The table therefore motivates the outcome weight analysis that follows.It shows that some estimators react to an additive shift in the log outcome, but the point estimates alone do not identify the mechanical source of the sensitivity. The next section uses this identity to diagnose translation invariance directly through the implied weights.
+Before extending the comparison to DML, the analysis reproduces Table~2 of
+\citet{sloczynski2025abadie}. 
+ As established in
+Section~\ref{subsubsec:translation_transformations}, measuring wages in cents
+rather than dollars adds \(\log(100)\) to the logged outcome without changing
+the underlying economic quantity.
+Appendix Table~\ref{tab:vietnam_kappa}
+reports the 2SLS benchmark and the six kappa estimators under the linear,
+cubic, and saturated age specifications. This replication verifies the sample
+construction, estimator definitions, and implementation of the reported
+standard errors.\\
+The point estimates reproduce the central pattern in
+\citet{sloczynski2025abadie}. The 2SLS and normalised kappa estimates are
+unchanged by the recoding and lie between \(0.202\) and \(0.254\). In
+contrast, the unnormalised estimates depend strongly on the outcome unit. In
+the linear specification, for example, \(\hat{\tau}_{a}\) changes from
+\(-0.429\) with wages measured in cents to \(0.015\) with wages measured in
+dollars. The cubic estimates also change materially. Under saturated age
+indicators, all kappa estimates equal \(0.241\) in this sample. This last
+result reflects the age-cell propensity-score specification and should not be
+read as a general invariance property of the unnormalised estimators.\\
+All entries match the published table at its reported precision except
+\(\hat{\tau}_{u}^{cb}\) in the cubic specification. The tightly solved CBPS
+implementation gives \(0.210\) with a standard error of \(0.233\), compared
+with the published \(0.208\) and \(0.232\). Appendix
+Section~\ref{subsubsec:vietnam_cbps_replication} shows that the difference is
+due to the numerical CBPS solution, not to the sample, estimand, or variance
+formula. The appendix retains the tightly balanced result. The subsequent
+sections then move beyond this reproduction by comparing DML estimators and
+examining the realised outcome weights.
 
 
 
-
-
-
-
-
-\newpage
 \subsection{Double Machine Learning Comparison}
 \label{subsec:vietnam_dml}
 The kappa estimators in the preceding section require an estimate of the instrument propensity score.
@@ -2352,7 +2281,7 @@ estimate essentially the same propensity-score surface.
 The generalized random forest based estimates above use a single learner class, a natural question results in assessing whther the convergence result is specific to generalised random forests or whether it holds across fundamentally different nuisance estimators such as parametric, tree ensembles with other packages or boosted sequential learners.
 These make different approximation choices and carry different theoretical guarantees for the smoother condition $\sum_i \omega_i = 0$.
 To assess whether learner choice within the DoubleML framework
-produces different results, Table~\ref{tab:vietnam_dml} additionally
+produces different results, Appendix Table~\ref{tab:vietnam_dml_appendix}
 reports Wald-AIPW estimates from \texttt{DoubleMLIIVM} with three
 alternative nuisance learners: linear regression and logistic
 classification (the parametric baseline), ranger random forests, and
@@ -3510,6 +3439,7 @@ Fully normalized
 
 
 
+
 \section{Outcome Weights of \texorpdfstring{$\hat\tau_{a,1}$}{tau(a,1)}}
 \label{app:omega_a1}
 
@@ -3659,7 +3589,22 @@ equivalence discussed in Chapter~3.
 
 \newpage
 
-
+\section{Draft eligibility ceilings}
+\begin{table}[htbp]
+\centering
+\caption{Draft-eligibility ceilings by birth cohort (Vietnam application)}
+\label{tab:vietnam_cutoffs}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Birth cohort & Lottery year & Eligibility ceiling \\
+\midrule
+1950 & 1970 & $RSN_i \leq 195$ \\
+1951 & 1971 & $RSN_i \leq 125$ \\
+1952 & 1972 & $RSN_i \leq 95$  \\
+1953 & 1973 & $RSN_i \leq 95$  \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Instrument Propensity Scores}
 \begin{figure}[htbp]
@@ -3672,10 +3617,40 @@ equivalence discussed in Chapter~3.
 \end{figure}
 
 \newpage
-\section{SUW replication}
+\section{Vietnam Design diagnostics}
 \begin{table}[htbp]
 \centering
-\caption{Kappa estimators: log wages (Vietnam draft lottery)}
+\caption{Design diagnostics: Vietnam draft lottery}
+\label{tab:vietnam_descr}
+\begin{threeparttable}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Quantity or specification & Estimate & Robust \(t^2\) \\
+\midrule
+Sample size \(N\)                              & \(3{,}027\) &  \\
+\(P(Z_i=1)\)                                   & \(0.456\)   &  \\
+\(P(D_i=1\mid Z_i=0)\)                         & \(0.265\)   &  \\
+\(P(D_i=1\mid Z_i=1)\)                         & \(0.404\)   &  \\
+Unadjusted uptake difference                   & \(0.139\)   &  \\
+\addlinespace
+First stage, linear age                        & \(0.0949\)  & \(30.1\) \\
+First stage, cubic age                         & \(0.0882\)  & \(26.3\) \\
+First stage, saturated age                     & \(0.0899\)  & \(27.2\) \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item Robust \(t^2\) is the squared HC1-robust \(t\)-statistic for the excluded
+instrument.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\newpage
+\section{Replication of the Słoczyński--Uysal--Wooldridge Vietnam results}
+\begin{table}[htbp]
+\centering
+\caption{Replication of Słoczyński, Uysal, and Wooldridge (2025), Table 2}
 \label{tab:vietnam_kappa}
 \small
 \begin{tabular}{l cc cc cc}
@@ -3699,7 +3674,7 @@ Estimator & Cents & Dollars & Cents & Dollars & Cents & Dollars \\
 \multicolumn{7}{l}{\textit{Panel B: Normalised kappa estimators}} \\[2pt]
 $\hat{\tau}_{u}^{cb}$
   & 0.229      & 0.229
-  & 0.210      & 0.210
+ & 0.210$^{\dagger}$ & 0.210$^{\dagger}$
   & 0.241      & 0.241      \\
   & (0.213)    & (0.213)
   & (0.233)    & (0.233)
@@ -3745,19 +3720,37 @@ $\hat{\tau}_{a,0}$
 \bottomrule
 \addlinespace[4pt]
 \multicolumn{7}{p{0.92\textwidth}}{\footnotesize
-The two outcomes differ by $\log(100) \approx 4.605$.
-The cents/dollars comparison is a finite-sample test of translation invariance:
-an estimator is translation invariant if and only if $\sum_i \omega_i = 0$,
-which holds for all estimators in Panels~A and~B and fails for those in Panel~C.
-Covariate specifications: linear age (columns 1--2), cubic polynomial in age (columns 3--4),
-and age indicators (columns 5--6). The propensity score $\hat{p}(X_i) = \Pr(Z_i=1 \mid X_i)$
-is estimated by logistic MLE except for $\hat{\tau}_u^{cb}$, which uses CBPS moment conditions.
-Standard errors: HC1-robust for 2SLS; M-estimation sandwich for kappa estimators.
-$^{*}p{<}0.10$, $^{**}p{<}0.05$, $^{***}p{<}0.01$.
-Replicates Słoczyński, Uysal, \& Wooldridge (2025), Table~2.}
+\textit{Notes:} Replication of Table~2 in Słoczyński, Uysal, and Wooldridge
+(2025). Log wages in cents equal log wages in dollars plus
+\(\log(100)\). The specifications use linear age, a cubic polynomial in age,
+and age indicators, respectively. The instrument propensity score is
+estimated by logistic maximum likelihood, except for
+\(\hat{\tau}_{u}^{cb}\), which uses CBPS balancing conditions. Standard errors
+are reported in parentheses and are HC1-robust for 2SLS and based on the
+M-estimation sandwich for the kappa estimators. The normalised estimates are
+unchanged across outcome units; the unnormalised estimates change under the
+linear and cubic specifications but coincide under saturated age indicators
+in this sample. \({}^{\dagger}\) The published value is \(0.208\) with standard
+error \(0.232\); Section~\ref{subsubsec:vietnam_cbps_replication} explains the
+small numerical difference. $^{*}p{<}0.10$, $^{**}p{<}0.05$,
+$^{***}p{<}0.01$.}
 \end{tabular}
 \end{table}
 
+\subsection{Numerical difference in the cubic CBPS replication}
+\label{subsubsec:vietnam_cbps_replication}
+
+The only difference from the published table is the cubic-age
+\(\hat{\tau}_{u}^{cb}\) estimate. Both implementations use the same sample,
+covariates, estimator, and sandwich variance formula. The difference arises
+from the numerical solution of the CBPS balancing conditions in a poorly
+conditioned cubic polynomial. The Stata solution underlying the published
+value has a maximum absolute balancing residual of
+\(5.45\times10^{-4}\), whereas the standardised R solver reduces this
+residual to \(4.41\times10^{-14}\). Supplying the Stata propensity scores to
+the R estimator reproduces both the published estimate and its standard
+error. The analysis therefore retains the tightly balanced R result,
+\(0.210\;(0.233)\), while reporting the published value in the table note.
 
 \newpage
 \section{DML learner comparison}
@@ -3780,7 +3773,11 @@ XGBoost$^{\dagger}$        & 0.2463 & (0.234) & $\times$    & $-3.7\!\times\!10^
 \begin{tablenotes}
 \footnotesize
 \item \textit{Notes:} All models use \texttt{DoubleMLIIVM} with
-five-fold cross-fitting \citep{bach2022doubleml}
+five-fold cross-fitting \citep{bach2022doubleml}. The identity column records
+whether the recovered outcome weights reproduce the fitted point estimate to
+the numerical tolerance used in the analysis. Because the XGBoost weights do
+not pass this check, their near-zero sum is not interpreted as an exact
+normalisation result.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
