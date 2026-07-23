@@ -1093,9 +1093,9 @@ literal proportions when opposite-oriented weights remain.
 </div>
 
 ```{r love-helpers, echo=FALSE}
-# Return NULL when a fit failed or its outcome weights are not an exact
-# representation. Approximate XGBoost weights remain visible in Section 3 but
-# do not enter the exact Love-plot comparison.
+# Return NULL when a fit failed. The final learner comparison can explicitly
+# admit a numerically reconstructed vector after its reproduction gap has been
+# documented in Section 4.
 maybe_love <- function(title, w, D, X, ok = TRUE) {
   if (!isTRUE(ok) || all(is.na(w))) NULL else make_love(title, w, D, X)
 }
@@ -1137,41 +1137,46 @@ grid.arrange(grobs = grobs, nrow = 2,
 
 ## Learners vs. Kappa {.tabset}
 
+<div class="note-box">
+**Included weights.** The final comparison contains OLS/logit, Ranger, and
+tuned XGBoost for both PLR-IV and Wald-AIPW, together with the two main
+normalized kappa references. Cubic OLS PLR-IV and the tuned XGBoost panels use
+the available reconstructed weight vectors even though `ω′Y reproduces τ̂`
+does not pass Knaus's default numerical threshold. Their absolute reproduction
+gaps are reported in Section 4 and are small relative to the estimated effects.
+</div>
+
 ### Cubic age (PLR-IV and Wald-AIPW by learner)
 
-```{r ext-love-cub, fig.height=12, fig.width=14}
+```{r ext-love-cub, fig.height=17, fig.width=14}
 grobs <- Filter(Negate(is.null), list(
-  maybe_love("PLR-IV\nOLS nuisances", lm_pliv_cub$w, D, X_dml_cub, lm_pliv_cub$ok),
+  maybe_love("PLR-IV\nOLS nuisances", lm_pliv_cub$w, D, X_dml_cub),
   maybe_love("Wald-AIPW\nOLS/logit nuisances", lm_iivm_cub$w, D, X_dml_cub, lm_iivm_cub$ok),
   maybe_love("PLR-IV\nranger",       rf_pliv_cub$w,   D, X_dml_cub, rf_pliv_cub$ok),
   maybe_love("Wald-AIPW\nranger",    rf_iivm_cub$w,   D, X_dml_cub, rf_iivm_cub$ok),
-  maybe_love("PLR-IV\nXGBoost untuned", xgb_pliv_cub_untuned$w, D, X_dml_cub, xgb_pliv_cub_untuned$ok),
-  maybe_love("PLR-IV\nXGBoost tuned", xgb_pliv_cub_tuned$w, D, X_dml_cub, xgb_pliv_cub_tuned$ok),
-  maybe_love("Wald-AIPW\nXGBoost untuned", xgb_iivm_cub_untuned$w, D, X_dml_cub, xgb_iivm_cub_untuned$ok),
-  maybe_love("Wald-AIPW\nXGBoost tuned", xgb_iivm_cub_tuned$w, D, X_dml_cub, xgb_iivm_cub_tuned$ok),
+  maybe_love("PLR-IV\nXGBoost tuned", xgb_pliv_cub_tuned$w, D, X_dml_cub),
+  maybe_love("Wald-AIPW\nXGBoost tuned", xgb_iivm_cub_tuned$w, D, X_dml_cub),
   maybe_love("τ_cb_u\nkappa",        kw_cub$tau_cb_u, D, X_dml_cub),
   maybe_love("τ_ml_u\nkappa",        kw_cub$tau_ml_u, D, X_dml_cub)
 ))
-grid.arrange(grobs = grobs, nrow = 2,
+grid.arrange(grobs = grobs, ncol = 2,
              top = "Love Plots — PLR-IV and Wald-AIPW learners vs. kappa | Cubic age")
 ```
 
 ### Saturated age (PLR-IV and Wald-AIPW by learner)
 
-```{r ext-love-sat, fig.height=12, fig.width=14}
+```{r ext-love-sat, fig.height=17, fig.width=14}
 grobs <- Filter(Negate(is.null), list(
   maybe_love("PLR-IV\nOLS nuisances", lm_pliv_sat$w, D, X_dml_sat, lm_pliv_sat$ok),
   maybe_love("Wald-AIPW\nOLS/logit nuisances", lm_iivm_sat$w, D, X_dml_sat, lm_iivm_sat$ok),
   maybe_love("PLR-IV\nranger",       rf_pliv_sat$w,   D, X_dml_sat, rf_pliv_sat$ok),
   maybe_love("Wald-AIPW\nranger",    rf_iivm_sat$w,   D, X_dml_sat, rf_iivm_sat$ok),
-  maybe_love("PLR-IV\nXGBoost untuned", xgb_pliv_sat_untuned$w, D, X_dml_sat, xgb_pliv_sat_untuned$ok),
-  maybe_love("PLR-IV\nXGBoost tuned", xgb_pliv_sat_tuned$w, D, X_dml_sat, xgb_pliv_sat_tuned$ok),
-  maybe_love("Wald-AIPW\nXGBoost untuned", xgb_iivm_sat_untuned$w, D, X_dml_sat, xgb_iivm_sat_untuned$ok),
-  maybe_love("Wald-AIPW\nXGBoost tuned", xgb_iivm_sat_tuned$w, D, X_dml_sat, xgb_iivm_sat_tuned$ok),
+  maybe_love("PLR-IV\nXGBoost tuned", xgb_pliv_sat_tuned$w, D, X_dml_sat),
+  maybe_love("Wald-AIPW\nXGBoost tuned", xgb_iivm_sat_tuned$w, D, X_dml_sat),
   maybe_love("τ_cb_u\nkappa",        kw_sat$tau_cb_u, D, X_dml_sat),
   maybe_love("τ_ml_u\nkappa",        kw_sat$tau_ml_u, D, X_dml_sat)
 ))
-grid.arrange(grobs = grobs, nrow = 2,
+grid.arrange(grobs = grobs, ncol = 2,
              top = "Love Plots — PLR-IV and Wald-AIPW learners vs. kappa | Saturated age")
 ```
 

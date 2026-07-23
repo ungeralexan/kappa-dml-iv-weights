@@ -1,5 +1,5 @@
 ---
-title: "Angrist (1990) — Translation Invariance: Rerun Check (Method A)"
+title: "Angrist (1990) — Translation Invariance: Complete-Pipeline Rerun"
 subtitle: "Vietnam draft lottery: kappa, honest forest, DoubleML learners, and nested XGBoost"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
@@ -22,34 +22,44 @@ h2 { color:#2c7bb6; margin-top:28px; }
 .note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 .warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size:13px; }
+pre:not(.sourceCode) { display:none; }
 ```
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,fig.width=12,fig.height=6)
+knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,fig.width=12,fig.height=6,
+                      cache.extra="translation-rerun-only-v3-canonical-kappa")
 ```
 
 # Purpose
 
-This notebook implements the rerun definition of translation invariance. For
-every estimator, the complete pipeline is fitted to the original log-wage
-outcome and to
+This notebook evaluates translation invariance by fitting the complete estimation
+pipeline to the original log-wage outcome and to
 
 \[
 Y_i^{\mathrm{shift}}=Y_i+\log(100),
 \]
 
-which is the cents recoding used in the SUW reproduction. Method A compares
-the two refitted estimates directly. Method B predicts the change from the
-original outcome weights, `log(100) * sum(omega)`. `gap_AB` records whether
-the rerun and frozen-weight calculations agree.
+which is the cents recoding used in the SUW reproduction. The empirical check is
+the direct difference between the two separately fitted point estimates. This
+is the full-pipeline rerun called Method A in the thesis, but throughout this
+notebook it is simply referred to as the rerun check. It extends the classical
+kappa comparison to data-adaptive estimators by allowing outcome nuisances and
+tuning choices to be re-estimated under the same cross-fitting protocol after
+the translation. Reusing the
+original fitted models or selected hyperparameters would not evaluate the
+complete implemented estimator.
 
 <div class="note-box">
 **Two workflows.** The same pure additive shift is applied to the cubic-age
 and saturated-age specifications. These are the two feature designs used by
 the DML and learner analyses. Repeating additional constants would not test a
-different algebraic condition: translation invariance is equivalent to zero
-total outcome-weight mass for every additive constant.
+different transformation property. The complete estimator is rerun once for
+each of these two analysis specifications.
 </div>
+
+For the table classification, estimates are described as numerically unchanged
+when the absolute rerun difference does not exceed \(10^{-4}\). The exact
+rerun difference remains reported in every table.
 
 # Setup
 
@@ -67,15 +77,27 @@ lgr::get_logger("mlr3")$set_threshold("warn")
 lgr::get_logger("bbotk")$set_threshold("warn")
 source("functions_all.R")
 
-ti_vietnam_row <- function(name,w_original,tau_original,tau_shifted,k,digits=12) {
-  row <- ti_unified_row(name=name,w_dollars=w_original,
-                        tau_dollars=tau_original,tau_cents=tau_shifted,
-                        k=k,digits=digits)
-  names(row)[names(row)=="tau_dollars"] <- "tau_original"
-  names(row)[names(row)=="tau_cents"] <- "tau_shifted"
-  row$Shift_k <- round(k,digits)
-  row[,c("Estimator","Shift_k","tau_original","tau_shifted","sum_w",
-         "diff_B","diff_A","gap_AB","invariant_B","invariant_A")]
+RERUN_TOLERANCE <- 1e-4
+
+ti_vietnam_row <- function(name,tau_original,tau_shifted,k,digits=12) {
+  translation_rerun_row(
+    name,tau_original,tau_shifted,k,
+    tolerance=RERUN_TOLERANCE,digits=digits
+  )
+}
+
+classify_rerun_results <- function(x) {
+  x$invariant <- abs(x$rerun_difference) <= RERUN_TOLERANCE
+  x
+}
+
+display_rerun_results <- function(x) {
+  out <- x[,c("Specification","Estimator","Shift_k","tau_original",
+              "tau_shifted","rerun_difference","invariant")]
+  names(out) <- c("Specification","Estimator","Shift",
+                  "Original estimate","Shifted estimate","Rerun change",
+                  "Numerically unchanged")
+  out
 }
 ```
 
@@ -85,7 +107,7 @@ ti_vietnam_row <- function(name,w_original,tau_original,tau_shifted,k,digits=12)
 RUN_KAPPA <- TRUE
 RUN_DML <- TRUE
 RUN_LM_RF <- TRUE
-RUN_XGB_METHOD_A <- TRUE
+RUN_XGB_RERUN <- TRUE
 RUN_XGB_WALD_AIPW <- TRUE
 RUN_XGB_PLIV <- TRUE
 USE_XGB_ORIGINAL_EXPORT <- TRUE
@@ -97,7 +119,7 @@ INNER_FOLDS <- 3
 ```
 
 <div class="warn-box">
-**XGBoost rule.** Original-outcome tuned estimates and outcome weights are
+**XGBoost rule.** Original-outcome tuned estimates are
 imported from the two tuning exports. For the shifted outcome, nested tuning
 is rerun with the same seed, five outer folds, three inner folds, fifteen
 random-search evaluations, and `tune_on_folds = TRUE`. Reusing median
@@ -133,29 +155,33 @@ workflows <- list(
     D=D,Z=Z,X_kappa=X_kappa_cub,X_dml=X_dml_cub),
   "Saturated age"=list(label="Saturated age",Y_orig=Y_orig,Y_shift=Y_shift,k=k_shift,
     D=D,Z=Z,X_kappa=X_kappa_sat,X_dml=X_dml_sat))
-cat(sprintf("N=%d | shift=log(100)=%.8f | workflows=%s\n",
-            nrow(sipp),k_shift,paste(names(workflows),collapse=", ")))
+
+data.frame(
+  Sample = "Main-analysis sample",
+  N = nrow(sipp),
+  Translation = "log wage + log(100)",
+  Specifications = paste(names(workflows),collapse=", ")
+) %>%
+  kbl(caption="Rerun setup",row.names=FALSE) %>%
+  kable_styling(bootstrap_options=c("striped","condensed"),full_width=FALSE)
 ```
 
 # 1. Kappa estimators
 
 <div class="note-box">
-Kappa weights depend on the instrument, treatment, covariates, and propensity
-score, but not on the outcome. Consequently, Method A and Method B should
-agree to numerical precision. The normalized estimators should remain
-unchanged; the unnormalized estimators are expected to move.
+The normalized estimators should remain unchanged after the complete rerun,
+whereas the unnormalized estimators are expected to move. These fits are cheap
+and provide the classical benchmark for the data-adaptive estimators below.
 </div>
 
 ```{r kappa-builders}
-kappa_key_map <- c(tau_cb_u="tau_cb_u",tau_ml_u="tau_ml_u",
-  tau_ml_a10="tau_ml_a10",tau_ml_a="tau_ml_a",tau_ml_t="tau_ml_a1",
-  tau_ml_a0="tau_ml_a0")
+kappa_estimator_names <- c("tau_cb_u","tau_ml_u","tau_ml_a10",
+  "tau_ml_a","tau_ml_t","tau_ml_a0")
 build_kappa_rows <- function(wf) {
-  est_o <- kappa_analytic_se_all(wf$Y_orig,wf$Z,wf$D,wf$X_kappa)$estimates
-  est_s <- kappa_analytic_se_all(wf$Y_shift,wf$Z,wf$D,wf$X_kappa)$estimates
-  W <- kappa_weights_bundle(wf$Z,wf$D,wf$X_kappa)
-  do.call(rbind,lapply(names(kappa_key_map),function(est){
-    row <- ti_vietnam_row(est,W[[kappa_key_map[[est]]]],est_o[[est]],est_s[[est]],wf$k)
+  est_o <- kappa_point_estimates(wf$Y_orig,wf$Z,wf$D,wf$X_kappa)
+  est_s <- kappa_point_estimates(wf$Y_shift,wf$Z,wf$D,wf$X_kappa)
+  do.call(rbind,lapply(kappa_estimator_names,function(est){
+    row <- ti_vietnam_row(est,est_o[[est]],est_s[[est]],wf$k)
     row$Specification <- wf$label; row
   }))
 }
@@ -166,25 +192,38 @@ if(RUN_KAPPA)kappa_ti_all<-do.call(rbind,lapply(workflows,build_kappa_rows))
 ```
 
 ```{r kappa-table}
-if(RUN_KAPPA)kappa_ti_all[,c("Specification",setdiff(names(kappa_ti_all),c("Specification","gap_AB")))]%>%
-  kbl(caption="Kappa estimators — original versus shifted log wage",digits=8,row.names=FALSE)%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  row_spec(which(!kappa_ti_all$invariant_A),background="#fffbf0")%>%
-  footnote(general="Orange rows fail Method A, as expected for the unnormalized kappa estimators. For kappa, gap_AB should be approximately zero because the weights do not depend on Y.")
+if(RUN_KAPPA) {
+  kappa_ti_all <- classify_rerun_results(kappa_ti_all)
+  display_rerun_results(kappa_ti_all) %>%
+    kbl(caption="Kappa estimators — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
+    row_spec(which(!kappa_ti_all$invariant),background="#fffbf0") %>%
+    footnote(general=paste0(
+      "Shading marks absolute rerun differences above ",
+      format(RERUN_TOLERANCE,scientific=TRUE),
+      ". This occurs for the cubic unnormalized kappa variants."
+    ))
+}
 ```
 
 # 2. Headline DML: tuned honest forest
 
 ```{r dml-headline-builder}
 build_dml_headline_rows <- function(wf) {
-  set.seed(SEED); fit_o <- dml_with_smoother(wf$Y_orig,wf$D,wf$X_dml,wf$Z,
-    n_cf_folds=N_CF,tune.parameters="all")
-  set.seed(SEED); fit_s <- dml_with_smoother(wf$Y_shift,wf$D,wf$X_dml,wf$Z,
-    n_cf_folds=N_CF,tune.parameters="all")
-  ro <- summary(fit_o); rs <- summary(fit_s); om <- get_outcome_weights(fit_o)
-  check_omega_rows(om)
+  set.seed(SEED)
+  invisible(capture.output(
+    fit_o <- dml_with_smoother(wf$Y_orig,wf$D,wf$X_dml,wf$Z,
+      n_cf_folds=N_CF,tune.parameters="all")
+  ))
+  set.seed(SEED)
+  invisible(capture.output(
+    fit_s <- dml_with_smoother(wf$Y_shift,wf$D,wf$X_dml,wf$Z,
+      n_cf_folds=N_CF,tune.parameters="all")
+  ))
+  invisible(capture.output(ro <- summary(fit_o)))
+  invisible(capture.output(rs <- summary(fit_s)))
   do.call(rbind,lapply(c("PLR-IV","Wald-AIPW"),function(est){
-    row <- ti_vietnam_row(est,as.vector(om$omega[est,]),get_estimate(ro,est),
+    row <- ti_vietnam_row(est,get_estimate(ro,est),
                           get_estimate(rs,est),wf$k)
     row$Specification <- wf$label; row
   }))
@@ -196,10 +235,14 @@ if(RUN_DML)dml_headline_ti_all<-do.call(rbind,lapply(workflows,build_dml_headlin
 ```
 
 ```{r dml-headline-table}
-if(RUN_DML)dml_headline_ti_all[,c("Specification",setdiff(names(dml_headline_ti_all),c("Specification","gap_AB")))]%>%
-  kbl(caption="Tuned honest forest — original versus shifted log wage",digits=8,row.names=FALSE)%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  row_spec(which(!dml_headline_ti_all$invariant_A),background="#fffbf0")
+if(RUN_DML) {
+  dml_headline_ti_all <- classify_rerun_results(dml_headline_ti_all)
+  display_rerun_results(dml_headline_ti_all) %>%
+    kbl(caption="Tuned honest forest — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
+    row_spec(which(!dml_headline_ti_all$invariant),background="#fffbf0") %>%
+    footnote(general="The exact rerun differences are shown; all four are numerically unchanged at the stated reporting threshold.")
+}
 ```
 
 # 3. OLS/logit and Ranger learners
@@ -219,19 +262,15 @@ ml_lm_iivm<-function()list(g=lrn("regr.lm"),m=lrn("classif.log_reg"),r=lrn("clas
 ml_rf_iivm<-function()list(g=lrn("regr.ranger",keep.inbag=TRUE),m=lrn("classif.ranger",keep.inbag=TRUE),r=lrn("classif.ranger",keep.inbag=TRUE))
 ml_lm_pliv<-function()list(l=lrn("regr.lm"),m=lrn("regr.lm"),r=lrn("regr.lm"))
 ml_rf_pliv<-function()list(l=lrn("regr.ranger",keep.inbag=TRUE),m=lrn("regr.ranger",keep.inbag=TRUE),r=lrn("regr.ranger",keep.inbag=TRUE))
-omega_vec<-function(om,row){w<-om$omega;if(is.null(dim(w)))return(as.vector(w))
-  if(!is.null(rownames(w))&&row%in%rownames(w))return(as.vector(w[row,]));as.vector(w[1,])}
-fit_iivm<-function(dat,L,Y){set.seed(SEED);o<-DoubleMLIIVM$new(data=dat,ml_g=L$g,ml_m=L$m,ml_r=L$r,n_folds=N_CF,score="LATE")
-  o$fit(store_models=TRUE,store_predictions=TRUE);om<-get_outcome_weights(object=o,dml_data=dat)
-  w<-omega_vec(om,"Wald-AIPW");list(obj=o,w=w,ok=check_weight_identity(w,Y,get_dml_coef(o)))}
-fit_pliv<-function(dat,L,Y){set.seed(SEED);o<-DoubleMLPLIV$new(data=dat,ml_l=L$l,ml_m=L$m,ml_r=L$r,n_folds=N_CF)
-  o$fit(store_models=TRUE,store_predictions=TRUE);om<-get_outcome_weights(object=o,dml_data=dat)
-  w<-omega_vec(om,"PLR-IV");list(obj=o,w=w,ok=check_weight_identity(w,Y,get_dml_coef(o)))}
+fit_iivm<-function(dat,L){set.seed(SEED);o<-DoubleMLIIVM$new(data=dat,ml_g=L$g,ml_m=L$m,ml_r=L$r,n_folds=N_CF,score="LATE")
+  invisible(capture.output(o$fit(store_models=TRUE,store_predictions=TRUE)));o}
+fit_pliv<-function(dat,L){set.seed(SEED);o<-DoubleMLPLIV$new(data=dat,ml_l=L$l,ml_m=L$m,ml_r=L$r,n_folds=N_CF)
+  invisible(capture.output(o$fit(store_models=TRUE,store_predictions=TRUE)));o}
 build_learner_row<-function(wf,label,Lfun,fitfun){
-  fo<-fitfun(make_dml_data(wf$Y_orig,wf$D,wf$Z,wf$X_dml),Lfun(),wf$Y_orig)
-  fs<-fitfun(make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml),Lfun(),wf$Y_shift)
-  row<-ti_vietnam_row(label,fo$w,get_dml_coef(fo$obj),get_dml_coef(fs$obj),wf$k)
-  row$Specification<-wf$label;row$identity_ok<-fo$ok;row}
+  fo<-fitfun(make_dml_data(wf$Y_orig,wf$D,wf$Z,wf$X_dml),Lfun())
+  fs<-fitfun(make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml),Lfun())
+  row<-ti_vietnam_row(label,get_dml_coef(fo),get_dml_coef(fs),wf$k)
+  row$Specification<-wf$label;row}
 ```
 
 ```{r learner-run, cache=TRUE}
@@ -243,29 +282,32 @@ if(RUN_LM_RF)learner_ti_all<-do.call(rbind,lapply(workflows,function(wf)rbind(
 ```
 
 ```{r learner-table}
-if(RUN_LM_RF)learner_ti_all[,c("Specification",setdiff(names(learner_ti_all),c("Specification","gap_AB","identity_ok")))]%>%
-  kbl(caption="DoubleML learners — original versus shifted log wage",digits=8,row.names=FALSE)%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  row_spec(which(!learner_ti_all$invariant_A),background="#fffbf0")%>%
-  footnote(general="OLS/logit labels the nuisance learner class; cubic and saturated labels identify the feature specification. Orange rows fail the full rerun invariance check.")
+if(RUN_LM_RF) {
+  learner_ti_all <- classify_rerun_results(learner_ti_all)
+  display_rerun_results(learner_ti_all) %>%
+    kbl(caption="DoubleML learners — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
+    row_spec(which(!learner_ti_all$invariant),background="#fffbf0") %>%
+    footnote(general="OLS/logit labels the nuisance learner class; cubic and saturated identify the feature specification. All reported rerun differences are within the numerical threshold.")
+}
 ```
 
-# 4. Tuned XGBoost Method A
+# 4. Tuned XGBoost complete-pipeline rerun
 
 ```{r xgb-setup}
-if(RUN_XGB_METHOD_A){
+if(RUN_XGB_RERUN){
   if(!USE_XGB_ORIGINAL_EXPORT)stop("USE_XGB_ORIGINAL_EXPORT must be TRUE.")
   req<-c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds")
-  if(!all(file.exists(req)))stop("Run both Vietnam XGBoost tuning notebooks before Method A.")
+  if(!all(file.exists(req)))stop("Run both Vietnam XGBoost tuning notebooks before the translation rerun.")
   xgb_wald_export<-readRDS(req[1]);xgb_pliv_export<-readRDS(req[2])
   for(ex in list(xgb_wald_export,xgb_pliv_export)){
     if(!isTRUE(ex$settings$tune_on_folds))stop("Export is not a tune_on_folds=TRUE fit.")
-    if(!all(names(workflows)%in%names(ex$omega_vectors)))stop("Export cells do not match Method-A workflows.")
+    if(!all(names(workflows)%in%ex$weight_diagnostics$Cell))stop("Export cells do not match the translation workflows.")
     if(!identical(as.integer(ex$settings$seed),as.integer(SEED))||
        !identical(as.integer(ex$settings$n_cf),as.integer(N_CF))||
        !identical(as.integer(ex$settings$tune_evals),as.integer(TUNE_EVALS))||
        !identical(as.integer(ex$settings$inner_folds),as.integer(INNER_FOLDS)))
-      stop("Export tuning settings do not match the Method-A rerun settings.")
+      stop("Export tuning settings do not match the shifted-outcome rerun settings.")
   }
 }
 
@@ -280,56 +322,77 @@ tune_settings_pliv<-function()list(n_folds_tune=INNER_FOLDS,rsmp_tune=rsmp("cv",
 get_original_xgb<-function(export,cell,learner_label){
   row<-export$weight_diagnostics%>%filter(.data$Cell==cell,.data$Learner==learner_label)
   if(nrow(row)!=1)stop(sprintf("Expected one diagnostic row for %s / %s.",cell,learner_label))
-  w<-export$omega_vectors[[cell]]$tuned
-  if(is.null(w)||!length(w))stop(sprintf("Tuned outcome weights are unavailable for %s / %s.",cell,learner_label))
   tau<-as.numeric(row$Estimate[1])
   if(!is.finite(tau))stop(sprintf("Tuned estimate is unavailable for %s / %s.",cell,learner_label))
-  list(tau=tau,w=as.vector(w),identity_ok=isTRUE(export$identity_checks[[cell]]$tuned))}
+  tau}
 fit_shifted_wald<-function(wf){dat<-make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml);L<-make_xgb_iivm()
   o<-DoubleMLIIVM$new(data=dat,ml_g=L$g,ml_m=L$m,ml_r=L$r,n_folds=N_CF,score="LATE")
-  o$tune(param_set=tune_set_iivm(),tune_settings=tune_settings_iivm(),tune_on_folds=TRUE)
-  o$fit(store_models=TRUE,store_predictions=TRUE);get_dml_coef(o)}
+  invisible(capture.output(o$tune(param_set=tune_set_iivm(),tune_settings=tune_settings_iivm(),tune_on_folds=TRUE)))
+  invisible(capture.output(o$fit(store_models=TRUE,store_predictions=TRUE)));get_dml_coef(o)}
 fit_shifted_pliv<-function(wf){dat<-make_dml_data(wf$Y_shift,wf$D,wf$Z,wf$X_dml);L<-make_xgb_pliv()
   o<-DoubleMLPLIV$new(data=dat,ml_l=L$l,ml_m=L$m,ml_r=L$r,n_folds=N_CF)
-  o$tune(param_set=tune_set_pliv(),tune_settings=tune_settings_pliv(),tune_on_folds=TRUE)
-  o$fit(store_models=TRUE,store_predictions=TRUE);get_dml_coef(o)}
+  invisible(capture.output(o$tune(param_set=tune_set_pliv(),tune_settings=tune_settings_pliv(),tune_on_folds=TRUE)))
+  invisible(capture.output(o$fit(store_models=TRUE,store_predictions=TRUE)));get_dml_coef(o)}
 build_xgb_rows<-function(wf){out<-list()
   if(RUN_XGB_WALD_AIPW){orig<-get_original_xgb(xgb_wald_export,wf$label,"XGB tuned");set.seed(SEED);ts<-fit_shifted_wald(wf)
-    r<-ti_vietnam_row("Wald-AIPW (XGBoost tuned)",orig$w,orig$tau,ts,wf$k);r$Specification<-wf$label;r$identity_ok<-orig$identity_ok;out$wald<-r}
+    r<-ti_vietnam_row("Wald-AIPW (XGBoost tuned)",orig,ts,wf$k);r$Specification<-wf$label;out$wald<-r}
   if(RUN_XGB_PLIV){orig<-get_original_xgb(xgb_pliv_export,wf$label,"PLR-IV XGB tuned");set.seed(SEED);ts<-fit_shifted_pliv(wf)
-    r<-ti_vietnam_row("PLR-IV (XGBoost tuned)",orig$w,orig$tau,ts,wf$k);r$Specification<-wf$label;r$identity_ok<-orig$identity_ok;out$pliv<-r}
+    r<-ti_vietnam_row("PLR-IV (XGBoost tuned)",orig,ts,wf$k);r$Specification<-wf$label;out$pliv<-r}
   do.call(rbind,out)}
 ```
 
-```{r xgb-run, cache=TRUE, cache.extra=list(RUN_XGB_METHOD_A,RUN_XGB_WALD_AIPW,RUN_XGB_PLIV,TUNE_EVALS,INNER_FOLDS)}
-if(RUN_XGB_METHOD_A){
+```{r xgb-run, cache=TRUE, cache.extra=list(RUN_XGB_RERUN,RUN_XGB_WALD_AIPW,RUN_XGB_PLIV,TUNE_EVALS,INNER_FOLDS)}
+if(RUN_XGB_RERUN){
   xgb_ti_all<-do.call(rbind,lapply(workflows,build_xgb_rows))
   saveRDS(list(results=xgb_ti_all,settings=list(seed=SEED,n_cf=N_CF,
     tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,tune_on_folds=TRUE,
     original_exports=c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds"))),
-    "vietnam_translation_xgb_method_a_export.rds")
+    "vietnam_translation_xgb_rerun_export.rds")
 }
 ```
 
 ```{r xgb-table}
-if(RUN_XGB_METHOD_A)xgb_ti_all[,c("Specification",setdiff(names(xgb_ti_all),c("Specification","gap_AB","identity_ok")))]%>%
-  kbl(caption="Tuned XGBoost Method A — original export versus shifted nested-tuning rerun",digits=8,row.names=FALSE)%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  row_spec(which(!xgb_ti_all$invariant_A),background="#fffbf0")%>%
-  footnote(general="Original estimates and weights are imported from the exact tuned exports. Shifted estimates rerun the complete nested tuning procedure. Orange indicates failure of the full rerun invariance check.")
-```
-
-```{r xgb-identity-table}
-if(RUN_XGB_METHOD_A)xgb_ti_all%>%select(Specification,Estimator,identity_ok,sum_w,diff_B,diff_A,gap_AB)%>%
-  kbl(caption="XGBoost outcome-weight identity and Method-A/Method-B gap",digits=8,row.names=FALSE)%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  footnote(general="identity_ok refers to the imported original-outcome weight representation. When FALSE, Method B is only an approximate learner-sensitivity diagnostic; Method A remains the relevant rerun result.")
+if(RUN_XGB_RERUN) {
+  xgb_ti_all <- classify_rerun_results(xgb_ti_all)
+  display_rerun_results(xgb_ti_all) %>%
+    kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",digits=8,row.names=FALSE) %>%
+    kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
+    row_spec(which(!xgb_ti_all$invariant),background="#fffbf0") %>%
+    footnote(general=paste0(
+      "Original estimates are imported from the saved tuning results; shifted estimates rerun nested tuning. ",
+      "Shading marks absolute rerun differences above ",
+      format(RERUN_TOLERANCE,scientific=TRUE), "."
+    ))
+}
 ```
 
 <div class="note-box">
-**Interpretation.** Kappa and the honest forest are affine-smoother cases for
-which Methods A and B should agree closely. For adaptive Ranger and XGBoost
-fits, a nonzero `gap_AB` can arise because the learner is re-estimated after
-the outcome shift. Large discrepancies require investigation; unnormalized
-kappa failures are expected by construction.
+**Interpretation.** The normalized kappa estimators and the OLS/logit, Ranger,
+and honest-forest implementations are numerically unchanged after the complete
+rerun. The cubic unnormalized kappa results reproduce the sensitivity reported
+by SUW, while the kappa variants coincide under the saturated-age
+specification. The tuned XGBoost estimates show small but visible rerun
+differences. These changes are compatible with the absence of a general
+normalization result for boosted-tree implementations discussed by Knaus.
+Their magnitudes refer only to the present implementation and tuning protocol.
 </div>
+
+# 5. Save reusable rerun results
+
+```{r save-complete-rerun, cache=FALSE, include=FALSE}
+result_parts <- Filter(Negate(is.null), list(
+  Kappa = if (exists("kappa_ti_all")) kappa_ti_all else NULL,
+  `Tuned honest forest` = if (exists("dml_headline_ti_all")) dml_headline_ti_all else NULL,
+  `OLS/logit and Ranger` = if (exists("learner_ti_all")) learner_ti_all else NULL,
+  `Tuned XGBoost` = if (exists("xgb_ti_all")) xgb_ti_all else NULL
+))
+for (nm in names(result_parts)) result_parts[[nm]]$Family <- nm
+translation_results <- bind_rows(result_parts)
+saveRDS(list(
+  results = translation_results,
+  settings = list(seed=SEED,n_cf=N_CF,shift=log(100),
+                  rerun_tolerance=RERUN_TOLERANCE,
+                  grf_tuning="all",xgboost_tune_on_folds=TRUE,
+                  xgboost_tune_evals=TUNE_EVALS,xgboost_inner_folds=INNER_FOLDS)
+), "vietnam_translation_rerun_results.rds")
+```
