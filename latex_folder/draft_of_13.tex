@@ -25,7 +25,7 @@
   a4paper,
   top    = 2.5cm,
   bottom = 2.5cm,
-  left   = 3.0cm,
+  left   = 2.5cm,
   right  = 2.5cm,
   headheight = 14pt
 ]{geometry}
@@ -787,6 +787,8 @@ organizing principle for the estimator-specific subsections that follow.
 
 
 \subsubsection{The partially linear IV estimator}
+\label{subsec:pliv}
+
 
 The first DML-based IV procedure used in this thesis is the partially linear
 instrumental variables (PLR-IV) estimator. Following
@@ -2224,24 +2226,38 @@ examining the realised outcome weights.
 
 
 
-\subsection{Double Machine Learning Comparison}
+\subsection{DML Estimates for Log Wages in Dollars}
 \label{subsec:vietnam_dml}
-The kappa estimators in the preceding section require an estimate of the instrument propensity score.
-For $\hat\tau_u^{ml}$ and the Abadie-type estimators this is obtained by logistic Maximum Likelihood Estimation (MLE), while $\hat\tau_u^{cb}$ uses CBPS moment conditions. 
-The idea here to replace those models with a flexible machine learning nuisance etsimator materially could change the LATE estimate in this design.
-To assess this, the analysis adds two DML based IV estimators which are the PLR-IV and the WALD-AIPW, both implemented using he \textsc{OutcomeWeights}
-package of \citet{knaus2024treatment}.
-The nuisance functions are estimated by generalised random forest with five-fold cross-fitting and automatic hyperparameter tuning. \\
-The linear-age specification is omitted from the DML comparison because it is not a meaningful benchmark for flexible nuisance estimation: with only one continuous covariate, the flexible learner has little scope to improve on the parametric specification. The DML comparison therefore focuses on the cubic and saturated specifications, where the nuisance learner can, in principle, exploit nonlinear age patterns. Relevant benchmarks are provided by the cubic and saturated age specifications, as both supply enough structural variation for the flexible learner to differ, in principle from the other two specifications.
-Table~\ref{tab:vietnam_dml} reports point estimates for the two DML
-estimators alongside the three normalised kappa estimators and the 2SLS
-benchmark, for the cubic and saturated specifications and log wages in
-dollars. 
+The replication above establishes the behaviour of the classical kappa
+estimators under the dollars--cents recoding. I next ask whether replacing
+their parametric propensity-score models with more flexible nuisance
+estimation changes the estimated effect. This section uses only
+log hourly wages measured in dollars. It therefore provides the
+point-estimate benchmark for the DML analysis.\\
+The comparison considers PLR-IV and Wald-AIPW, implemented with the
+\textit{Outcome Weights} package \citep{knaus2024treatment}. The headline
+specification estimates the nuisance functions with tuned honest forests and
+uses five-fold cross-fitting. Cubic age and saturated age indicators are
+retained as the two richer encodings from the SUW replication. Using both
+shows whether the estimates depend on representing the cohort structure by a
+smooth polynomial or by separate age categories.\\
+Table~\ref{tab:vietnam_dml} reports the two DML estimates together with the
+normalised kappa estimators and 2SLS. The DML estimates are positive and
+closely grouped. PLR-IV equals \(0.243\) under cubic age and \(0.242\) under
+saturated age, while Wald-AIPW changes from \(0.229\) to \(0.244\). These
+values are close to both the normalised kappa estimates, which range from
+\(0.202\) to \(0.241\), and the corresponding 2SLS estimates of \(0.227\)
+and \(0.254\).
+
+
+
+
 \begin{table}[htbp]
 \centering
-\caption{Point estimates: DML and kappa estimators (Vietnam)}
+\caption{DML and benchmark estimates for log wages measured in dollars}
 \label{tab:vietnam_dml}
 \small
+\begin{threeparttable}
 \begin{tabular}{l cc cc}
 \toprule
  & \multicolumn{2}{c}{Cubic age}
@@ -2260,40 +2276,54 @@ $\hat{\tau}_{a,10}$     & 0.204 & (0.239) & 0.241 & (0.229) \\[4pt]
 \multicolumn{5}{l}{\textit{Panel C: 2SLS benchmark}} \\[2pt]
 2SLS             & 0.227 & (0.229) & 0.254 & (0.227) \\
 \bottomrule
-\addlinespace[4pt]
 \end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} DML nuisance functions are estimated by tuned honest
+forests with five-fold cross-fitting. Standard errors are reported in
+parentheses. The kappa and 2SLS estimates correspond to the dollar columns of
+Appendix Table~\ref{tab:vietnam_kappa}.
+\end{tablenotes}
+\end{threeparttable}
 \end{table}
- Two patterns stand out. First, the DML estimates are closely aligned
-with the normalised kappa estimators. In the cubic specification, PLR-IV
-yields 0.243 and Wald-AIPW yields 0.229, compared with a range of
-0.202--0.210 for the normalised kappa estimators and 0.227 for 2SLS.
-In the saturated specification, PLR-IV gives 0.242 and Wald-AIPW gives
-0.244, again consistent with the normalised kappa estimates of 0.241 and
-the 2SLS benchmark of 0.254.
-The DML estimates remain statistically and substantively close to the normalized kappa and 2SLS benchmarks, although PLR-IV is somewhat larger than the normalized kappa estimates in the cubic specification. For the PLR-IV it is to take into account though that this framework just estimate the Local Average Treatment Effect under certain conditions. 
-The convergence hence is expected given the design. The Vietnam draft lottery
-instrument is near-randomly assigned conditional on birth cohort, and the
-only adjustment variable is age. In this low-dimensional, near-random-
-assignment setting, the parametric logit and the generalised random forest
-estimate essentially the same propensity-score surface.
- The effective sample size and the share of negative weights are virtually identical across all estimators, which confirms that the instrument design rather then than the nuisance learner dirves the weight structure. In this case the primary idea is to suspect that the design dominates the learner. 
+The standard errors are between \(0.227\) and \(0.239\) across the estimators
+in the table. The point estimates are therefore similar relative to their
+sampling uncertainty, but none is estimated precisely. Agreement between
+PLR-IV, Wald-AIPW, and the classical benchmarks is consequently best read as
+a robustness result for this application. It does not by itself establish
+that the estimators have identical finite-sample targets. In particular, the
+LATE interpretation of PLR-IV requires the additional conditions discussed
+in Section~\ref{subsec:pliv}.
+\subsubsection{Learner and Tuning Sensitivity}
+\label{subsubsec:vietnam_learner_sensitivity}
+The headline results use one learner family. To assess whether the conclusion
+depends on that choice, I compare the tuned honest forest with its untuned
+version and then re-estimate both DML scores using linear or logistic
+nuisance models, \texttt{ranger}, and XGBoost. Honest-forest tuning is carried
+out internally using out-of-bag prediction loss. XGBoost instead uses
+three-fold random-search tuning within each outer training fold, so that the
+held-out cross-fitting observations do not enter the tuning decision.
+Appendix Table~\ref{tab:vietnam_dml_appendix} reports the complete comparison.\\
+Tuning has only a small effect on the honest-forest estimates. Relative to
+the untuned fits, the tuned PLR-IV estimate changes by \(0.006\) under cubic
+age and \(0.002\) under saturated age. For Wald-AIPW, the corresponding
+changes are \(-0.004\) and \(0.010\). The XGBoost comparison is similar. The
+largest change between its untuned and fold-specifically tuned estimates is
+\(0.011\). The accompanying tuning reports also show only small changes in
+out-of-fold nuisance losses, and the changes are not uniformly improvements
+across the two age specifications.\\
+Across all learner classes, the point estimates range from \(0.218\) to
+\(0.283\), whereas their standard errors range from \(0.223\) to \(0.235\).
+The learner spread is therefore modest relative to the statistical
+uncertainty. Ranger and XGBoost tend to produce somewhat larger estimates
+than the linear or logistic nuisance models, especially for PLR-IV.
+The Vietnam results are not driven by
+one particular nuisance learner or tuning choice. For clarity, the tuned
+honest forest remains the headline specification in
+Table~\ref{tab:vietnam_dml}; the other fits are treated as sensitivity
+checks. This dollars-only comparison is kept separate from the
+complete-pipeline translation exercise.
 
-The generalized random forest based estimates above use a single learner class, a natural question results in assessing whther the convergence result is specific to generalised random forests or whether it holds across fundamentally different nuisance estimators such as parametric, tree ensembles with other packages or boosted sequential learners.
-These make different approximation choices and carry different theoretical guarantees for the smoother condition $\sum_i \omega_i = 0$.
-To assess whether learner choice within the DoubleML framework
-produces different results, Appendix Table~\ref{tab:vietnam_dml_appendix}
-reports Wald-AIPW estimates from \texttt{DoubleMLIIVM} with three
-alternative nuisance learners: linear regression and logistic
-classification (the parametric baseline), ranger random forests, and
-XGBoost.
-The three learner variants span a range from 0.218 to 0.246. These estimates remain close to the grf Wald-AIPW benchmark of 0.229, the cubic 2SLS
-estimate of 0.227, and the broader range of normalised kappa estimates reported
-above. The parametric linear/logistic learner lies at the lower end of the
-DoubleML range, which is consistent with stronger functional-form restrictions
-relative to the more flexible tree-based learners. Given the large standard
-errors and the low-dimensional covariate structure of the Vietnam design, these
-differences should be interpreted as learner sensitivity checks rather than as
-distinct empirical conclusions.
 
 
 
@@ -2304,9 +2334,13 @@ distinct empirical conclusions.
 
 \subsection{Outcome Weight Diagnostics and Covariate Balance}
 \label{subsec:vietnam_weights}
-The point estimate comparison in the prior section showed that unnormalised kappa estimators respond to an additive shift in the log outcome, while normalised estimators and DML do not. Section~\ref{subsec:vietnam_dml}
-showed that DML and normalised kappa estimators agree numerically. This section
-explains both findings by looking through the lens of the Outcome weights.
+The replication showed that the unnormalised kappa estimators respond to the
+dollars--cents recoding, whereas the normalised kappa estimators do not.
+Section~\ref{subsec:vietnam_dml} showed that the DML and normalised kappa
+estimates are also close when wages are measured in dollars. This agreement
+does not establish translation invariance for the DML procedures, which
+requires the separate complete-pipeline rerun. The present section examines
+the realised outcome weights as a complementary diagnostic.
 \begin{table}[htbp]
 \centering
 \caption{Outcome weight diagnostics: Vietnam draft lottery}
@@ -3753,31 +3787,47 @@ error. The analysis therefore retains the tightly balanced R result,
 \(0.210\;(0.233)\), while reporting the published value in the table note.
 
 \newpage
-\section{DML learner comparison}
+\section{DML learner and tuning sensitivity}
 \begin{table}[htbp]
 \centering
-\caption{DoubleML learner comparison: Wald-AIPW (Vietnam, cubic age)}
+\caption{DML learner and tuning sensitivity: Vietnam draft lottery}
 \label{tab:vietnam_dml_appendix}
 \small
 \begin{threeparttable}
-\begin{tabular}{l c c c c}
+\begin{tabular}{l cc cc}
 \toprule
-Learner & Est. & SE & $\omega'\mathbf{Y} = \hat{\tau}$ & $\sum_i\omega_i$ \\
+ & \multicolumn{2}{c}{Cubic age}
+ & \multicolumn{2}{c}{Saturated age} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Estimator and nuisance learner & Est. & SE & Est. & SE \\
 \midrule
 \addlinespace[2pt]
-Linear + logistic          & 0.2178 & (0.233) & \checkmark  & $0.000$                  \\
-Ranger RF                  & 0.2461 & (0.234) & \checkmark  & $0.000$                  \\
-XGBoost$^{\dagger}$        & 0.2463 & (0.234) & $\times$    & $-3.7\!\times\!10^{-6}$  \\
+\multicolumn{5}{l}{\textit{Panel A: Honest forest}} \\[2pt]
+PLR-IV, untuned              & 0.237 & (0.228) & 0.240 & (0.228) \\
+PLR-IV, tuned                & 0.243 & (0.228) & 0.242 & (0.228) \\
+Wald-AIPW, untuned           & 0.233 & (0.235) & 0.234 & (0.234) \\
+Wald-AIPW, tuned             & 0.229 & (0.231) & 0.244 & (0.233) \\[4pt]
+\multicolumn{5}{l}{\textit{Panel B: Alternative DoubleML learners}} \\[2pt]
+PLR-IV, OLS                  & 0.239 & (0.231) & 0.270 & (0.230) \\
+PLR-IV, \texttt{ranger}      & 0.270 & (0.230) & 0.283 & (0.223) \\
+PLR-IV, XGBoost untuned      & 0.270 & (0.230) & 0.270 & (0.230) \\
+PLR-IV, XGBoost tuned        & 0.265 & (0.229) & 0.281 & (0.230) \\
+Wald-AIPW, OLS/logit         & 0.218 & (0.233) & 0.247 & (0.234) \\
+Wald-AIPW, \texttt{ranger}   & 0.246 & (0.234) & 0.261 & (0.224) \\
+Wald-AIPW, XGBoost untuned   & 0.246 & (0.234) & 0.246 & (0.234) \\
+Wald-AIPW, XGBoost tuned     & 0.238 & (0.228) & 0.253 & (0.230) \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}
 \footnotesize
-\item \textit{Notes:} All models use \texttt{DoubleMLIIVM} with
-five-fold cross-fitting \citep{bach2022doubleml}. The identity column records
-whether the recovered outcome weights reproduce the fitted point estimate to
-the numerical tolerance used in the analysis. Because the XGBoost weights do
-not pass this check, their near-zero sum is not interpreted as an exact
-normalisation result.
+\item \textit{Notes:} The outcome is log hourly wages measured in dollars.
+All DML specifications use five-fold cross-fitting. Honest-forest tuning uses
+the internal out-of-bag procedure in \texttt{grf}. XGBoost tuning uses
+three-fold random-search cross-validation separately within each outer
+training fold, with 15 evaluations per nuisance function. Standard errors
+are reported in parentheses. OLS/logit refers to OLS outcome nuisances and
+logistic instrument and treatment nuisances for Wald-AIPW; PLR-IV uses
+regression nuisances throughout.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
