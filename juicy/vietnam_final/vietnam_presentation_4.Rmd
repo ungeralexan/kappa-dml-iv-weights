@@ -1,6 +1,6 @@
 ---
-title: "Angrist (1990) — Outcome Weights & Kappa Estimators"
-subtitle: "Vietnam Draft Lottery: SUW Replication, DML & Learner Comparison"
+title: "Vietnam Draft Lottery — Replication and Outcome-Weight Diagnostics"
+subtitle: "Kappa estimators, Double ML, learner sensitivity, and exact weight checks"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 output:
@@ -30,6 +30,22 @@ h3     { color: #444; margin-top: 20px; }
   margin: 14px 0;
   font-size: 14px;
 }
+.result-box {
+  background: #f3f8f3;
+  border-left: 4px solid #3c8d40;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.warn-box {
+  background: #fff7e6;
+  border-left: 4px solid #d89000;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
 table { font-size: 13px; }
 ```
 
@@ -41,6 +57,7 @@ knitr::opts_chunk$set(
   fig.width  = 12,
   fig.height = 6
 )
+options(knitr.kable.NA = "—")
 ```
 
 ---
@@ -68,9 +85,7 @@ library(DoubleML)
 library(mlr3verse)
 lgr::get_logger("mlr3")$set_threshold("warn")
 
-source("functions_all.R")   # all estimators, weight diagnostics (incl. ESS_mod),
-                            # get_dml_coef / get_dml_se, make_X, make_love, etc.
-cat("functions_all.R sourced.\n")
+source("functions_all.R")   # estimators, analytical SEs, and weight diagnostics
 ```
 
 ## Data & Design
@@ -105,8 +120,7 @@ Y_dol <- sipp_clean$lwage       # dollars (the working outcome everywhere else)
 Z     <- as.integer(sipp_clean$rsncode)
 D     <- as.integer(sipp_clean$nvstat)
 
-cat(sprintf("N = %d (should be 3,027)\n", nrow(sipp_clean)))
-cat(sprintf("mean(Z) = %.4f | mean(D) = %.4f\n", mean(Z), mean(D)))
+stopifnot(nrow(sipp_clean) == 3027L)
 ```
 
 ```{r design-matrices}
@@ -125,10 +139,91 @@ X_dml_cub      <- make_X(~ 0 + age + I(age^2) + I(age^3), data = sipp_clean)
 X_dml_sat_full <- make_X(~ 0 + age_fac, data = sipp_clean)
 X_dml_sat      <- X_dml_sat_full[, -1, drop = FALSE]   # drop one age dummy (reference)
 
-cat(sprintf("Kappa: Linear %d / Cubic %d / Saturated %d covariates | DML: Cubic %dx%d / Saturated %dx%d\n",
-            ncol(X_lin) - 1, ncol(X_cub) - 1, ncol(X_sat) - 1,
-            nrow(X_dml_cub), ncol(X_dml_cub), nrow(X_dml_sat), ncol(X_dml_sat)))
+stopifnot(nrow(X_dml_cub) == nrow(sipp_clean),
+          nrow(X_dml_sat) == nrow(sipp_clean))
 ```
+
+---
+
+# 0. Empirical Design Audit
+
+<div class="note-box">
+The lottery design is conditionally random within birth cohort. The pooled
+eligibility share is therefore a sample-composition statistic, not the basis
+for the assignment claim. The relevant empirical checks are whether draft
+eligibility shifts veteran status after age adjustment and whether fitted
+eligibility probabilities remain away from the boundaries.
+</div>
+
+```{r design-audit, echo=FALSE}
+first_stage_row <- function(label, formula, X) {
+  fit <- lm(formula, data = data.frame(D = D, Z = Z,
+                                       age = sipp_clean$age,
+                                       age2 = sipp_clean$age2,
+                                       age3 = sipp_clean$age3,
+                                       age_fac = sipp_clean$age_fac))
+  ct <- lmtest::coeftest(fit, vcov. = sandwich::vcovHC(fit, type = "HC1"))
+  p <- logit_mle(Z, X)
+  data.frame(
+    Specification = label,
+    `Adjusted first stage` = unname(ct["Z", "Estimate"]),
+    `HC1 SE` = unname(ct["Z", "Std. Error"]),
+    `Robust t²` = unname(ct["Z", "t value"]^2),
+    `Min p̂(X)` = min(p),
+    `Max p̂(X)` = max(p),
+    `Boundary share` = mean(p < 0.05 | p > 0.95),
+    check.names = FALSE
+  )
+}
+
+design_audit <- rbind(
+  first_stage_row("Linear age", D ~ Z + age, X_lin),
+  first_stage_row("Cubic age", D ~ Z + age + age2 + age3, X_cub),
+  first_stage_row("Saturated age", D ~ Z + age_fac, X_sat)
+)
+
+sample_audit <- data.frame(
+  N = length(Z),
+  `Pr(Z=1)` = mean(Z),
+  `Pr(D=1)` = mean(D),
+  `Pr(D=1 | Z=0)` = mean(D[Z == 0]),
+  `Pr(D=1 | Z=1)` = mean(D[Z == 1]),
+  `Raw uptake gap` = mean(D[Z == 1]) - mean(D[Z == 0]),
+  check.names = FALSE
+)
+
+sample_audit %>%
+  kbl(digits = 4, caption = "Sample and unconditional treatment uptake",
+      align = rep("r", ncol(sample_audit))) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE, font_size = 13)
+
+design_audit %>%
+  kbl(digits = 4,
+      caption = "Age-adjusted first-stage strength and estimated instrument overlap",
+      align = c("l", rep("r", 6))) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  footnote(general = "Robust t² is the squared HC1 t-statistic for draft eligibility; it is a descriptive strength diagnostic, not a formal weak-IV-robust test. Boundary share uses 0.05 and 0.95.")
+```
+
+<div class="result-box">
+**Design conclusion.** The raw 13.9 percentage-point uptake difference falls
+to about nine percentage points after conditioning on age, but the robust
+squared t-statistic remains between 26 and 30. Estimated instrument
+propensities range from approximately 0.14 to 0.63, with no near-boundary
+observations. The saturated-age specification most directly represents the
+discrete cohort structure and is the preferred flexible specification; linear
+and cubic age are sensitivity checks.
+</div>
+
+<div class="warn-box">
+**Qualification.** Sample first-stage differences are not positive in every
+age cell (ages 29 and 39 are negative). These noisy cell contrasts neither
+establish nor refute individual-level monotonicity. The cubic raw-power basis
+is also ill-conditioned; its estimates are retained because they are stable,
+but the saturated specification is numerically cleaner.
+</div>
 
 ---
 
@@ -153,8 +248,6 @@ col_cub_cnt <- run_viet_column(Y_cnt, X_cub, X_cub_df)
 col_cub_dol <- run_viet_column(Y_dol, X_cub, X_cub_df)
 col_sat_cnt <- run_viet_column(Y_cnt, X_sat, X_sat_df)
 col_sat_dol <- run_viet_column(Y_dol, X_sat, X_sat_df)
-
-cat("All 6 columns computed.\n")
 ```
 
 ```{r table-builder, echo=FALSE}
@@ -162,10 +255,7 @@ cell_fmt <- function(est, se, digits = 3) {
   if (is.na(est)) return("—")
   if (is.na(se) || !is.finite(se) || se <= 0)
     return(sprintf("%.3f<br><span style='color:#888'>(NA)</span>", est))
-  pval  <- 2 * pnorm(-abs(est / se))
-  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
-                  ifelse(pval < 0.10, "*", "")))
-  sprintf("%.3f%s<br><span style='color:#888'>(%.3f)</span>", est, stars, se)
+  sprintf("%.3f<br><span style='color:#888'>(%.3f)</span>", est, se)
 }
 
 build_spec_table <- function(c_lin_cnt, c_lin_dol, c_cub_cnt, c_cub_dol, c_sat_cnt, c_sat_dol) {
@@ -214,8 +304,16 @@ build_spec_table(col_lin_cnt, col_lin_dol, col_cub_cnt, col_cub_dol, col_sat_cnt
   pack_rows("Panel C: Unnormalized kappa estimators",5, 7) %>%
   row_spec(2:4, background = "#eef6ff") %>%
   row_spec(5:7, background = "#fffbf0") %>%
-  footnote(general = "Each cell: estimate (SE below). Blue = normalized (translation invariant). Orange = unnormalized. age = age_5. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+  footnote(general = "Each cell reports the estimate with its analytical or HC1-robust standard error below. Blue = normalized (translation invariant); orange = unnormalized. age = age_5, following the SUW replication.")
 ```
+
+<div class="result-box">
+**Replication conclusion.** The normalized kappa estimators and 2SLS are
+unchanged when log wages are shifted from dollars to cents. The unnormalized
+estimators change under linear and cubic age controls. Their equality under
+saturated age is a sample age-cell calibration result, not a general
+invariance property.
+</div>
 
 ---
 
@@ -235,7 +333,7 @@ same random-number state, although tuning itself consumes additional random
 draws.
 </div>
 
-```{r dml-fit-all, cache=TRUE}
+```{r dml-fit-all, cache=TRUE, results='hide'}
 # Cubic-age specification.
 set.seed(42); dml_cub_untuned <- dml_with_smoother(
   Y_dol, D, X_dml_cub, Z, n_cf_folds = 5, tune.parameters = "none")
@@ -263,8 +361,6 @@ w_cub_untuned <- extract_w(dml_cub_untuned)
 w_cub_tuned   <- extract_w(dml_cub_tuned)
 w_sat_untuned <- extract_w(dml_sat_untuned)
 w_sat_tuned   <- extract_w(dml_sat_tuned)
-
-cat("All four DML fits (2 age specifications x untuned/tuned) complete.\n")
 ```
 
 ## Estimates {.tabset}
@@ -277,14 +373,15 @@ show_dml_cell <- function(res, wlist, Y, cap) {
   )
   df <- as.data.frame(res[c("PLR-IV", "Wald-AIPW"), , drop = FALSE])
   df$Estimator  <- rownames(df)
-  df$`ΣωY = τ̂` <- as.character(ids)
-  df <- df[, c("Estimator", setdiff(names(df), c("Estimator","ΣωY = τ̂")), "ΣωY = τ̂")]
+  df$`ω′Y reproduces τ̂` <- as.character(ids)
+  df <- df[, c("Estimator", setdiff(names(df), c("Estimator","ω′Y reproduces τ̂")),
+               "ω′Y reproduces τ̂")]
   df %>%
     kbl(caption = cap, digits = 4, row.names = FALSE,
         align = c("l", rep("r", ncol(df) - 2), "c")) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = FALSE, font_size = 13) %>%
-    footnote(general = "ΣωY = τ̂: algebraic identity check (must be TRUE).")
+    footnote(general = "Numerical reproduction follows Knaus's all.equal() check with R's default tolerance.")
 }
 ```
 
@@ -315,9 +412,9 @@ show_dml_cell(res_sat_tuned, w_sat_tuned, Y_dol,
 <div class="note-box">
 **How to read the comparison.** Within each age specification, compare the
 untuned and tuned rows for changes in the point estimate, standard error, and
-later weight geometry. The identity check must remain true: it verifies the
-package's algebraic outcome-weight representation and is not a tuning-quality
-criterion.
+later weight geometry. The `ω′Y reproduces τ̂` column checks the package's
+algebraic outcome-weight representation; it is not a tuning-quality or
+normalization criterion.
 </div>
 
 ## DML vs. Kappa — Point Estimates
@@ -330,10 +427,7 @@ kappa_sat <- kappa_analytic_se_all(Y_dol, Z, D, X_sat)
 cell <- function(coef, se) {
   if (is.na(coef)) return("—")
   if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
-  pval  <- 2 * pnorm(-abs(coef / se))
-  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
-                  ifelse(pval < 0.10, "*", "")))
-  sprintf("%.3f%s (%.3f)", coef, stars, se)
+  sprintf("%.3f (%.3f)", coef, se)
 }
 
 dml_cell <- function(res, est) {
@@ -385,8 +479,16 @@ rbind(dml_rows, kappa_rows) %>%
   pack_rows("Kappa — unnormalized", 8, 10) %>%
   row_spec(1:4, background = "#eef6ff") %>%
   row_spec(8:10, background = "#fffbf0") %>%
-  footnote(general = "Each cell: estimate (SE). Blue = DML. Orange = unnormalized kappa. Stars: * p<0.10, ** p<0.05, *** p<0.01.")
+  footnote(general = "Each cell reports estimate (SE). Blue = DML; orange = unnormalized kappa. Honest-forest tuning changes neither the substantive conclusion nor the large sampling uncertainty.")
 ```
+
+<div class="result-box">
+**DML conclusion.** Across cubic and saturated age controls, PLR-IV and
+Wald-AIPW remain close to 2SLS and the normalized kappa estimates. Tuning the
+honest forest has little effect relative to the standard errors. The evidence
+therefore supports estimator stability in this low-dimensional design, not a
+precisely estimated positive earnings effect.
+</div>
 
 ---
 
@@ -423,8 +525,6 @@ make_dml_data <- function(X_dml) {
 
 dat_cub <- make_dml_data(X_dml_cub)
 dat_sat <- make_dml_data(X_dml_sat)
-
-cat("DoubleML data objects built for both specs.\n")
 ```
 
 ```{r ext-fit-helpers, echo=FALSE}
@@ -457,7 +557,9 @@ fit_iivm <- function(dml_data, learners, Y) {
     obj <- DoubleMLIIVM$new(data = dml_data,
                             ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
                             n_folds = 5, score = "LATE")
-    obj$fit(store_models = TRUE, store_predictions = TRUE)
+    invisible(capture.output(
+      obj$fit(store_models = TRUE, store_predictions = TRUE)
+    ))
     om  <- get_outcome_weights(object = obj, dml_data = dml_data)
     w   <- omega_vec(om, "Wald-AIPW")
     ok  <- check_doubleml_identity(om, Y, obj$coef)
@@ -475,7 +577,9 @@ fit_pliv <- function(dml_data, learners, Y) {
     obj <- DoubleMLPLIV$new(data = dml_data,
                             ml_l = learners$l, ml_m = learners$m, ml_r = learners$r,
                             n_folds = 5)
-    obj$fit(store_models = TRUE, store_predictions = TRUE)
+    invisible(capture.output(
+      obj$fit(store_models = TRUE, store_predictions = TRUE)
+    ))
     om <- get_outcome_weights(object = obj, dml_data = dml_data)
     w  <- omega_vec(om, "PLR-IV")
     ok <- check_weight_identity(w, Y, get_dml_coef(obj))
@@ -486,8 +590,18 @@ fit_pliv <- function(dml_data, learners, Y) {
   })
 }
 
-safe_coef <- function(f) if (is.null(f$obj)) NA_real_ else get_dml_coef(f$obj)
-safe_se   <- function(f) if (is.null(f$obj)) NA_real_ else get_dml_se(f$obj)
+safe_coef <- function(f) {
+  if (is.null(f$obj)) return(NA_real_)
+  out <- NA_real_
+  invisible(capture.output(out <- get_dml_coef(f$obj)))
+  as.numeric(out)
+}
+safe_se <- function(f) {
+  if (is.null(f$obj)) return(NA_real_)
+  out <- NA_real_
+  invisible(capture.output(out <- get_dml_se(f$obj)))
+  as.numeric(out)
+}
 
 # Compact two-estimator, two-specification table for one learner family.
 learner_pair_table <- function(pliv_cub, pliv_sat, iivm_cub, iivm_sat, cap) {
@@ -495,17 +609,17 @@ learner_pair_table <- function(pliv_cub, pliv_sat, iivm_cub, iivm_sat, cap) {
     Estimator = c("PLR-IV", "Wald-AIPW / LATE"),
     `Cubic estimate` = round(c(safe_coef(pliv_cub), safe_coef(iivm_cub)), 4),
     `Cubic SE`       = round(c(safe_se(pliv_cub),   safe_se(iivm_cub)),   4),
-    `Cubic identity` = c(pliv_cub$ok, iivm_cub$ok),
+    `Cubic ω′Y reproduces τ̂` = c(pliv_cub$ok, iivm_cub$ok),
     `Saturated estimate` = round(c(safe_coef(pliv_sat), safe_coef(iivm_sat)), 4),
     `Saturated SE`       = round(c(safe_se(pliv_sat),   safe_se(iivm_sat)),   4),
-    `Saturated identity` = c(pliv_sat$ok, iivm_sat$ok),
+    `Saturated ω′Y reproduces τ̂` = c(pliv_sat$ok, iivm_sat$ok),
     check.names = FALSE
   ) %>%
     kbl(caption = cap, align = c("l","r","r","c","r","r","c")) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     add_header_above(c(" " = 1, "Cubic age" = 3, "Saturated age" = 3)) %>%
-    footnote(general = "PLR-IV uses DoubleMLPLIV; Wald-AIPW/LATE uses DoubleMLIIVM. TRUE means the extracted outcome weights reproduce the reported coefficient. FALSE weights are approximate learner-sensitivity diagnostics and are not treated as exact representations.")
+    footnote(general = "PLR-IV uses DoubleMLPLIV; Wald-AIPW/LATE uses DoubleMLIIVM. Numerical reproduction is checked exactly as in Knaus's notebook, using all.equal() with R's default tolerance.")
 }
 ```
 
@@ -513,7 +627,7 @@ learner_pair_table <- function(pliv_cub, pliv_sat, iivm_cub, iivm_sat, cap) {
 
 ### OLS / Logistic nuisance learners
 
-```{r ext-fit-lm, cache=TRUE}
+```{r ext-fit-lm, cache=TRUE, cache.extra='quiet-output-v2'}
 lm_iivm_cub <- fit_iivm(dat_cub, ml_lm_iivm(), Y_dol)
 lm_iivm_sat <- fit_iivm(dat_sat, ml_lm_iivm(), Y_dol)
 lm_pliv_cub <- fit_pliv(dat_cub, ml_lm_pliv(), Y_dol)
@@ -525,7 +639,7 @@ learner_pair_table(lm_pliv_cub, lm_pliv_sat, lm_iivm_cub, lm_iivm_sat,
 
 ### Ranger
 
-```{r ext-fit-rf, cache=TRUE}
+```{r ext-fit-rf, cache=TRUE, cache.extra='quiet-output-v2'}
 rf_iivm_cub <- fit_iivm(dat_cub, ml_rf_iivm(), Y_dol)
 rf_iivm_sat <- fit_iivm(dat_sat, ml_rf_iivm(), Y_dol)
 rf_pliv_cub <- fit_pliv(dat_cub, ml_rf_pliv(), Y_dol)
@@ -535,9 +649,9 @@ learner_pair_table(rf_pliv_cub, rf_pliv_sat, rf_iivm_cub, rf_iivm_sat,
                    "Ranger learners — PLR-IV and Wald-AIPW/LATE")
 ```
 
-### XGBoost Wald-AIPW (imported)
+### Imported XGBoost fits
 
-```{r ext-xgb-wald-import}
+```{r ext-xgb-wald-import, include=FALSE}
 validate_xgb_export <- function(x,expected_class) {
   required <- c("estimate_comparison","nuisance_losses","weight_diagnostics",
                 "omega_vectors","identity_checks","settings","sample_info")
@@ -546,53 +660,47 @@ validate_xgb_export <- function(x,expected_class) {
   if (!isTRUE(x$settings$tune_on_folds)) stop("XGBoost export is not tune_on_folds=TRUE.")
   if (!all(c("Cubic age","Saturated age") %in% names(x$omega_vectors)))
     stop("XGBoost export does not contain both Vietnam age specifications.")
+  if (!identical(as.integer(x$sample_info$n), as.integer(length(Z))) ||
+      !isTRUE(all.equal(as.numeric(x$sample_info$mean_Z), mean(Z), tolerance = 1e-12)) ||
+      !isTRUE(all.equal(as.numeric(x$sample_info$mean_D), mean(D), tolerance = 1e-12)))
+    stop("XGBoost export sample metadata do not match the current analysis data.")
   invisible(TRUE)
 }
 xgb_wald_path <- "vietnam_xgb_tuning_export.rds"
 xgb_wald_available <- file.exists(xgb_wald_path)
-if (xgb_wald_available) {
-  xgb_wald_export <- readRDS(xgb_wald_path)
-  validate_xgb_export(xgb_wald_export,"DoubleMLIIVM")
-  xgb_wald_export$estimate_comparison %>%
-    kbl(caption="Wald-AIPW XGBoost — untuned vs. tune_on_folds=TRUE (imported)",
-        align=c("l","l","c","r")) %>%
-    kable_styling(bootstrap_options=c("striped","hover","condensed"),
-                  full_width=TRUE,font_size=13) %>%
-    collapse_rows(columns=1,valign="middle") %>%
-    footnote(general="Imported from vietnam_xgb_tuning_export.rds. The tuned row preserves fold-specific hyperparameters selected inside each outer training fold; no XGBoost model is refitted here.")
-} else {
-  cat("vietnam_xgb_tuning_export.rds not found — run vietnam_xgb_tuning.Rmd first.\n")
-}
+if (!xgb_wald_available) stop("Missing vietnam_xgb_tuning_export.rds.")
+xgb_wald_export <- readRDS(xgb_wald_path)
+validate_xgb_export(xgb_wald_export,"DoubleMLIIVM")
 ```
 
-### XGBoost PLR-IV (imported)
-
-```{r ext-xgb-pliv-import}
+```{r ext-xgb-pliv-import, include=FALSE}
 xgb_pliv_path <- "vietnam_xgb_pliv_tuning_export.rds"
 xgb_pliv_available <- file.exists(xgb_pliv_path)
-if (xgb_pliv_available) {
-  xgb_pliv_export <- readRDS(xgb_pliv_path)
-  validate_xgb_export(xgb_pliv_export,"DoubleMLPLIV")
-  xgb_pliv_export$estimate_comparison %>%
-    kbl(caption="PLR-IV XGBoost — untuned vs. tune_on_folds=TRUE (imported)",
-        align=c("l","l","c")) %>%
-    kable_styling(bootstrap_options=c("striped","hover","condensed"),
-                  full_width=TRUE,font_size=13) %>%
-    collapse_rows(columns=1,valign="middle") %>%
-    footnote(general="Imported from vietnam_xgb_pliv_tuning_export.rds. Untuned and tuned estimates, weights, and identity flags refer to the exact exported fits.")
-} else {
-  cat("vietnam_xgb_pliv_tuning_export.rds not found — run vietnam_xgb_pliv_tuning.Rmd first.\n")
-}
+if (!xgb_pliv_available) stop("Missing vietnam_xgb_pliv_tuning_export.rds.")
+xgb_pliv_export <- readRDS(xgb_pliv_path)
+validate_xgb_export(xgb_pliv_export,"DoubleMLPLIV")
 ```
 
 ```{r ext-xgb-export-helpers, echo=FALSE}
-empty_xgb_bundle <- function() list(w=NULL,ok=NA)
+empty_xgb_bundle <- function() list(w=NULL,ok=NA,estimate=NA_real_,gap=NA_real_)
+get_xgb_estimate_value <- function(export,cell,variant) {
+  if (is.null(export)) return(NA_real_)
+  df <- export$weight_diagnostics
+  keep_variant <- if (variant=="untuned") {
+    grepl("untuned$",df$Learner)
+  } else {
+    grepl(" tuned$",df$Learner)
+  }
+  hit <- df[df$Cell==cell & keep_variant,,drop=FALSE]
+  if (!nrow(hit)) NA_real_ else as.numeric(hit$Estimate[1])
+}
 get_xgb_bundle <- function(export,cell,variant) {
   if (is.null(export)) return(empty_xgb_bundle())
   w <- tryCatch(export$omega_vectors[[cell]][[variant]],error=function(e)NULL)
-  ok <- tryCatch(export$identity_checks[[cell]][[variant]],error=function(e)NA)
-  if (is.null(ok)) ok <- NA
-  list(w=w,ok=ok)
+  estimate <- get_xgb_estimate_value(export,cell,variant)
+  gap <- if (is.null(w) || !is.finite(estimate)) NA_real_ else sum(w*Y_dol)-estimate
+  ok <- if (is.finite(gap)) check_weight_identity(w,Y_dol,estimate) else NA
+  list(w=w,ok=ok,estimate=estimate,gap=gap)
 }
 get_xgb_estimate_cell <- function(export,cell,variant) {
   if (is.null(export)) return("—")
@@ -600,6 +708,10 @@ get_xgb_estimate_cell <- function(export,cell,variant) {
   keep_variant <- if (variant=="untuned") grepl("untuned$",df$Learner) else grepl("tune_on_folds=TRUE",df$Learner,fixed=TRUE)
   hit <- df[df$Cell==cell & keep_variant,,drop=FALSE]
   if (!nrow(hit)) "—" else as.character(hit[["Estimate (SE)"]][1])
+}
+get_xgb_identity_cell <- function(export,cell,variant) {
+  value <- tryCatch(export$identity_checks[[cell]][[variant]], error=function(e) NA)
+  if (isTRUE(value)) "Yes" else if (identical(value,FALSE)) "No" else "—"
 }
 
 xgb_wald_obj <- if (exists("xgb_wald_export")) xgb_wald_export else NULL
@@ -615,16 +727,52 @@ xgb_pliv_sat_untuned <- get_xgb_bundle(xgb_pliv_obj,"Saturated age","untuned")
 xgb_pliv_sat_tuned   <- get_xgb_bundle(xgb_pliv_obj,"Saturated age","tuned")
 ```
 
+```{r ext-xgb-comparison, echo=FALSE}
+xgb_import_table <- do.call(rbind, lapply(list(
+  list("PLR-IV", "Cubic age",     xgb_pliv_obj),
+  list("PLR-IV", "Saturated age", xgb_pliv_obj),
+  list("Wald-AIPW / LATE", "Cubic age",     xgb_wald_obj),
+  list("Wald-AIPW / LATE", "Saturated age", xgb_wald_obj)
+), function(x) {
+  data.frame(
+    Estimator=x[[1]],
+    Specification=x[[2]],
+    Untuned=get_xgb_estimate_cell(x[[3]],x[[2]],"untuned"),
+    Tuned=get_xgb_estimate_cell(x[[3]],x[[2]],"tuned"),
+    `ω′Y reproduces τ̂ (untuned / tuned)`=paste(
+      get_xgb_identity_cell(x[[3]],x[[2]],"untuned"),
+      get_xgb_identity_cell(x[[3]],x[[2]],"tuned"),
+      sep=" / "),
+    check.names=FALSE
+  )
+}))
+
+xgb_import_table %>%
+  kbl(caption="Imported XGBoost estimates — Untuned and fold-specific tuning",
+      align=c("l","l","c","c","c")) %>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),
+                full_width=TRUE,font_size=13) %>%
+  footnote(general="Each estimate cell reports estimate (SE). Numerical reproduction is checked as in Knaus's notebook, using all.equal() with R's default tolerance; it is separate from the normalization conditions.")
+```
+
+<div class="note-box">
+**Interpretation.** Knaus's normalization results require the relevant smoother
+conditions. In particular, boosted trees need not satisfy the affine-smoother
+condition, so XGBoost implementations do not generally inherit the associated
+normalization guarantees. Separately, none of the extracted XGBoost vectors in
+the present implementation passes Knaus's default `all.equal()` criterion.
+The discrepancies are nevertheless very small (at most about 1.2e-7 in
+absolute value). The reconstructed weights are therefore reported together
+with their numerical reproduction gaps rather than being discarded.
+</div>
+
 ## Comparison Table
 
 ```{r ext-comparison}
 ext_cell <- function(coef, se) {
   if (is.na(coef) || !is.finite(coef)) return("—")
   if (is.na(se) || !is.finite(se) || se <= 0) return(sprintf("%.3f (NA)", coef))
-  pval  <- 2 * pnorm(-abs(coef / se))
-  stars <- ifelse(pval < 0.01, "***", ifelse(pval < 0.05, "**",
-                  ifelse(pval < 0.10, "*", "")))
-  sprintf("%.3f%s (%.3f)", coef, stars, se)
+  sprintf("%.3f (%.3f)", coef, se)
 }
 
 learner_row <- function(label, f_cub, f_sat) {
@@ -677,8 +825,17 @@ comp_df %>%
   pack_rows("DoubleML learners", 1, 8) %>%
   pack_rows("Kappa reference",   9, 10) %>%
   row_spec(1:8, background = "#eef6ff") %>%
-  footnote(general = "Each cell: estimate (SE). Linear means OLS nuisances for PLR-IV and OLS/logit nuisances for Wald-AIPW; it does not mean the linear-age feature specification. XGBoost rows are imported from the separate nested-tuning exports. '—' means the required export or fit is unavailable.")
+  footnote(general = "Each cell reports estimate (SE). Linear denotes the nuisance learner, not the linear-age feature specification. XGBoost rows import the stored nested-tuning fits; their reconstructed outcome weights are assessed separately below.")
 ```
+
+<div class="result-box">
+**Learner conclusion.** Parametric, Ranger, honest-forest, and XGBoost point
+estimates are similar relative to their uncertainty. This agreement indicates
+limited learner sensitivity in the Vietnam design. The XGBoost smoother
+reconstructions miss Knaus's default numerical-equivalence threshold by small
+amounts; Section 4 reports both their weight diagnostics and the corresponding
+reproduction gaps.
+</div>
 
 ---
 
@@ -698,10 +855,11 @@ itself evidence of an invalid IV estimator. Conventional Kish ESS is not
 reported because signed outcome weights are not a nonnegative normalized
 weighted sample.
 The first pair of tabs compares untuned and tuned honest forests. The second
-pair compares PLR-IV and Wald-AIPW across learner families. A learner weight
-vector enters these exact diagnostics only when `ΣωᵢYᵢ = τ̂` passes; failed
-XGBoost identities remain reported in Section 3 as approximate sensitivity
-results but are not compared on equal footing here.
+pair compares PLR-IV and Wald-AIPW across learner families. For every available
+weight vector, the tables report whether `ω′Y` reproduces `τ̂` under the same
+default `all.equal()` rule used by Knaus, together with the absolute numerical
+gap. This reproduction check is separate from the displayed normalization and
+concentration statistics.
 </div>
 
 ```{r diag-builders, echo=FALSE}
@@ -711,28 +869,6 @@ kw_sat <- kappa_weights_bundle(Z, D, X_sat)
 
 DIAG_ALIGN <- c("l","r","c","r","c","c","c","r")
 
-xgb_status <- data.frame(
-  Estimator=rep(c("PLR-IV","Wald-AIPW"),each=4),
-  Specification=rep(rep(c("Cubic age","Saturated age"),each=2),2),
-  Tuning=rep(c("untuned","tune_on_folds=TRUE"),4),
-  `Weights available`=c(
-    !is.null(xgb_pliv_cub_untuned$w),!is.null(xgb_pliv_cub_tuned$w),
-    !is.null(xgb_pliv_sat_untuned$w),!is.null(xgb_pliv_sat_tuned$w),
-    !is.null(xgb_iivm_cub_untuned$w),!is.null(xgb_iivm_cub_tuned$w),
-    !is.null(xgb_iivm_sat_untuned$w),!is.null(xgb_iivm_sat_tuned$w)),
-  `Identity passed`=c(
-    xgb_pliv_cub_untuned$ok,xgb_pliv_cub_tuned$ok,
-    xgb_pliv_sat_untuned$ok,xgb_pliv_sat_tuned$ok,
-    xgb_iivm_cub_untuned$ok,xgb_iivm_cub_tuned$ok,
-    xgb_iivm_sat_untuned$ok,xgb_iivm_sat_tuned$ok),
-  check.names=FALSE)
-xgb_status %>%
-  kbl(caption="Imported XGBoost weight availability and identity status",
-      align=c("l","l","l","c","c")) %>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),
-                full_width=FALSE,font_size=12) %>%
-  footnote(general="Weights enter exact diagnostics, bridges, and Love plots only when available and Identity passed is TRUE. FALSE identities remain estimate-level learner-sensitivity results.")
-
 dml_diag_cell <- function(w_untuned, w_tuned, kw, D) {
   rbind(
     outcome_weight_diag(w_untuned$plriv,    D, "PLR-IV (untuned forest)"),
@@ -741,10 +877,7 @@ dml_diag_cell <- function(w_untuned, w_tuned, kw, D) {
     outcome_weight_diag(w_tuned$waldaipw,   D, "Wald-AIPW (tuned forest)"),
     outcome_weight_diag(kw$tau_cb_u,    D, "τ_cb_u     (kappa)"),
     outcome_weight_diag(kw$tau_ml_u,    D, "τ_ml_u     (kappa)"),
-    outcome_weight_diag(kw$tau_ml_a10,  D, "τ_ml_a10   (kappa)"),
-    outcome_weight_diag(kw$tau_ml_a,    D, "τ_ml_a     (kappa)"),
-    outcome_weight_diag(kw$tau_ml_t,    D, "τ_ml_t     (kappa)"),
-    outcome_weight_diag(kw$tau_ml_a0,   D, "τ_ml_a0    (kappa)")
+    outcome_weight_diag(kw$tau_ml_a10,  D, "τ_ml_a10   (kappa)")
   )
 }
 style_dml_diag <- function(df, cap) {
@@ -763,33 +896,56 @@ safe_outcome_diag <- function(w, D, label) {
   if (is.null(w) || !length(w) || all(is.na(w))) NULL else outcome_weight_diag(w, D, label)
 }
 
-ext_diag_block <- function(D, kw, pliv_lm, iivm_lm, pliv_rf, iivm_rf,
-                           pliv_xgb_u, pliv_xgb_t, iivm_xgb_u, iivm_xgb_t) {
-  do.call(rbind, Filter(Negate(is.null), list(
-    safe_outcome_diag(exact_w(pliv_lm),   D, "PLR-IV (OLS nuisances)"),
-    safe_outcome_diag(exact_w(iivm_lm),   D, "Wald-AIPW (OLS/logit nuisances)"),
-    safe_outcome_diag(exact_w(pliv_rf),   D, "PLR-IV (ranger)"),
-    safe_outcome_diag(exact_w(iivm_rf),   D, "Wald-AIPW (ranger)"),
-    safe_outcome_diag(exact_w(pliv_xgb_u),D, "PLR-IV (XGBoost, untuned)"),
-    safe_outcome_diag(exact_w(pliv_xgb_t),D, "PLR-IV (XGBoost, tune_on_folds=TRUE)"),
-    safe_outcome_diag(exact_w(iivm_xgb_u),D, "Wald-AIPW (XGBoost, untuned)"),
-    safe_outcome_diag(exact_w(iivm_xgb_t),D, "Wald-AIPW (XGBoost, tune_on_folds=TRUE)"),
-    outcome_weight_diag(kw$tau_cb_u,   D, "τ_cb_u    (kappa, CBPS)"),
-    outcome_weight_diag(kw$tau_ml_u,   D, "τ_ml_u    (kappa, MLE)"),
-    outcome_weight_diag(kw$tau_ml_a10, D, "τ_ml_a10  (kappa, MLE)"),
-    outcome_weight_diag(kw$tau_ml_a,   D, "τ_ml_a    (kappa, unnorm)"),
-    outcome_weight_diag(kw$tau_ml_t,   D, "τ_ml_t    (kappa, unnorm)"),
-    outcome_weight_diag(kw$tau_ml_a0,  D, "τ_ml_a0   (kappa, unnorm)")
-  )))
+identity_diag_row <- function(fit, D, Y, label) {
+  if (!is.null(fit$w) && length(fit$w) && !all(is.na(fit$w))) {
+    estimate <- if (!is.null(fit$estimate)) fit$estimate else safe_coef(fit)
+    gap <- sum(fit$w*Y)-estimate
+    out <- outcome_weight_diag(fit$w, D, label)
+    out$`ω′Y reproduces τ̂` <- if (check_weight_identity(fit$w,Y,estimate)) "Yes" else "No"
+    out$`|ω′Y−τ̂|` <- formatC(abs(gap),format="e",digits=2)
+  } else {
+    out <- data.frame(
+      Estimator=label, `ω′Y reproduces τ̂`=NA_character_, `|ω′Y−τ̂|`=NA_character_,
+      Sum_w=NA_real_, `Mass T/C`=NA_character_,
+      `ESS mod overall`=NA_real_, `ESS mod T/C`=NA_character_,
+      `ESS mod/N T/C`=NA_character_,
+      `Opposite-sign mass T/C (%)`=NA_character_, `Max |w|`=NA_real_,
+      check.names=FALSE
+    )
+  }
+  out[, c("Estimator","ω′Y reproduces τ̂","|ω′Y−τ̂|",
+          setdiff(names(out),c("Estimator","ω′Y reproduces τ̂","|ω′Y−τ̂|")))]
+}
+kappa_diag_row <- function(w, D, label) {
+  out <- outcome_weight_diag(w, D, label)
+  out$`ω′Y reproduces τ̂` <- "By construction"
+  out$`|ω′Y−τ̂|` <- "0.00e+00"
+  out[, c("Estimator","ω′Y reproduces τ̂","|ω′Y−τ̂|",
+          setdiff(names(out),c("Estimator","ω′Y reproduces τ̂","|ω′Y−τ̂|")))]
+}
+
+ext_diag_block <- function(D, Y, kw, pliv_lm, iivm_lm, pliv_rf, iivm_rf,
+                           pliv_xgb_t, iivm_xgb_t) {
+  rbind(
+    identity_diag_row(pliv_lm,   D, Y, "PLR-IV (OLS nuisances)"),
+    identity_diag_row(iivm_lm,   D, Y, "Wald-AIPW (OLS/logit nuisances)"),
+    identity_diag_row(pliv_rf,   D, Y, "PLR-IV (ranger)"),
+    identity_diag_row(iivm_rf,   D, Y, "Wald-AIPW (ranger)"),
+    identity_diag_row(pliv_xgb_t,D, Y, "PLR-IV (XGBoost, tuned)"),
+    identity_diag_row(iivm_xgb_t,D, Y, "Wald-AIPW (XGBoost, tuned)"),
+    kappa_diag_row(kw$tau_cb_u,   D, "τ_cb_u    (kappa, CBPS)"),
+    kappa_diag_row(kw$tau_ml_u,   D, "τ_ml_u    (kappa, MLE)"),
+    kappa_diag_row(kw$tau_ml_a10, D, "τ_ml_a10  (kappa, MLE)")
+  )
 }
 style_ext_diag <- function(df, cap) {
   n_learn <- sum(grepl("^(PLR-IV|Wald-AIPW)", df$Estimator))
   df %>%
-    kbl(caption = cap, align = DIAG_ALIGN) %>%
+    kbl(caption = cap, align = c("l","c","r","r","c","r","c","c","c","r")) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     row_spec(seq_len(n_learn), background = "#eef6ff") %>%
-    footnote(general = "Blue = DoubleML learners, paired as PLR-IV and Wald-AIPW within each learner family. NA means the fit failed or its extracted weights did not reproduce the estimate exactly; such weights are not interpreted as exact outcome-weight representations.")
+    footnote(general = "Blue = DoubleML learners. Numerical reproduction follows Knaus's all.equal() check with R's default tolerance. The absolute gap shows why a narrowly failed check need not be substantively important; normalization and concentration diagnostics remain distinct properties.")
 }
 ```
 
@@ -814,106 +970,113 @@ style_dml_diag(dml_diag_cell(w_sat_untuned, w_sat_tuned, kw_sat, D),
 ### Cubic age
 
 ```{r ext-diag-cub}
-style_ext_diag(ext_diag_block(D, kw_cub,
+style_ext_diag(ext_diag_block(D, Y_dol, kw_cub,
                               lm_pliv_cub, lm_iivm_cub,
                               rf_pliv_cub, rf_iivm_cub,
-                              xgb_pliv_cub_untuned, xgb_pliv_cub_tuned,
-                              xgb_iivm_cub_untuned, xgb_iivm_cub_tuned),
+                              xgb_pliv_cub_tuned, xgb_iivm_cub_tuned),
                "Weight Diagnostics — PLR-IV and Wald-AIPW Learners | Cubic age")
 ```
 
 ### Saturated age
 
 ```{r ext-diag-sat}
-style_ext_diag(ext_diag_block(D, kw_sat,
+style_ext_diag(ext_diag_block(D, Y_dol, kw_sat,
                               lm_pliv_sat, lm_iivm_sat,
                               rf_pliv_sat, rf_iivm_sat,
-                              xgb_pliv_sat_untuned, xgb_pliv_sat_tuned,
-                              xgb_iivm_sat_untuned, xgb_iivm_sat_tuned),
+                              xgb_pliv_sat_tuned, xgb_iivm_sat_tuned),
                "Weight Diagnostics — PLR-IV and Wald-AIPW Learners | Saturated age")
 ```
 
-## Weight-Statistics Bridge — RQ1 {.tabset}
+<div class="result-box">
+**Weight conclusion.** Exact normalized representations have weight sums near
+zero, as required for translation invariance. Under cubic age, the
+unnormalized kappa weights retain nonzero total mass and reproduce the
+cents–dollars sensitivity. Under saturated age, sample age-cell calibration
+makes all kappa variants coincide. Modified ESS is reported by treatment arm;
+ordinary Kish ESS is deliberately omitted because these are signed outcome
+weights rather than nonnegative sampling weights.
+</div>
+
+## Detailed Outcome-Weight Statistics {.tabset}
 
 <div class="note-box">
-**What this is.** The detailed bridge reports Overall / Treated / Control
-statistics using Knaus's sign convention. `Neg. share` remains here solely to
-match his observation-count summary and is distinct from the oriented
-opposite-sign absolute-mass measure in the headline tables. Modified ESS is the
-only ESS shown for signed outcome weights.
+**What this is.** These detailed tables report Overall / Treated / Control
+statistics using Knaus's sign convention. `Neg. share` matches his
+observation-count summary and is distinct from the oriented opposite-sign
+absolute-mass measure in the headline tables. All six kappa variants are
+included here. To avoid repeating the tuning comparison, only the tuned honest-
+forest and XGBoost specifications are retained. Modified ESS remains in the
+preceding diagnostic tables and is not repeated.
 </div>
 
 ```{r bridge-helpers, echo=FALSE}
 # Named list of weight vectors per cell; drop any all-NA (failed) learner.
-cell_weight_list <- function(w_untuned, w_tuned,
+cell_weight_list <- function(w_tuned,
                              pliv_lm, iivm_lm, pliv_rf, iivm_rf,
-                             pliv_xgb_u, pliv_xgb_t,
-                             iivm_xgb_u, iivm_xgb_t, kw) {
+                             pliv_xgb_t, iivm_xgb_t, kw) {
   lst <- list(
-    "PLR-IV (untuned forest)"    = w_untuned$plriv,
-    "Wald-AIPW (untuned forest)" = w_untuned$waldaipw,
     "PLR-IV (tuned forest)"      = w_tuned$plriv,
     "Wald-AIPW (tuned forest)"   = w_tuned$waldaipw,
     "PLR-IV (OLS nuisances)"            = exact_w(pliv_lm),
     "Wald-AIPW (OLS/logit nuisances)"   = exact_w(iivm_lm),
     "PLR-IV (ranger)"            = exact_w(pliv_rf),
     "Wald-AIPW (ranger)"         = exact_w(iivm_rf),
-    "PLR-IV (XGBoost, untuned)"  = exact_w(pliv_xgb_u),
-    "PLR-IV (XGBoost, tuned)"    = exact_w(pliv_xgb_t),
-    "Wald-AIPW (XGBoost, untuned)" = exact_w(iivm_xgb_u),
-    "Wald-AIPW (XGBoost, tuned)" = exact_w(iivm_xgb_t),
+    "PLR-IV (XGBoost, tuned; reconstructed)" = pliv_xgb_t$w,
+    "Wald-AIPW (XGBoost, tuned; reconstructed)" = iivm_xgb_t$w,
     "τ_cb_u (kappa)"   = kw$tau_cb_u,
     "τ_ml_u (kappa)"   = kw$tau_ml_u,
-    "τ_ml_t (kappa)"   = kw$tau_ml_t
+    "τ_ml_a10 (kappa)" = kw$tau_ml_a10,
+    "τ_ml_a (kappa, unnormalized)"  = kw$tau_ml_a,
+    "τ_ml_t (kappa, untreated-unnormalized)" = kw$tau_ml_t,
+    "τ_ml_a0 (kappa, treated-unnormalized)" = kw$tau_ml_a0
   )
   Filter(function(w) !is.null(w) && length(w) && !all(is.na(w)), lst)
 }
 
 bridge_cells <- list(
   "Cubic age" = list(w = cell_weight_list(
-    w_cub_untuned, w_cub_tuned,
+    w_cub_tuned,
     lm_pliv_cub, lm_iivm_cub, rf_pliv_cub, rf_iivm_cub,
-    xgb_pliv_cub_untuned, xgb_pliv_cub_tuned,
-    xgb_iivm_cub_untuned, xgb_iivm_cub_tuned, kw_cub)),
+    xgb_pliv_cub_tuned, xgb_iivm_cub_tuned, kw_cub)),
   "Saturated age" = list(w = cell_weight_list(
-    w_sat_untuned, w_sat_tuned,
+    w_sat_tuned,
     lm_pliv_sat, lm_iivm_sat, rf_pliv_sat, rf_iivm_sat,
-    xgb_pliv_sat_untuned, xgb_pliv_sat_tuned,
-    xgb_iivm_sat_untuned, xgb_iivm_sat_tuned, kw_sat))
+    xgb_pliv_sat_tuned, xgb_iivm_sat_tuned, kw_sat))
 )
 
 bridge_table <- function(wlist, cap) {
   ests <- names(wlist)
   df   <- do.call(rbind, lapply(ests, function(nm) weight_bridge(wlist[[nm]], D, nm)))
   disp <- df[, c("Scope","Min","Max","Neg_share","Sum_top10","Sum_w",
-                 "Sum_abs_w","Max_abs_w","ESS_mod")]
+                 "Sum_abs_w","Max_abs_w")]
 
   kk <- disp %>%
     kbl(caption = cap, row.names = FALSE,
         col.names = c("Scope","Min","Max","Neg. share","ΣTop10%","Σω","Σ|ω|",
-                      "Max |ω|","ESS mod"),
-        align = c("l", rep("r", 8))) %>%
+                      "Max |ω|"),
+        align = c("l", rep("r", 7))) %>%
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 12) %>%
     add_header_above(c(" " = 1, "Knaus summary() statistics" = 6,
-                       "Concentration" = 1,
-                       "Effective sample size" = 1)) %>%
-    column_spec(9, bold = TRUE, background = "#eef6ff")
+                       "Concentration" = 1)) %>%
+    column_spec(8, bold = TRUE, background = "#eef6ff")
   for (i in seq_along(ests)) kk <- pack_rows(kk, ests[i], (i - 1) * 3 + 1, i * 3)
-  kk %>% footnote(general = "Neg. share is Knaus's observation-count statistic in [0,1]. Control rows use the sign-flipped −ω convention. Headline tables report modified ESS separately by treatment arm.")
+  kk %>% footnote(general = "Neg. share is Knaus's observation-count statistic in [0,1]. Control rows use the sign-flipped −ω convention. XGBoost rows use the reconstructed tuned weight vectors; their small numerical reproduction gaps are reported in the preceding learner diagnostics. Modified ESS is not repeated here.")
 }
 ```
 
 ### Cubic age
 
 ```{r bridge-cub}
-bridge_table(bridge_cells[["Cubic age"]]$w, "Weight-statistics bridge — Cubic age")
+bridge_table(bridge_cells[["Cubic age"]]$w,
+             "Detailed outcome-weight statistics — Cubic age")
 ```
 
 ### Saturated age
 
 ```{r bridge-sat}
-bridge_table(bridge_cells[["Saturated age"]]$w, "Weight-statistics bridge — Saturated age")
+bridge_table(bridge_cells[["Saturated age"]]$w,
+             "Detailed outcome-weight statistics — Saturated age")
 ```
 
 ---
@@ -950,10 +1113,7 @@ grobs <- Filter(Negate(is.null), list(
   maybe_love("Wald-AIPW\nforest tuned",   w_cub_tuned$waldaipw,   D, X_dml_cub),
   maybe_love("τ_cb_u (CBPS)",    kw_cub$tau_cb_u,   D, X_dml_cub),
   maybe_love("τ_ml_u",           kw_cub$tau_ml_u,   D, X_dml_cub),
-  maybe_love("τ_ml_a10",         kw_cub$tau_ml_a10, D, X_dml_cub),
-  maybe_love("τ_ml_a (unnorm)",  kw_cub$tau_ml_a,   D, X_dml_cub),
-  maybe_love("τ_ml_t (unnorm)",  kw_cub$tau_ml_t,   D, X_dml_cub),
-  maybe_love("τ_ml_a0 (unnorm)", kw_cub$tau_ml_a0,  D, X_dml_cub)
+  maybe_love("τ_ml_a10",         kw_cub$tau_ml_a10, D, X_dml_cub)
 ))
 grid.arrange(grobs = grobs, nrow = 2,
              top = "Love Plots — Cubic age: untuned/tuned honest forest vs. kappa")
@@ -969,10 +1129,7 @@ grobs <- Filter(Negate(is.null), list(
   maybe_love("Wald-AIPW\nforest tuned",   w_sat_tuned$waldaipw,   D, X_dml_sat),
   maybe_love("τ_cb_u (CBPS)",    kw_sat$tau_cb_u,   D, X_dml_sat),
   maybe_love("τ_ml_u",           kw_sat$tau_ml_u,   D, X_dml_sat),
-  maybe_love("τ_ml_a10",         kw_sat$tau_ml_a10, D, X_dml_sat),
-  maybe_love("τ_ml_a (unnorm)",  kw_sat$tau_ml_a,   D, X_dml_sat),
-  maybe_love("τ_ml_t (unnorm)",  kw_sat$tau_ml_t,   D, X_dml_sat),
-  maybe_love("τ_ml_a0 (unnorm)", kw_sat$tau_ml_a0,  D, X_dml_sat)
+  maybe_love("τ_ml_a10",         kw_sat$tau_ml_a10, D, X_dml_sat)
 ))
 grid.arrange(grobs = grobs, nrow = 2,
              top = "Love Plots — Saturated age: untuned/tuned honest forest vs. kappa")
@@ -1017,3 +1174,11 @@ grobs <- Filter(Negate(is.null), list(
 grid.arrange(grobs = grobs, nrow = 2,
              top = "Love Plots — PLR-IV and Wald-AIPW learners vs. kappa | Saturated age")
 ```
+
+<div class="result-box">
+**Balance conclusion.** The exact outcome-weight representations substantially
+reduce age imbalance between the treated and control contrasts. Balance is a
+diagnostic of the fitted weighted comparison; it does not test the exclusion
+restriction, conditional independence, or monotonicity. XGBoost is absent
+because its extracted vectors do not exactly reproduce the reported estimates.
+</div>

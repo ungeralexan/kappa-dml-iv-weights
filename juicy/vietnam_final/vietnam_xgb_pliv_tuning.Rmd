@@ -54,8 +54,8 @@ EXPORT_PATH <- "vietnam_xgb_pliv_tuning_export.rds"
 **Purpose.** This notebook mirrors `vietnam_xgb_tuning.Rmd` for PLR-IV
 using `DoubleMLPLIV`. It estimates untuned and fold-specifically tuned
 XGBoost nuisances for cubic and saturated age, evaluates their out-of-fold
-prediction losses, extracts outcome weights, checks the outcome-weight
-identity, and exports all downstream objects. The main Vietnam notebook
+prediction losses, extracts outcome weights, checks whether `ω′Y` reproduces
+`τ̂`, and exports all downstream objects. The main Vietnam notebook
 imports the export and never retunes XGBoost during an ordinary knit.
 By default, `RERUN_TUNING = FALSE` renders the report from the verified
 export. It should be changed to `TRUE` only when the nested tuning procedure
@@ -282,14 +282,14 @@ safe_extract_xgb_w<-function(r,cell)tryCatch(extract_xgb_w(r,cell),error=functio
 one_diag_row<-function(cn,label,r,cell){
   w<-safe_extract_xgb_w(r,cell)
   if(is.null(r)||is.null(w))return(data.frame(Cell=cn,Learner=label,Estimate=if(is.null(r))NA else r$coef,
-    ESS=NA,ESS_mod=NA,`Sigma omega`=NA,`Sigma abs omega`=NA,`Treated mass`=NA,
-    `Control mass (-sum control weights)`=NA,`max abs omega`=NA,`Identity ok`=NA,
+    ESS_mod=NA,`Sigma omega`=NA,`Sigma abs omega`=NA,`Treated mass`=NA,
+    `Control mass (-sum control weights)`=NA,`max abs omega`=NA,`ω′Y reproduces τ̂`=NA,
     `Weight status`=if(is.null(r))"fit failed"else"weight extraction failed",check.names=FALSE))
   wb<-weight_bridge(w,cell$D,label);ov<-wb[wb$Scope=="Overall",];tr<-wb[wb$Scope=="Treated",];co<-wb[wb$Scope=="Control",]
-  data.frame(Cell=cn,Learner=label,Estimate=r$coef,ESS=ov$ESS_kish,ESS_mod=ov$ESS_mod,
+  data.frame(Cell=cn,Learner=label,Estimate=r$coef,ESS_mod=ov$ESS_mod,
     `Sigma omega`=ov$Sum_w,`Sigma abs omega`=ov$Sum_abs_w,`Treated mass`=tr$Sum_w,
     `Control mass (-sum control weights)`=co$Sum_w,`max abs omega`=ov$Max_abs_w,
-    `Identity ok`=tryCatch(check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
+    `ω′Y reproduces τ̂`=tryCatch(check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
     `Weight status`="ok",check.names=FALSE)}
 ```
 
@@ -301,10 +301,15 @@ if (RERUN_TUNING) {
 } else {
   xgb_pliv_weight_table <- stored_export$weight_diagnostics
 }
+# Older cached exports contain conventional Kish ESS. It is not displayed
+# because signed contrast weights do not define a nonnegative weighted sample.
+xgb_pliv_weight_table <- xgb_pliv_weight_table[, setdiff(names(xgb_pliv_weight_table), "ESS"), drop=FALSE]
+if ("Identity ok" %in% names(xgb_pliv_weight_table))
+  names(xgb_pliv_weight_table)[names(xgb_pliv_weight_table)=="Identity ok"] <- "ω′Y reproduces τ̂"
 xgb_pliv_weight_table%>%kbl(digits=4,caption="Vietnam PLR-IV XGBoost outcome-weight diagnostics")%>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
   row_spec(which(xgb_pliv_weight_table$Learner=="PLR-IV XGB tuned"),background="#eef6ff")%>%
-  footnote(general="Identity ok verifies sum(omega*Y)=tau_hat. Failed identities remain available as approximate learner-sensitivity diagnostics but cannot enter exact weight comparisons on equal footing.")
+  footnote(general="Modified ESS is reported for these signed outcome weights; conventional Kish ESS is omitted. Numerical reproduction follows Knaus's all.equal() check with R's default tolerance and is separate from normalization.")
 ```
 
 ```{r omega-and-identities}

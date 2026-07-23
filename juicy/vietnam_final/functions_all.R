@@ -944,8 +944,10 @@ weight_bridge <- function(w, D, name) {
 #
 # CHANGELOG: absent in vietnam_14_05.R; added in card_21_05.R; copied verbatim.
 
-check_weight_identity <- function(w, Y, estimate, tol = 1e-8) {
-  isTRUE(all.equal(sum(w * Y), estimate, tolerance = tol))
+check_weight_identity <- function(w, Y, estimate) {
+  # Match Knaus's replication notebooks: use all.equal() with R's default
+  # numerical tolerance rather than imposing a separate project threshold.
+  isTRUE(all.equal(sum(w * Y), estimate))
 }
 
 
@@ -1032,19 +1034,18 @@ check_omega_rows <- function(omega_obj, rows = c("PLR-IV", "Wald-AIPW")) {
 # ==============================================================================
 # §D  ALGEBRAIC IDENTITY CHECK FOR A DoubleML OBJECT
 # ==============================================================================
-# DoubleML analogue of check_weight_identity() (§u). Verifies omega'Y == coef
-# to machine precision for a DoubleML-derived omega object. Returns TRUE/FALSE.
-# This is the Pathway-2 diagnostic: TRUE for lm/ranger, typically FALSE (~1e-6)
-# for XGBoost, reflecting the affine-smoother caveat in Knaus (2024).
+# DoubleML analogue of check_weight_identity() (§u). Checks whether omega'Y
+# numerically reproduces the coefficient for a DoubleML-derived omega object.
+# This reproduction check is distinct from Knaus's affine-smoother and
+# normalization conditions.
 # CONSISTENCY: identical to check_doubleml_identity() in the extended notebook.
 # NOTE: distinct from §u — that takes a plain weight vector + scalar estimate;
 # this takes a DoubleML omega OBJECT (with $omega matrix) + the object's coef.
 
-check_doubleml_identity <- function(omega_obj, Y, coef, tol = 1e-8) {
+check_doubleml_identity <- function(omega_obj, Y, coef) {
   isTRUE(all.equal(
     as.numeric(omega_obj$omega %*% Y),
-    as.numeric(coef),
-    tolerance = tol
+    as.numeric(coef)
   ))
 }
 
