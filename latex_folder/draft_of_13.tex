@@ -2401,85 +2401,50 @@ is re-estimated. I now examine the realised outcome weights to determine
 whether they reproduce the reported estimate, how they are normalised, and
 whether they place substantial weight on a small part of the sample.
 
-\begin{sidewaystable}[p]
+\begin{table}[htbp]
 \centering
-\caption{Outcome-weight representation, normalisation, and concentration}
+\caption{Selected outcome-weight diagnostics under cubic age adjustment}
 \label{tab:vietnam_weights}
 \footnotesize
 \begin{threeparttable}
-\begin{tabular}{l r r c c c r}
+\begin{tabular}{l r r c c r}
 \toprule
 Estimator
 & $|\omega'Y-\hat{\tau}|$
 & $\sum_i\omega_i$
 & Mass T/C
 & $\mathrm{ESS}_{\mathrm{mod}}/N$ T/C
-& Opposite-sign mass T/C
 & $\max_i|\omega_i|$ \\
 \midrule
-\multicolumn{7}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
+\multicolumn{6}{l}{\textit{DML estimators}} \\[2pt]
 PLR-IV, tuned forest
 & $6.88\times10^{-15}$ & 0.000000 & 0.994/0.994
-& 0.963/0.921 & 43.5/46.6 & 0.012494 \\
+& 0.963/0.921 & 0.012494 \\
 Wald-AIPW, tuned forest
 & $8.69\times10^{-15}$ & 0.000000 & 1.000/1.000
-& 0.952/0.910 & 43.4/46.7 & 0.017627 \\
+& 0.952/0.910 & 0.017627 \\
 PLR-IV, tuned XGBoost
 & $1.18\times10^{-7}$ & 0.000627 & 0.993/0.993
-& 0.962/0.917 & 43.5/46.6 & 0.013060 \\
+& 0.962/0.917 & 0.013060 \\
 Wald-AIPW, tuned XGBoost
 & $3.99\times10^{-9}$ & 0.000027 & 1.001/1.001
-& 0.951/0.907 & 43.3/46.7 & 0.019535 \\[2pt]
+& 0.951/0.907 & 0.019535 \\[4pt]
+\multicolumn{6}{l}{\textit{Kappa estimators}} \\[2pt]
 $\hat{\tau}_{u}^{cb}$
 & 0 & 0.000000 & 1.000/1.000
-& 0.958/0.908 & 43.5/46.8 & 0.025384 \\
+& 0.958/0.908 & 0.025384 \\
 $\hat{\tau}_{u}^{ml}$
 & 0 & 0.000000 & 1.000/1.000
-& 0.954/0.899 & 43.6/46.8 & 0.028108 \\
-$\hat{\tau}_{a,10}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.954/0.898 & 43.5/46.9 & 0.029078 \\
+& 0.954/0.899 & 0.028108 \\
 $\hat{\tau}_{a}$
 & 0 & 0.048243 & 1.041/0.993
-& 0.954/0.898 & 43.5/46.9 & 0.028869 \\
+& 0.954/0.898 & 0.028869 \\
 $\hat{\tau}_{t}$
 & 0 & 0.046342 & 1.000/0.954
-& 0.954/0.898 & 43.5/46.9 & 0.027731 \\
+& 0.954/0.898 & 0.027731 \\
 $\hat{\tau}_{a,0}$
 & 0 & 0.048594 & 1.049/1.000
-& 0.954/0.898 & 43.5/46.9 & 0.029078 \\[4pt]
-
-\multicolumn{7}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
-PLR-IV, tuned forest
-& $5.33\times10^{-15}$ & 0.000000 & 0.999/0.999
-& 0.961/0.917 & 43.5/46.6 & 0.013128 \\
-Wald-AIPW, tuned forest
-& $5.97\times10^{-15}$ & 0.000000 & 1.005/1.005
-& 0.951/0.908 & 43.4/46.7 & 0.016866 \\
-PLR-IV, tuned XGBoost
-& $1.17\times10^{-7}$ & 0.000019 & 1.011/1.011
-& 0.961/0.920 & 43.4/46.6 & 0.012257 \\
-Wald-AIPW, tuned XGBoost
-& $3.46\times10^{-8}$ & $-0.000075$ & 1.005/1.005
-& 0.950/0.911 & 43.2/46.6 & 0.016570 \\[2pt]
-$\hat{\tau}_{u}^{cb}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
-$\hat{\tau}_{u}^{ml}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
-$\hat{\tau}_{a,10}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
-$\hat{\tau}_{a}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
-$\hat{\tau}_{t}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
-$\hat{\tau}_{a,0}$
-& 0 & 0.000000 & 1.000/1.000
-& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+& 0.954/0.898 & 0.029078 \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}
@@ -2488,111 +2453,103 @@ $\hat{\tau}_{a,0}$
 The representation gap is the absolute difference between the weighted
 outcome sum and the reported estimate. The XGBoost rows use reconstructed
 weight vectors. Modified ESS is divided by the observed number of treated or
-control observations. Opposite-sign mass is reported in percent. The forest
-and XGBoost rows use the tuned specifications.
+control observations. The forest and XGBoost rows use the tuned
+specifications. The complete cubic and saturated results are reported in
+Appendix Table~\ref{tab:vietnam_weights_full_appendix}.
 \end{tablenotes}
 \end{threeparttable}
-\end{sidewaystable}
-The representation gap is reported before the weight statistics because the
-diagnostics are exact only when the recovered weights reproduce the estimate.
-The kappa weights do so by construction. The tuned-forest gaps are below
-\(10^{-14}\), which confirms the numerical representation. The reconstructed
-XGBoost gaps are also small, but they are larger and do not satisfy the exact
-numerical check used in the implementation. Their weight statistics are
-therefore interpreted as learner-specific diagnostics rather than as an exact
-decomposition of the reported estimate.\\
-The cubic kappa results provide the clearest normalisation comparison. The
-three normalised estimators have total weight zero and treated and control
-masses equal to one. The unnormalised estimators instead have total weights
-between \(0.0463\) and \(0.0486\). Their separate masses also show which part
-of the contrast remains unnormalised. For \(\hat{\tau}_{t}\), the treated mass
-equals one while the control mass is \(0.954\). For
-\(\hat{\tau}_{a,0}\), the control mass equals one while the treated mass is
-\(1.049\). These differences account for the translation sensitivity in
-Table~\ref{tab:vietnam_translation}.\\
-The concentration statistics add a separate finding. Despite their different
-normalisation, the cubic kappa estimators have almost identical modified ESS
-ratios, opposite-sign masses, and maximum absolute weights. Their modified ESS
-ratios are approximately \(0.95\) among treated observations and \(0.90\)
-among controls, while all maximum weights remain below \(0.030\). The outcome
-translation problem is therefore linked to the weight masses rather than to a
-small effective sample or a few dominant observations.\\
-The tuned-forest weights show a similar concentration pattern and have total
-weight zero in both age specifications. Their treated and control masses are
-also close to one. The reconstructed XGBoost weights have small total masses
-and comparable concentration statistics. Since these reconstructed weights
-do not reproduce the estimates exactly, their near-normalisation should not
-be interpreted as an exact finite-sample property.\\
-Under saturated age indicators, all six kappa estimators have the same weight
-statistics. This is consistent with their common point estimate and their
-unchanged rerun results in this sample. Appendix
-Table~\ref{tab:vietnam_weights_learners_appendix} reports the corresponding
-diagnostics for OLS/logit and \texttt{ranger}. These learner specifications
-lead to the same broad conclusion. The weights are not strongly concentrated,
-and the differences across learners are small relative to the distinction
-between normalised and unnormalised kappa weights under cubic age.
+\end{table}
+The representation gap is reported first because the remaining statistics
+describe an exact outcome-weight representation only when
+\(\omega'Y=\hat{\tau}\). The kappa weights satisfy this equality by
+construction, and the tuned-forest gaps are below \(10^{-14}\). The gaps for
+the reconstructed XGBoost weights are small but fail the exact numerical check
+used in the implementation. Their statistics are therefore treated as
+diagnostics of the reconstructed learner weights rather than as exact
+decompositions of the reported estimates.
 
+The cubic kappa results give the clearest normalisation comparison. For
+\(\hat{\tau}_{u}^{cb}\) and \(\hat{\tau}_{u}^{ml}\), total weight is zero and
+the treated and control masses both equal one. The incompletely normalised
+estimators instead have total weights between \(0.0463\) and \(0.0486\).
+For \(\hat{\tau}_{t}\), the treated mass equals one while the control mass is
+\(0.954\). For \(\hat{\tau}_{a,0}\), the control mass equals one while the
+treated mass is \(1.049\). These mass differences correspond to the
+translation sensitivity in Table~\ref{tab:vietnam_translation}.
 
+The concentration measures lead to a separate conclusion. The cubic kappa
+estimators have modified ESS ratios of about \(0.95\) among treated
+observations and \(0.90\) among controls. Their maximum absolute weights
+remain below \(0.030\), despite their different normalisation. The sensitivity
+to the outcome translation is therefore associated with the weight masses,
+not with a small effective sample or a few dominant observations. The tuned
+forest and reconstructed XGBoost weights show a similar degree of
+concentration.
 
+Under saturated age adjustment, all six kappa estimators have the same weight
+statistics. This agrees with their common point estimate and unchanged rerun
+results in this sample. The complete cubic and saturated comparison is
+reported in Appendix Table~\ref{tab:vietnam_weights_full_appendix}. Appendix
+Table~\ref{tab:vietnam_weights_learners_appendix} adds the OLS/logit and
+\texttt{ranger} specifications.
 
 \subsection{Covariate Balance}
-The weight sum diagnostics establish the translation invariance audit numerically, in this section Love plots follow to assess whether the implied outcome weights also achieve covariate balance in the conventional sense. 
-Figure~\ref{fig:vietnam_love_full} reports Love plots for all eight estimators
-in the cubic specification, plotting absolute standardised mean differences
-(ASMD).The unadjusted ASMD for all three
-moments lies around 0.5, reflecting the fact that veteran status is not
-unconditionally randomly assigned.
-Men who served differ systematically from those who did not in tehir age distribution across cohorts. 
-All eight estimators reduce the adjusted ASMD to approximately 0.05-0.10,
-well below the conventional 0.1 threshold.  This holds uniformly across the DML estimates and the normalised and unnormalised Kappa estimators. The fact that the estimators that fail translation invariance chieve
-indistinguishable covariate balance from those that pass it once again emphasizes that this is a design specific consequence. % Denk dran das is cubic and not saturated and it still looks the same (I mean the sum to 0 war auch nicht so krass different).
-This confirms that in this
-low-dimensional, near-random-assignment setting, the instrument design
-enforces covariate balance irrespective of normalization choice or learner
-flexibility.
+\label{subsec:vietnam_balance}
+The preceding diagnostics concern the representation, normalisation, and
+concentration of the outcome weights. Covariate balance is examined
+separately. Appendix Figures~\ref{fig:vietnam_love_cubic} and
+\ref{fig:vietnam_love_saturated} compare the tuned forest and XGBoost weights
+with the CBPS-based and maximum-likelihood kappa weights.\\
+Under cubic age adjustment, the unadjusted standardised differences in age,
+age squared, and age cubed are between \(0.52\) and \(0.56\). Weighting reduces
+these differences substantially, but the degree of balance is not identical
+across estimators. The maximum adjusted difference is effectively zero for
+\(\hat{\tau}_{u}^{cb}\). It equals \(0.099\) for tuned-forest PLR-IV and
+\(0.109\) for \(\hat{\tau}_{u}^{ml}\), while the two XGBoost specifications
+and tuned-forest Wald-AIPW remain below \(0.03\). The MLE-based kappa value is
+therefore slightly above the \(0.1\) reference line. The contrast between the
+two kappa estimators reflects their different propensity-score fits. CBPS
+directly imposes balancing conditions, whereas maximum likelihood does not.\\
+With saturated age indicators, the unadjusted absolute differences are all
+below \(0.1\). Both kappa estimators balance the included age indicators up to
+numerical precision. The maximum adjusted difference is \(0.002\) for
+tuned-forest PLR-IV, \(0.029\) for tuned-forest Wald-AIPW, \(0.020\) for
+XGBoost PLR-IV, and \(0.045\) for XGBoost Wald-AIPW. These results show that
+the flexible learner weights reduce the maximum cohort difference, but they
+do not move every individual age indicator closer to zero. They also do not
+reproduce the exact balance obtained by the saturated kappa specification.
+The XGBoost panels remain subject to the representation qualification above.
+Balance is a property of the fitted weighted comparison. It does not establish
+the IV identifying assumptions and is distinct from the normalisation results
+above.
 
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.85\textwidth]{pics/normal_love_plots.png}
-\caption{%
-    Dark circles: unadjusted sample.
-    Yellow triangles: weight-adjusted.
-    Dashed line: 0.1 threshold.
-    balance assessed using \texttt{love.plot()} from
-    \textsc{cobalt} \citep{greifer2024cobalt}.%
-  }
-\label{fig:vietnam_love_full}
-\end{figure}
-
-
-\subsection{Conclusion on Angrist Vietnam Framework}
+\subsection{Summary of the Vietnam Application}
 \label{subsec:vietnam_summary}
-The Vietnam application establishes a solid based behaviour of the unified outcome weights diagnostics in a clean, low dimensional, near-random-assignment design.
-Several results stand out. Section~\ref{subsec:vietnam_estimates} using the cents/dollars recoding reproduces
-the central finding of \citet{sloczynski2025abadie}.Normalised kappa
-estimators are invariant to additive outcome shifts, while unnormalised
-estimators are not, with the linear-age specification reversing sign entirely. In the case of the staurated specification all estimators collapse to a common value (0.241). As \citet{sloczynski2025abadie} note his as a demonstration that fully flexible
-propensity-score specifications can remove finite-sample pathologies.
-Moreover, using the \textit{Outcome Weights} package provided by \citet{knaus2024treatment} it is can be seen that the identity \(\hat\tau=\sum_i\omega_iY_i\) holds and  point estimates,
-effective sample sizes, and negative-weight shares are virtually identical
-across all kappa and DML estimators and across grf, ranger, and XGBoost
-learners. It is to mention that when using Wald-AIPW with gradient-boosted trees the affine-smoother condition fails. This caveat is also documented by \citet{knaus2024treatment} as XGBoost does not produce an exact smoother matrix not guaranteeing that the weights sum up to 0 even with the four required hyperparameters set. \\
-Apart from the application of the theoretical concepts a central finding is that in this design the instrument structure, not the choice of estimator
-or learner, determines the weight properties, this can be shown as the weight diagnostics are virtually identical across all estimators.
-. The four
-Wald-AIPW variants (grf 0.229, linear+logit 0.218, ranger 0.246,
-XGBoost 0.246) span only 0.03 log points, all consistent with the
-normalised kappa range of 0.20–0.21.
-The covariate balance is achieved equally by all estimators as Unadjusted
-ASMD 0.5 on all three age moments all eight estimators reduce it below
-0.1. The estimators that FAIL translation invariance achieve the same
-balance as those that pass it, emphasizing that the balance is rather set by design and nor by normalization choice. 
-Finally in the saturated design the parametric learner is the one that breaks  as the linear and logistic Wald-AIPW cannot produce outcome weights
-in the saturated specification, while flexible learners can handle it without issue.
-Hence, the Vietnam design can be seen as a benchmark precisely
-because the diagnostics are almost too clean. 
-In the next section the \citet{card1993using} application introduces a richer covariate-adjustment problem and an observational instrument, to detect whether the diagnistcs begin to differentiate across estimators.
+The Vietnam application links the reproduction exercise to the DML and
+outcome-weight analysis. The cents and dollars comparison reproduces the main
+pattern documented by \citet{sloczynski2025abadie}. The normalised kappa
+estimators are unchanged after the outcome translation, while the
+incompletely normalised estimators change under cubic age adjustment. Under
+saturated age indicators, all six kappa estimators coincide in this sample.\\
+The DML estimates are also stable across the considered learners and tuning
+choices relative to their statistical uncertainty. Complete re-estimation
+after the outcome translation leaves the honest-forest, OLS/logit, and
+\texttt{ranger} estimates numerically unchanged. The tuned XGBoost estimates
+move slightly, with a largest difference of \(0.0029\). The reconstructed
+XGBoost weights do not satisfy the exact representation check, so their
+weight diagnostics are interpreted with this qualification.\\
+The outcome-weight analysis explains the kappa result more directly. Under
+cubic age adjustment, translation sensitivity occurs when the treated and
+control weight masses are not both equal to one. At the same time, the
+effective sample sizes and maximum weights remain similar across the kappa
+estimators. Normalisation and weight concentration therefore describe
+different features of the estimators. The balance results add a further
+distinction. All selected estimators reduce the age differences, but exact
+balance depends on the propensity-score specification and is not implied by
+translation invariance.\\
+The following Card application moves from the draft lottery to an
+observational instrument with a richer covariate set. It therefore provides a
+more demanding setting for the same estimator and weight diagnostics.
 
 
 
@@ -3999,6 +3956,100 @@ regression nuisances throughout.
 \end{table}
 
 \newpage
+\section{Vietnam Outcome-Weight Diagnostics}
+\begin{sidewaystable}[p]
+\centering
+\caption{Complete outcome-weight diagnostics for the Vietnam application}
+\label{tab:vietnam_weights_full_appendix}
+\footnotesize
+\begin{threeparttable}
+\begin{tabular}{l r r c c c r}
+\toprule
+Estimator
+& $|\omega'Y-\hat{\tau}|$
+& $\sum_i\omega_i$
+& Mass T/C
+& $\mathrm{ESS}_{\mathrm{mod}}/N$ T/C
+& Opposite-sign mass T/C
+& $\max_i|\omega_i|$ \\
+\midrule
+\multicolumn{7}{l}{\textit{Panel A: Cubic age specification}} \\[2pt]
+PLR-IV, tuned forest
+& $6.88\times10^{-15}$ & 0.000000 & 0.994/0.994
+& 0.963/0.921 & 43.5/46.6 & 0.012494 \\
+Wald-AIPW, tuned forest
+& $8.69\times10^{-15}$ & 0.000000 & 1.000/1.000
+& 0.952/0.910 & 43.4/46.7 & 0.017627 \\
+PLR-IV, tuned XGBoost
+& $1.18\times10^{-7}$ & 0.000627 & 0.993/0.993
+& 0.962/0.917 & 43.5/46.6 & 0.013060 \\
+Wald-AIPW, tuned XGBoost
+& $3.99\times10^{-9}$ & 0.000027 & 1.001/1.001
+& 0.951/0.907 & 43.3/46.7 & 0.019535 \\[2pt]
+$\hat{\tau}_{u}^{cb}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.958/0.908 & 43.5/46.8 & 0.025384 \\
+$\hat{\tau}_{u}^{ml}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.954/0.899 & 43.6/46.8 & 0.028108 \\
+$\hat{\tau}_{a,10}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.954/0.898 & 43.5/46.9 & 0.029078 \\
+$\hat{\tau}_{a}$
+& 0 & 0.048243 & 1.041/0.993
+& 0.954/0.898 & 43.5/46.9 & 0.028869 \\
+$\hat{\tau}_{t}$
+& 0 & 0.046342 & 1.000/0.954
+& 0.954/0.898 & 43.5/46.9 & 0.027731 \\
+$\hat{\tau}_{a,0}$
+& 0 & 0.048594 & 1.049/1.000
+& 0.954/0.898 & 43.5/46.9 & 0.029078 \\[4pt]
+\multicolumn{7}{l}{\textit{Panel B: Saturated age specification}} \\[2pt]
+PLR-IV, tuned forest
+& $5.33\times10^{-15}$ & 0.000000 & 0.999/0.999
+& 0.961/0.917 & 43.5/46.6 & 0.013128 \\
+Wald-AIPW, tuned forest
+& $5.97\times10^{-15}$ & 0.000000 & 1.005/1.005
+& 0.951/0.908 & 43.4/46.7 & 0.016866 \\
+PLR-IV, tuned XGBoost
+& $1.17\times10^{-7}$ & 0.000019 & 1.011/1.011
+& 0.961/0.920 & 43.4/46.6 & 0.012257 \\
+Wald-AIPW, tuned XGBoost
+& $3.46\times10^{-8}$ & $-0.000075$ & 1.005/1.005
+& 0.950/0.911 & 43.2/46.6 & 0.016570 \\[2pt]
+$\hat{\tau}_{u}^{cb}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{u}^{ml}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a,10}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{t}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+$\hat{\tau}_{a,0}$
+& 0 & 0.000000 & 1.000/1.000
+& 0.953/0.909 & 43.3/46.7 & 0.017811 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} T/C denotes treated and sign-oriented control values.
+The representation gap is the absolute difference between the weighted
+outcome sum and the reported estimate. The XGBoost rows use reconstructed
+weight vectors. Modified ESS is divided by the observed number of treated or
+control observations. Opposite-sign mass is reported in percent. The forest
+and XGBoost rows use the tuned specifications.
+\end{tablenotes}
+\end{threeparttable}
+\end{sidewaystable}
+
+\newpage
 \begin{sidewaystable}[p]
 \centering
 \caption{Learner-specific outcome-weight diagnostics: Vietnam draft lottery}
@@ -4054,6 +4105,38 @@ reported in percent.
 \end{tablenotes}
 \end{threeparttable}
 \end{sidewaystable}
+
+\clearpage
+\section{Vietnam Covariate-Balance Diagnostics}
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth]{pics/vietnam_love_cubic_thesis.png}
+\caption{Covariate balance under cubic age adjustment}
+\label{fig:vietnam_love_cubic}
+\begin{minipage}{0.96\textwidth}
+\footnotesize
+\textit{Notes:} Dark circles report the unadjusted absolute standardised mean
+differences. Yellow triangles report the differences after applying the
+estimator-specific outcome weights. The dashed vertical line marks \(0.1\).
+The XGBoost panels use the reconstructed tuned weight vectors. Balance is
+calculated with \texttt{cobalt} \citep{greifer2024cobalt}.
+\end{minipage}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\includegraphics[width=\textwidth]{pics/vietnam_love_saturated_thesis.png}
+\caption{Covariate balance under saturated age adjustment}
+\label{fig:vietnam_love_saturated}
+\begin{minipage}{0.96\textwidth}
+\footnotesize
+\textit{Notes:} Dark circles report the unadjusted absolute differences in
+the binary age indicators. Yellow triangles report the differences after
+applying the estimator-specific outcome weights. The dashed vertical line
+marks \(0.1\). The XGBoost panels use the reconstructed tuned weight vectors.
+Balance is calculated with \texttt{cobalt} \citep{greifer2024cobalt}.
+\end{minipage}
+\end{figure}
 
 \newpage
 \section{Subsampling Procedure for the Card framework}
