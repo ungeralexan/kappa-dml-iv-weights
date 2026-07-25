@@ -54,6 +54,8 @@ knitr::opts_chunk$set(
   echo    = TRUE,
   message = FALSE,
   warning = FALSE,
+  cache   = TRUE,
+  autodep = TRUE,
   fig.width  = 12,
   fig.height = 6
 )
@@ -207,16 +209,6 @@ design_audit %>%
   footnote(general = "Robust t² is the squared HC1 t-statistic for draft eligibility; it is a descriptive strength diagnostic, not a formal weak-IV-robust test. Boundary share uses 0.05 and 0.95.")
 ```
 
-<div class="result-box">
-**Design conclusion.** The raw 13.9 percentage-point uptake difference falls
-to about nine percentage points after conditioning on age, but the robust
-squared t-statistic remains between 26 and 30. Estimated instrument
-propensities range from approximately 0.14 to 0.63, with no near-boundary
-observations. The saturated-age specification most directly represents the
-discrete cohort structure and is the preferred flexible specification; linear
-and cubic age are sensitivity checks.
-</div>
-
 <div class="warn-box">
 **Qualification.** Sample first-stage differences are not positive in every
 age cell (ages 29 and 39 are negative). These noisy cell contrasts neither
@@ -306,14 +298,6 @@ build_spec_table(col_lin_cnt, col_lin_dol, col_cub_cnt, col_cub_dol, col_sat_cnt
   row_spec(5:7, background = "#fffbf0") %>%
   footnote(general = "Each cell reports the estimate with its analytical or HC1-robust standard error below. Blue = normalized (translation invariant); orange = unnormalized. age = age_5, following the SUW replication.")
 ```
-
-<div class="result-box">
-**Replication conclusion.** The normalized kappa estimators and 2SLS are
-unchanged when log wages are shifted from dollars to cents. The unnormalized
-estimators change under linear and cubic age controls. Their equality under
-saturated age is a sample age-cell calibration result, not a general
-invariance property.
-</div>
 
 ---
 
@@ -479,16 +463,8 @@ rbind(dml_rows, kappa_rows) %>%
   pack_rows("Kappa — unnormalized", 8, 10) %>%
   row_spec(1:4, background = "#eef6ff") %>%
   row_spec(8:10, background = "#fffbf0") %>%
-  footnote(general = "Each cell reports estimate (SE). Blue = DML; orange = unnormalized kappa. Honest-forest tuning changes neither the substantive conclusion nor the large sampling uncertainty.")
+  footnote(general = "Each cell reports estimate (SE). Blue = DML; orange = unnormalized kappa.")
 ```
-
-<div class="result-box">
-**DML conclusion.** Across cubic and saturated age controls, PLR-IV and
-Wald-AIPW remain close to 2SLS and the normalized kappa estimates. Tuning the
-honest forest has little effect relative to the standard errors. The evidence
-therefore supports estimator stability in this low-dimensional design, not a
-precisely estimated positive earnings effect.
-</div>
 
 ---
 
@@ -828,15 +804,6 @@ comp_df %>%
   footnote(general = "Each cell reports estimate (SE). Linear denotes the nuisance learner, not the linear-age feature specification. XGBoost rows import the stored nested-tuning fits; their reconstructed outcome weights are assessed separately below.")
 ```
 
-<div class="result-box">
-**Learner conclusion.** Parametric, Ranger, honest-forest, and XGBoost point
-estimates are similar relative to their uncertainty. This agreement indicates
-limited learner sensitivity in the Vietnam design. The XGBoost smoother
-reconstructions miss Knaus's default numerical-equivalence threshold by small
-amounts; Section 4 reports both their weight diagnostics and the corresponding
-reproduction gaps.
-</div>
-
 ---
 
 # 4. Weight Diagnostics
@@ -986,16 +953,6 @@ style_ext_diag(ext_diag_block(D, Y_dol, kw_sat,
                               xgb_pliv_sat_tuned, xgb_iivm_sat_tuned),
                "Weight Diagnostics — PLR-IV and Wald-AIPW Learners | Saturated age")
 ```
-
-<div class="result-box">
-**Weight conclusion.** Exact normalized representations have weight sums near
-zero, as required for translation invariance. Under cubic age, the
-unnormalized kappa weights retain nonzero total mass and reproduce the
-cents–dollars sensitivity. Under saturated age, sample age-cell calibration
-makes all kappa variants coincide. Modified ESS is reported by treatment arm;
-ordinary Kish ESS is deliberately omitted because these are signed outcome
-weights rather than nonnegative sampling weights.
-</div>
 
 ## Detailed Outcome-Weight Statistics {.tabset}
 
@@ -1179,11 +1136,3 @@ grobs <- Filter(Negate(is.null), list(
 grid.arrange(grobs = grobs, ncol = 2,
              top = "Love Plots — PLR-IV and Wald-AIPW learners vs. kappa | Saturated age")
 ```
-
-<div class="result-box">
-**Balance conclusion.** The exact outcome-weight representations substantially
-reduce age imbalance between the treated and control contrasts. Balance is a
-diagnostic of the fitted weighted comparison; it does not test the exclusion
-restriction, conditional independence, or monotonicity. XGBoost is absent
-because its extracted vectors do not exactly reproduce the reported estimates.
-</div>

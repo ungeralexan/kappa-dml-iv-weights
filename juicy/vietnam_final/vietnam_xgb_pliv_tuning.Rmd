@@ -25,10 +25,10 @@ table { font-size:13px; }
 ```
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,fig.width=11,fig.height=5.5)
+knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,cache=TRUE,autodep=TRUE,fig.width=11,fig.height=5.5)
 ```
 
-```{r packages}
+```{r packages, include=FALSE}
 library(haven)
 library(knitr)
 library(kableExtra)

@@ -29,6 +29,7 @@ table { font-size: 13px; }
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      cache = TRUE, autodep = TRUE,
                       fig.width = 11, fig.height = 5.5, dpi = 110)
 ```
 
