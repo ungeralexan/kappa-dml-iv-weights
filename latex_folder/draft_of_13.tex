@@ -2464,10 +2464,7 @@ describe an exact outcome-weight representation only when
 \(\omega'Y=\hat{\tau}\). The kappa weights satisfy this equality by
 construction, and the tuned-forest gaps are below \(10^{-14}\). The gaps for
 the reconstructed XGBoost weights are small but fail the exact numerical check
-used in the implementation. Their statistics are therefore treated as
-diagnostics of the reconstructed learner weights rather than as exact
-decompositions of the reported estimates.
-
+used in the implementation. \\
 The cubic kappa results give the clearest normalisation comparison. For
 \(\hat{\tau}_{u}^{cb}\) and \(\hat{\tau}_{u}^{ml}\), total weight is zero and
 the treated and control masses both equal one. The incompletely normalised
@@ -2475,8 +2472,7 @@ estimators instead have total weights between \(0.0463\) and \(0.0486\).
 For \(\hat{\tau}_{t}\), the treated mass equals one while the control mass is
 \(0.954\). For \(\hat{\tau}_{a,0}\), the control mass equals one while the
 treated mass is \(1.049\). These mass differences correspond to the
-translation sensitivity in Table~\ref{tab:vietnam_translation}.
-
+translation sensitivity in Table~\ref{tab:vietnam_translation}.\\
 The concentration measures lead to a separate conclusion. The cubic kappa
 estimators have modified ESS ratios of about \(0.95\) among treated
 observations and \(0.90\) among controls. Their maximum absolute weights
@@ -2484,8 +2480,7 @@ remain below \(0.030\), despite their different normalisation. The sensitivity
 to the outcome translation is therefore associated with the weight masses,
 not with a small effective sample or a few dominant observations. The tuned
 forest and reconstructed XGBoost weights show a similar degree of
-concentration.
-
+concentration.\\
 Under saturated age adjustment, all six kappa estimators have the same weight
 statistics. This agrees with their common point estimate and unchanged rerun
 results in this sample. The complete cubic and saturated comparison is
@@ -2519,13 +2514,11 @@ the flexible learner weights reduce the maximum cohort difference, but they
 do not move every individual age indicator closer to zero. They also do not
 reproduce the exact balance obtained by the saturated kappa specification.
 The XGBoost panels remain subject to the representation qualification above.
-Balance is a property of the fitted weighted comparison. It does not establish
-the IV identifying assumptions and is distinct from the normalisation results
-above.
+Balance is a property of the fitted weighted comparison. 
 
 \subsection{Summary of the Vietnam Application}
 \label{subsec:vietnam_summary}
-The Vietnam application links the reproduction exercise to the DML and
+The Vietnam application links the reproduction pipeline to the DML and
 outcome-weight analysis. The cents and dollars comparison reproduces the main
 pattern documented by \citet{sloczynski2025abadie}. The normalised kappa
 estimators are unchanged after the outcome translation, while the
