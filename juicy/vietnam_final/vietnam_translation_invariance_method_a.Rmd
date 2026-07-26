@@ -57,8 +57,10 @@ different transformation property. The complete estimator is rerun once for
 each of these two analysis specifications.
 </div>
 
-For the table classification, estimates are described as numerically unchanged
-when the absolute rerun difference does not exceed \(10^{-4}\). The exact
+For the table classification, estimates are described as unchanged within
+\(10^{-4}\) when the absolute rerun difference does not exceed this
+pre-specified reporting tolerance. This is not an `all.equal()` tolerance, a
+theoretical normalization criterion, or Knaus's display epsilon. The exact
 rerun difference remains reported in every table.
 
 # Setup
@@ -96,7 +98,7 @@ display_rerun_results <- function(x) {
               "tau_shifted","rerun_difference","invariant")]
   names(out) <- c("Specification","Estimator","Shift",
                   "Original estimate","Shifted estimate","Rerun change",
-                  "Numerically unchanged")
+                  "Unchanged within 10^-4")
   out
 }
 ```
@@ -169,9 +171,12 @@ data.frame(
 # 1. Kappa estimators
 
 <div class="note-box">
-The normalized estimators should remain unchanged after the complete rerun,
-whereas the unnormalized estimators are expected to move. These fits are cheap
-and provide the classical benchmark for the data-adaptive estimators below.
+The normalized estimators should remain unchanged after the complete rerun.
+The unnormalized estimators have no general translation-invariance guarantee:
+they are expected to move unless the fitted sample weights happen to satisfy
+the required normalization, as occurs in the saturated-age specification.
+These fits are cheap and provide the classical benchmark for the data-adaptive
+estimators below.
 </div>
 
 ```{r kappa-builders}
@@ -241,7 +246,7 @@ if(RUN_DML) {
     kbl(caption="Tuned honest forest — original versus shifted log wage",digits=8,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!dml_headline_ti_all$invariant),background="#fffbf0") %>%
-    footnote(general="The exact rerun differences are shown; all four are numerically unchanged at the stated reporting threshold.")
+    footnote(general="The exact rerun differences are shown; all four are unchanged within the stated reporting tolerance.")
 }
 ```
 
@@ -368,13 +373,17 @@ if(RUN_XGB_RERUN) {
 
 <div class="note-box">
 **Interpretation.** The normalized kappa estimators and the OLS/logit, Ranger,
-and honest-forest implementations are numerically unchanged after the complete
-rerun. The cubic unnormalized kappa results reproduce the sensitivity reported
+and honest-forest implementations are unchanged within the stated reporting
+tolerance after the complete rerun. The cubic unnormalized kappa results reproduce the sensitivity reported
 by SUW, while the kappa variants coincide under the saturated-age
 specification. The tuned XGBoost estimates show small but visible rerun
 differences. These changes are compatible with the absence of a general
 normalization result for boosted-tree implementations discussed by Knaus.
 Their magnitudes refer only to the present implementation and tuning protocol.
+The cubic OLS PLR-IV rerun result is not contradicted by its borderline
+reproduction check in the main presentation: that separate `FALSE` arises
+from numerical reconstruction of the raw-cubic OLS smoother, not from a
+response to the outcome translation.
 </div>
 
 # 5. Save reusable rerun results

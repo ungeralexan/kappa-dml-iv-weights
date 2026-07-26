@@ -70,8 +70,8 @@ itself is deliberately re-estimated.
 **Runtime.** Wald-AIPW fits instrument, treatment, and arm-specific outcome
 nuisances. With five outer folds, three inner folds, and fifteen random-search
 evaluations, nested tuning is intentionally expensive. `EXTRACT_WEIGHTS` is
-kept `TRUE` because the main analysis and Method-A notebook require the exact
-exported vectors.
+kept `TRUE` so the export retains the numerical reproduction audit used by the
+main presentation.
 </div>
 
 # Setup
@@ -353,13 +353,13 @@ one_diag_row <- function(cn,label,r,cell) {
   if (is.null(r)||is.null(w)) return(data.frame(Cell=cn,Learner=label,Estimate=if(is.null(r))NA else r$coef,
     ESS_mod=NA,`Sigma omega`=NA,`Sigma abs omega`=NA,`Treated mass`=NA,
     `Control mass (-sum control weights)`=NA,`max abs omega`=NA,`ω′Y reproduces τ̂`=NA,
-    `Weight status`=if(is.null(r))"fit failed" else "weight extraction failed",check.names=FALSE))
+    check.names=FALSE))
   wb <- weight_bridge(w,cell$D,label); ov <- wb[wb$Scope=="Overall",]; tr <- wb[wb$Scope=="Treated",]; co <- wb[wb$Scope=="Control",]
   data.frame(Cell=cn,Learner=label,Estimate=r$coef,ESS_mod=ov$ESS_mod,
     `Sigma omega`=ov$Sum_w,`Sigma abs omega`=ov$Sum_abs_w,`Treated mass`=tr$Sum_w,
     `Control mass (-sum control weights)`=co$Sum_w,`max abs omega`=ov$Max_abs_w,
     `ω′Y reproduces τ̂`=tryCatch(check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
-    `Weight status`="ok",check.names=FALSE)
+    check.names=FALSE)
 }
 ```
 
@@ -375,13 +375,17 @@ if (RERUN_TUNING) {
 }
 # Older cached exports contain conventional Kish ESS. It is not displayed
 # because signed contrast weights do not define a nonnegative weighted sample.
-xgb_weight_table <- xgb_weight_table[, setdiff(names(xgb_weight_table), "ESS"), drop=FALSE]
+xgb_weight_display <- xgb_weight_table[, setdiff(
+  names(xgb_weight_table), c("ESS", "Weight status")
+), drop=FALSE]
 if ("Identity ok" %in% names(xgb_weight_table))
   names(xgb_weight_table)[names(xgb_weight_table)=="Identity ok"] <- "ω′Y reproduces τ̂"
-xgb_weight_table %>% kbl(digits=4,caption="Vietnam Wald-AIPW XGBoost outcome-weight diagnostics") %>%
+if ("Identity ok" %in% names(xgb_weight_display))
+  names(xgb_weight_display)[names(xgb_weight_display)=="Identity ok"] <- "ω′Y reproduces τ̂"
+xgb_weight_display %>% kbl(digits=4,caption="Vietnam Wald-AIPW XGBoost outcome-weight audit") %>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
-  row_spec(which(xgb_weight_table$Learner=="XGB tuned"),background="#eef6ff") %>%
-  footnote(general="Modified ESS is reported for these signed outcome weights; conventional Kish ESS is omitted. Numerical reproduction follows Knaus's all.equal() check with R's default tolerance and is separate from normalization.")
+  row_spec(which(xgb_weight_display$Learner=="XGB tuned"),background="#eef6ff") %>%
+  footnote(general="These quantities audit the available reconstructed vectors. Rows marked FALSE are not interpreted as exact estimator diagnostics and are not carried into the main presentation. Reproduction uses Knaus's all.equal() criterion with R's default tolerance; conventional Kish ESS is omitted.")
 ```
 
 ```{r omega-and-identities}
