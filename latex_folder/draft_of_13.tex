@@ -2207,9 +2207,7 @@ All six kappa estimators equal \(0.241\) in this sample. The PLR-IV and
 Wald-AIPW estimates are \(0.242\) and \(0.244\), respectively, while the
 2SLS estimate is \(0.254\).
 The complete range is therefore only \(0.013\).
-Among the three age specifications, the saturated model consequently
-provides the strongest evidence that the estimated effect is not driven by
-one particular estimator.\\
+Among the three age specifications, the saturated specification produces the greatest numerical agreement across estimators. This agreement should be interpreted in light of the saturated age-cell structure, under which the six kappa estimators coincide in this sample.\\
 The honest forest is only one possible choice for estimating the DML nuisance
 functions. Appendix Table~\ref{tab:vietnam_dml_learners} therefore compares
 it with regression models, random forests estimated through
@@ -2377,10 +2375,14 @@ been re-estimated using the translated outcome.
 
 
 
+
+
+
+
 \subsection{Outcome-Weight Diagnostics}
 \label{subsec:vietnam_weights}
 
-This section examines whether the estimated outcome weights reproduce the reported point estimates, how the weights are normalised, and whether the estimates depend strongly on a small number of observations. The main discussion focuses on the cubic age specification because it produces the clearest differences across estimators and nuisance learners. Under saturated age adjustment, the kappa estimators have identical weight diagnostics, so a separate detailed discussion would largely repeat the same points. The complete results for both age specifications are reported in Appendix Table~\ref{tab:vietnam_weights_full_appendix}.
+This section examines the realised outcome weights behind the Vietnam estimates. The main discussion focuses on cubic age adjustment because this specification produces the clearest differences across the alternative weighting constructions. The complete cubic and saturated results are reported in Appendix Table~\ref{tab:vietnam_weights_full_appendix}.
 
 \begin{table}[htbp]
 \centering
@@ -2388,110 +2390,75 @@ This section examines whether the estimated outcome weights reproduce the report
 \label{tab:vietnam_weights}
 \footnotesize
 \begin{threeparttable}
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{l r r c c c r}
+\begin{tabular}{@{}l r c c c@{}}
 \toprule
 Estimator
-& $|\omega'Y-\hat{\tau}|$
 & $\sum_i\omega_i$
 & Mass T/C
-& Opposite-sign mass T/C
-& $\mathrm{ESS}_{\mathrm{mod}}/N$ T/C
-& $\max_i|\omega_i|$ \\
+& \shortstack{Opposite-sign\\mass T/C (\%)}
+& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C} \\
 \midrule
-\multicolumn{7}{l}{\textit{Honest-forest estimators}} \\[2pt]
-PLR-IV
-& $6.88\times10^{-15}$ & 0.0000000 & 0.9942/0.9942
-& 43.5/46.6 & 0.963/0.921 & 0.012494 \\
-Wald-AIPW
-& $8.69\times10^{-15}$ & 0.0000000 & 0.9998/0.9998
-& 43.4/46.7 & 0.952/0.910 & 0.017627 \\[4pt]
-
-\multicolumn{7}{l}{\textit{Linear and logistic nuisance models}} \\[2pt]
+\multicolumn{5}{l}{\textit{DML estimators}} \\[2pt]
+PLR-IV, honest forest
+& 0.0000000 & 0.9942/0.9942
+& 43.5/46.6 & 0.963/0.921 \\
+Wald-AIPW, honest forest
+& 0.0000000 & 0.9998/0.9998
+& 43.4/46.7 & 0.952/0.910 \\
 PLR-IV, OLS
-& $3.71\times10^{-9}$ & 0.0000000 & 1.0000/1.0000
-& 43.6/46.7 & 0.966/0.924 & 0.014577 \\
+& 0.0000000 & 1.0000/1.0000
+& 43.6/46.7 & 0.966/0.924 \\
 Wald-AIPW, OLS/logit
-& $1.20\times10^{-9}$ & 0.0000000 & 0.9915/0.9915
-& 43.5/46.8 & 0.955/0.908 & 0.026926 \\[4pt]
+& 0.0000000 & 0.9915/0.9915
+& 43.5/46.8 & 0.955/0.908 \\[4pt]
 
-\multicolumn{7}{l}{\textit{Reconstructed XGBoost weights}} \\[2pt]
-PLR-IV, tuned XGBoost
-& $1.18\times10^{-7}$ & 0.0006273 & 0.9932/0.9925
-& 43.5/46.6 & 0.962/0.917 & 0.013060 \\
-Wald-AIPW, tuned XGBoost
-& $3.99\times10^{-9}$ & 0.0000268 & 1.0013/1.0013
-& 43.3/46.7 & 0.951/0.907 & 0.019535 \\[4pt]
-
-\multicolumn{7}{l}{\textit{Kappa estimators}} \\[2pt]
+\multicolumn{5}{l}{\textit{Kappa estimators}} \\[2pt]
 $\hat{\tau}_{u}^{cb}$
-& 0 & 0.0000000 & 1.0000/1.0000
-& 43.5/46.8 & 0.958/0.908 & 0.025384 \\
+& 0.0000000 & 1.0000/1.0000
+& 43.5/46.8 & 0.958/0.908 \\
 $\hat{\tau}_{u}^{ml}$
-& 0 & 0.0000000 & 1.0000/1.0000
-& 43.6/46.8 & 0.954/0.899 & 0.028108 \\
+& 0.0000000 & 1.0000/1.0000
+& 43.6/46.8 & 0.954/0.899 \\
 $\hat{\tau}_{a,10}$
-& 0 & 0.0000000 & 1.0000/1.0000
-& 43.5/46.9 & 0.954/0.898 & 0.029078 \\
+& 0.0000000 & 1.0000/1.0000
+& 43.5/46.9 & 0.954/0.898 \\
 $\hat{\tau}_{a}$
-& 0 & 0.0482434 & 1.0410/0.9928
-& 43.5/46.9 & 0.954/0.898 & 0.028869 \\
+& 0.0482434 & 1.0410/0.9928
+& 43.5/46.9 & 0.954/0.898 \\
 $\hat{\tau}_{t}$
-& 0 & 0.0463418 & 1.0000/0.9537
-& 43.5/46.9 & 0.954/0.898 & 0.027731 \\
+& 0.0463418 & 1.0000/0.9537
+& 43.5/46.9 & 0.954/0.898 \\
 $\hat{\tau}_{a,0}$
-& 0 & 0.0485937 & 1.0486/1.0000
-& 43.5/46.9 & 0.954/0.898 & 0.029078 \\
+& 0.0485937 & 1.0486/1.0000
+& 43.5/46.9 & 0.954/0.898 \\
 \bottomrule
-\end{tabular}%
-}
+\end{tabular}
 \begin{tablenotes}
 \footnotesize
-\item \textit{Notes:} T/C denotes treated and sign-oriented control values. The representation gap is the absolute difference between the weighted outcome sum and the reported estimate. Opposite-sign mass is the percentage of absolute weight mass that has the opposite sign from the conventional treated-positive and control-negative orientation. It is a measure of cancellation and does not by itself indicate that an estimator is invalid. The arm-specific modified ESS is divided by the observed number of treated or control observations. The XGBoost rows are based on reconstructed weight vectors. The complete cubic and saturated results are reported in Appendix Table~\ref{tab:vietnam_weights_full_appendix}.
+\item \textit{Notes:} T/C denotes the observed treated and control groups. Mass T/C reports \(\sum_{i:D_i=1}\omega_i\) and \(-\sum_{i:D_i=0}\omega_i\), so both components follow the same positive orientation. Opposite-sign mass is the percentage of absolute weight mass that does not follow this conventional orientation. The modified ESS is calculated separately within the observed treated and control groups and divided by the corresponding group size. The complete diagnostics, including the \texttt{ranger} and reconstructed XGBoost results, are reported in Appendix Tables~\ref{tab:vietnam_weights_full_appendix} and \ref{tab:vietnam_weights_learners_appendix}.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
 
-The representation gaps first establish whether the estimated weights provide an accurate weighted representation of the reported estimator. The kappa weights reproduce their estimates by construction. The honest-forest gaps are below \(10^{-14}\). The gaps are also small for the linear and logistic nuisance models. The reconstructed XGBoost weights are less exact. In particular, the PLR-IV gap is \(1.18\times10^{-7}\), which fails the strict numerical equality check used in the implementation. \\
-The cubic kappa results provide the clearest comparison of the different normalisation classes introduced by \citet[Table~4]{knaus2024treatment}. The weights of \(\hat{\tau}_{u}^{cb}\), \(\hat{\tau}_{u}^{ml}\), and \(\hat{\tau}_{a,10}\) sum to zero, while the treated and sign-oriented control masses both equal one. These estimators are therefore fully normalised. By contrast, \(\hat{\tau}_{a}\) is fully unnormalised because neither group mass satisfies the corresponding normalisation restriction. The weights of \(\hat{\tau}_{t}\) are untreated-unnormalised because the treated mass equals one while the sign-oriented control mass is only \(0.954\). The reverse pattern holds for \(\hat{\tau}_{a,0}\), which is treated-unnormalised because its control mass equals one while the treated mass is \(1.049\). These results correspond to the classification of the kappa estimators in \citet[Appendix~A.4]{knaus2024treatment}.\\
-The DML results also follow the theoretical distinction in \citet[Table~5]{knaus2024treatment}. When the nuisance learner is an affine smoother, Condition~3 is sufficient for the PLR-IV and Wald-AIPW weights to sum to zero. Full normalisation additionally requires the treatment prediction to be constructed using the same smoothing structure as the outcome prediction, as formalised by Conditions~5a and 5b. The honest-forest PLR-IV and Wald-AIPW weights sum to zero, but their group masses are \(0.994\) and \(0.9998\), respectively. They are therefore scale-normalised and close to, but not exactly, fully normalised.\\
-The OLS implementation of PLR-IV displays the fully normalised pattern, with both group masses equal to one. This is consistent with Condition~5a when the same linear projection structure is used for the treatment and outcome nuisance functions. In contrast, Wald-AIPW combines linear outcome regressions with a logistic treatment model. Its two group masses are equal but amount to approximately \(0.991\), so the weights are scale-normalised rather than fully normalised. This difference illustrates why full normalisation depends on the complete nuisance-function design rather than only on the choice of estimator.\\
-For XGBoost, the affine-smoother condition is not generally available. The small nonzero total weight sums are therefore consistent with the absence of the normalisation guarantee in Table~5. Table~6 of \citet{knaus2024treatment} illustrates the same distinction for random-forest and XGBoost implementations of PLR-IV and Wald-AIPW. \\
-The concentration diagnostics lead to a separate finding. Across the estimators in Table~\ref{tab:vietnam_weights}, the arm-specific modified ESS ratios range from approximately \(0.90\) to \(0.97\), while all maximum absolute weights remain below \(0.03\). The corresponding maximum weights for the honest-forest specifications are \(0.0125\) for PLR-IV and \(0.0176\) for Wald-AIPW. These results provide little evidence that the estimates are dominated by a small number of observations.\\
-At the same time, the weights involve substantial cancellation. Between \(43.3\%\) and \(43.6\%\) of the absolute treated weight mass and between \(46.6\%\) and \(46.9\%\) of the absolute control weight mass have the opposite sign from the conventional orientation. High modified ESS ratios and small maximum weights therefore do not imply that the weighting structure is simple. Instead, the estimates combine many positive and negative contributions that offset one another. The similarity of these diagnostics across the normalisation classes also shows that normalisation and weight concentration capture different properties of an estimator.\\
-The `ranger` results, reported in Appendix Table~\ref{tab:vietnam_weights_learners_appendix}, display the same broad pattern as the honest-forest results. Their weights sum to zero, their treated and control masses are equal and close to one, and their concentration measures are similar. Under saturated age adjustment, all six kappa estimators have exactly the same weight sums, group masses, modified ESS ratios, opposite-sign masses, and maximum absolute weights. The saturated specification therefore adds little further differentiation between the kappa estimators, but it provides a useful confirmation that their weighting structures coincide in this specification.
-
-
-
-
-
+The weight sums and group masses provide the normalisation classification described in \citet[Table~4]{knaus2024treatment}. The three normalised kappa estimators satisfy all restrictions for full normalisation. Their total weights sum to zero, while the treated and sign-oriented control masses both equal one. The remaining kappa estimators belong to three different classes. For \(\hat{\tau}_{a}\), neither group mass equals one, so the estimator is fully unnormalised. For \(\hat{\tau}_{t}\), the treated mass equals one but the control mass is only \(0.954\), which makes it untreated-unnormalised. For \(\hat{\tau}_{a,0}\), the control mass equals one but the treated mass is \(1.049\), which makes it treated-unnormalised. These realised weights reproduce the classification derived for the kappa estimators in \citet[Appendix~A.4]{knaus2024treatment}.\\
+The DML results show why the nuisance implementation matters. The honest-forest PLR-IV and Wald-AIPW weights sum to zero, while the treated and control masses are equal within each estimator. They are therefore scale-normalised. Their common masses of \(0.9942\) and \(0.9998\) are close to one but do not satisfy full normalisation exactly. This pattern is consistent with \citet[Table~5]{knaus2024treatment}. Affine outcome smoothers satisfy Condition~3 and therefore produce normalised weights. Full normalisation additionally requires Condition~5a for PLR-IV or Condition~5b for Wald-AIPW, which is generally not satisfied when different nuisance models are used.\\
+The OLS implementation of PLR-IV displays the fully normalised pattern, with a total weight sum of zero and both group masses equal to one. This is consistent with the same linear projection structure being used for the relevant nuisance functions. Wald-AIPW combines linear outcome regressions with logistic models for the binary nuisance functions. Its total weights sum to zero, but both group masses equal approximately \(0.9915\). It is therefore scale-normalised rather than fully normalised.\\
+The modified ESS ratios describe a different property of the weights. Following the definition in Section~\ref{subsec:effective_support}, values close to one indicate that the absolute weight magnitudes are distributed relatively evenly within the corresponding treatment group. Across the estimators in Table~\ref{tab:vietnam_weights}, the ratios range from \(0.952\) to \(0.966\) among veterans and from \(0.898\) to \(0.924\) among nonveterans. The lower values for the control group indicate somewhat greater concentration among nonveterans, although none of the reported ratios suggests that the estimates rely on a very small part of either group.\\
+PLR-IV has slightly higher modified ESS ratios than Wald-AIPW for both nuisance implementations. With honest forests, the ratios are \(0.963\) and \(0.921\) for PLR-IV, compared with \(0.952\) and \(0.910\) for Wald-AIPW. The same ordering appears for the linear and logistic nuisance models. \\
+The kappa estimators provide another useful comparison. Their modified ESS ratios remain very similar even though their normalisation classes differ. In particular, \(\hat{\tau}_{a,10}\), \(\hat{\tau}_{a}\), \(\hat{\tau}_{t}\), and \(\hat{\tau}_{a,0}\) have almost identical concentration diagnostics. The differences between their realised weighting structures therefore arise mainly from their aggregate weight masses.\\
+The opposite-sign mass reveals substantial cancellation within both treatment groups. Approximately \(43.4\%\) to \(43.6\%\) of the absolute treated weight mass and \(46.6\%\) to \(46.9\%\) of the absolute control weight mass have the opposite sign from the conventional orientation. The control weights are therefore slightly closer to an even split between the two signs. However, the values are remarkably similar across the DML and kappa estimators. The cancellation is consequently a common feature of the weighting structure in this application rather than a problem generated by one particular estimator or learner.\\
+Substantial opposite-sign mass does not by itself imply that an estimator is invalid, nor does it provide evidence for or against individual-level monotonicity. It shows that positive and negative components offset within the realised outcome contrast. This result can coexist with high modified ESS ratios because the modified ESS depends on absolute weight magnitudes and not on their signs. Taken together, the two diagnostics show that the Vietnam weights are broadly distributed across the observed sample but involve considerable internal cancellation.
 
 
 \subsection{Covariate Balance}
 \label{subsec:vietnam_balance}
-Appendix Figures~\ref{fig:vietnam_love_cubic} and
-\ref{fig:vietnam_love_saturated} compare the tuned forest and XGBoost weights
-with the CBPS-based and maximum-likelihood kappa weights.\\
-Under cubic age adjustment, the unadjusted standardised differences in age,
-age squared, and age cubed are between \(0.52\) and \(0.56\). Weighting reduces
-these differences substantially, but the degree of balance is not identical
-across estimators. The maximum adjusted difference is effectively zero for
-\(\hat{\tau}_{u}^{cb}\). It equals \(0.099\) for tuned-forest PLR-IV and
-\(0.109\) for \(\hat{\tau}_{u}^{ml}\), while the two XGBoost specifications
-and tuned-forest Wald-AIPW remain below \(0.03\). The MLE-based kappa value is
-therefore slightly above the \(0.1\) reference line. The contrast between the
-two kappa estimators reflects their different propensity-score fits. CBPS
-directly imposes balancing conditions, whereas maximum likelihood does not.\\
-With saturated age indicators, the unadjusted absolute differences are all
-below \(0.1\). Both kappa estimators balance the included age indicators up to
-numerical precision. The maximum adjusted difference is \(0.002\) for
-tuned-forest PLR-IV, \(0.029\) for tuned-forest Wald-AIPW, \(0.020\) for
-XGBoost PLR-IV, and \(0.045\) for XGBoost Wald-AIPW. These results show that
-the flexible learner weights reduce the maximum cohort difference, but they
-do not move every individual age indicator closer to zero. They also do not
-reproduce the exact balance obtained by the saturated kappa specification.
-The XGBoost panels remain subject to the representation qualification above.
-Balance is a property of the fitted weighted comparison. 
+
+Following the previous covariate diagnostics, Appendix Figures~\ref{fig:vietnam_love_cubic} and \ref{fig:vietnam_love_saturated} compare covariate balance before and after weighting. Only exact or algebraic outcome-weight representations are included.  The cubic specification reports standardised differences for age, age squared, and age cubed, while the saturated specification reports raw mean differences for binary age indicators. Their magnitudes should consequently be compared within, rather than across, specifications.\\
+Under cubic age adjustment, the unadjusted standardised differences range from approximately \(0.52\) to \(0.56\). The CBPS-based estimator \(\hat{\tau}_{u}^{cb}\) balances all three age terms up to numerical precision, which reflects the balancing restrictions imposed by CBPS. The maximum-likelihood estimator \(\hat{\tau}_{u}^{ml}\) reduces the differences substantially but retains a maximum value of \(0.109\), slightly above the \(0.1\) reference line. The estimate \(\hat{\tau}_{a,10}\) also remains close to this line. Among the DML estimators, tuned-forest PLR-IV has a maximum adjusted difference of \(0.099\), whereas honest-forest Wald-AIPW and the eligible linear and \texttt{ranger} specifications balance the included terms more closely. These results show that full normalisation does not imply exact covariate balance, since the fully normalised kappa estimators differ according to how their instrument propensity scores are estimated.\\
+Under saturated age adjustment, the remaining differences are small for all included estimators. The six kappa estimators balance the age indicators up to numerical precision because their realised weights coincide in this specification. Honest-forest PLR-IV is also close to exact balance, while the maximum differences for honest-forest Wald-AIPW and the \texttt{ranger} specifications remain below approximately \(0.03\). The irregular patterns across individual age indicators therefore reflect small differences on a narrow plotting scale rather than a general balance problem.\\
+Overall, the balance diagnostics provide no evidence of substantial remaining imbalance in the Vietnam application. The main differences appear under cubic adjustment, where CBPS achieves exact balance while the MLE-based kappa weights and tuned-forest PLR-IV retain differences close to the \(0.1\) reference value.
+
+
 
 \subsection{Summary of the Vietnam Application}
 \label{subsec:vietnam_summary}
