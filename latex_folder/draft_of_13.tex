@@ -2663,7 +2663,135 @@ value. Values displayed as zero are zero up to the reported precision.
 \end{threeparttable}
 \end{table}
 
+\subsection{Outcome-Weight Normalisation and Concentration}
+\label{subsec:card_weights}
 
+Using the diagnostics defined in
+Section~\ref{sec:outcome_weight_diagnostics}, Table~\ref{tab:card_weights}
+compares the realised outcome weights across the two treatment margins and
+conditioning sets. The main table focuses on the tuned honest-forest
+estimators.
+The complete eligible results are reported in Appendix
+Tables~\ref{tab:card_kappa_weights_appendix}
+and~\ref{tab:card_dml_weights_appendix}.\\
+The realised weight masses confirm the implementation pattern described by
+\citet[Tables~4 and~5]{knaus2024treatment}. The normalised kappa estimators
+have mass \(1/1\) in every cell. For \(\hat{\tau}^{ml}_{t}\), treated mass
+remains one, while control mass equals \(1.107\) and \(1.200\) under Card
+but only \(0.721\) and \(0.504\) under Kitagawa. These departures explain
+the signs and relative magnitudes of its translation changes. The forest
+weights instead sum to zero and have equal treated and control masses, but
+their common mass is not always one. This scale-normalised pattern is
+consistent with Knaus's result that affine outcome smoothers ensure
+normalisation, while full normalisation of PLR-IV and Wald-AIPW requires
+additional links between the outcome and treatment nuisance fits.\\
+The more informative Card-specific difference concerns concentration.
+Within every design cell, Wald-AIPW has lower modified ESS ratios and a
+larger maximum absolute weight than PLR-IV\@. The contrast is strongest for
+the sixteen-year treatment under the Card conditioning set. In this cell,
+the Wald-AIPW ESS ratios are \(0.398\) and \(0.466\), and its largest
+absolute weight is \(0.277\). The corresponding Kitagawa values are
+\(0.558\), \(0.538\), and \(0.119\). Because both specifications use the
+same observations and treatment definitions, this is a paired comparison
+of how the weighting structure changes with the included covariates. The
+richer Card specification is associated with more concentrated
+forest-based Wald-AIPW weights. This is consistent with the less comfortable
+propensity support and weaker first stage documented earlier, but neither
+mechanism can be isolated by these diagnostics.\\
+Opposite-sign mass lies between approximately \(45\%\) and \(49\%\) across
+the eligible estimators. It is slightly higher in the control component for
+the sixteen-year treatment, but otherwise changes little across learners
+and conditioning sets. Substantial cancellation is therefore a common
+feature of the signed Card outcome weights, not evidence against the
+instrument or a problem specific to one estimator. The next subsection
+examines whether these weighted contrasts also reduce differences in the
+observed covariates.
+
+\begin{table}[htbp]
+\centering
+\caption{Selected outcome-weight diagnostics in the Card application}
+\label{tab:card_weights}
+\footnotesize
+\setlength{\tabcolsep}{4.5pt}
+\begin{threeparttable}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Design cell & Estimator
+& Mass T/C
+& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
+& \(\max_i|\omega_i|\) \\
+\midrule
+Card, \(>12\) years
+& PLR-IV       & 1.003 / 1.003 & 0.583 / 0.627 & 0.033 \\
+& Wald-AIPW    & 0.968 / 0.968 & 0.448 / 0.449 & 0.146 \\
+\addlinespace
+Card, \(\geq16\) years
+& PLR-IV       & 0.963 / 0.963 & 0.578 / 0.615 & 0.055 \\
+& Wald-AIPW    & 0.944 / 0.944 & 0.398 / 0.466 & 0.277 \\
+\addlinespace
+Kitagawa, \(>12\) years
+& PLR-IV       & 0.998 / 0.998 & 0.632 / 0.667 & 0.033 \\
+& Wald-AIPW    & 0.994 / 0.994 & 0.559 / 0.531 & 0.065 \\
+\addlinespace
+Kitagawa, \(\geq16\) years
+& PLR-IV       & 1.011 / 1.011 & 0.638 / 0.654 & 0.057 \\
+& Wald-AIPW    & 1.007 / 1.007 & 0.558 / 0.538 & 0.119 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} The table reports diagnostics for the tuned
+honest-forest implementations. T/C denotes the observed treated and control
+groups. Control mass is displayed with the sign reversed, so equal entries
+indicate scale normalisation. Modified ESS is divided by the observed size
+of the corresponding treatment group. Only numerically verified
+outcome-weight representations are interpreted. XGBoost is excluded because
+its reconstructed vectors do not reproduce the fitted estimates.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsection{Covariate Balance}
+\label{subsec:card_balance}
+
+The outcome-weight diagnostics above describe mass and concentration, but not
+which observed comparison an estimator creates. Following
+\citet[Section~5.1]{knaus2024treatment}, I therefore examine covariate balance
+between the treatment groups after applying the outcome weights. Appendix
+Figures~\ref{fig:card_balance_card} and~\ref{fig:card_balance_kitagawa} cover
+the four design cells. They diagnose
+the weighted treatment contrast, not balance across instrument values or
+instrument validity.\\
+The CBPS-based kappa estimator removes the included covariate differences to
+numerical precision for both treatments and conditioning sets. This agrees
+with the balancing conditions built into CBPS and with Knaus's use of outcome
+weights to make such balance properties visible. Linear PLR-IV and
+linear/logit Wald-AIPW also attain numerical balance in the complete results.
+Exact balance is therefore feasible here, but is not implied by weight
+normalisation alone.\\
+The flexible learners produce a less uniform pattern. Tuned forests strongly
+reduce the large raw experience differences under Card, but leave some
+regional imbalance. Departures are generally larger for the sixteen-year
+margin. MLE kappa produces the largest differences in several cells, and can
+increase imbalance for an individual covariate relative to the unadjusted
+comparison. Unlike CBPS, likelihood-based
+propensity estimation and prediction-oriented forests do not directly
+minimise this balance criterion. The weaker first stage and more concentrated
+weights at the sixteen-year margin provide context, but the plots cannot
+identify either feature as the cause.\\
+Since the conditioning sets differ, the figures do not support a general
+Card--Kitagawa ranking. Among their shared variables, neither specification
+dominates. Kitagawa forest weights perform well for schooling beyond high
+school, while both specifications retain larger differences for selected
+variables at the sixteen-year margin. Variation across treatments and
+estimators is thus the more robust pattern.\\
+Finally, normalised and unnormalised MLE-kappa variants have essentially the
+same balance profiles within each cell. Because the statistic normalises
+weights separately within each treatment group, group-specific rescaling
+changes total mass and translation behaviour without changing the weighted
+covariate means. Overall, the Card application shows why the diagnostics must
+be read jointly. Similar point estimates or translation behaviour need not
+imply equally concentrated weights or the same observed comparison.
 
 
 
@@ -2681,204 +2809,392 @@ value. Values displayed as zero are zero up to the reported precision.
 
 
 \newpage
-\section{Empirical Child Application}
-A third central question in empirical labor economics is how child birth or the birth of an additional child affect mothers' labor-market outcomes. 
-Families with more children often differ from families with fewer children in many observed and unobserved dimensions. Those can include preferences for work and family size, household resources and local labor-market conditions. 
-A simple comparison between women with two children and women with more than two children would therefore not isolate the causal effect of childbearing. It would combine the effect of an additional child with selection into larger families.
-The third design based on the application of \citet{angrist1996children} addresses this selection problem by using sibling sex composition as an instrument for fertility. 
-This application complements the two previous empirical settings. The Vietnam draft lottery provides a low-dimensional, near-random-assignment benchmark, while the Card application studies an observational instrument with a richer covariate structure. 
-The application based on \citet{angrist1996children} instead combines a very large parent sample with binary labor-supply and log-income outcomes. It is therefore especially useful for the translation-invariance analysis, because the outcome coding of both labor-force participation and income is directly relevant for the behavior of normalized and unnormalized estimators.
-The next subsection introduces the data, the treatment and instrument definitions, and the two outcome variables used in the analysis.
+\section{Empirical Application: Fertility and Mothers' Labor-Market Outcomes}
+\label{sec:child}
+The third application revisits the fertility design of
+\citet{angrist1996children} and studies how having an additional child affects
+mothers' labor-market outcomes. Family size is not randomly assigned. Women
+with more children may differ from women with fewer children in their
+preferences for work, household circumstances, and other characteristics
+that also affect labor supply and income. A direct comparison would therefore
+combine the effect of additional fertility with selection into larger
+families.\\
+To address this problem, the design uses the sex composition of the first two
+children as an instrument for further childbearing. Parents whose first two
+children have the same sex are, on average, more likely to have another child
+than parents with one boy and one girl.
 
 \subsection{Data and Design}
+\label{subsec:child_data}
 
-The analysis follows \citet{sloczynski2025abadie} in revisiting the \citet{angrist1996children} application based on the 1980 U.S. Census.
-The sample consists of women with at least two children. The empirical question is whether having an additional child affects mothers' labor-market outcomes. The treatment is therefore an indicator for whether a woman has more than two children,
-\[
-    D_i = \indic\!\left\{N_i^{\text{children}} > 2\right\}.
-\]
-The identifying variation comes from the sex composition of the first two children. Following \citet{angrist1996children}, the instrument is an indicator for whether the first two children are of the same sex,
-\[
-    Z_i = \indic\!\left\{\text{boy}_{1i} = \text{boy}_{2i}\right\},
-\]
-where $\text{boy}_{1i}$ and $\text{boy}_{2i}$ indicate whether the first and second child are boys. Equivalently, $Z_i=1$ if the first two children are either two boys or two girls, and $Z_i=0$ if the first two children are of mixed sex.
-The economic mechanism is that parents with two children of the same sex are more likely to have a third child, because some parents have a preference for a mixed-sex sibling composition. The instrument therefore shifts the probability of further childbearing but does not deterministically assign treatment. \\
-I consider two outcome variables. The first is labor-force participation, defined as an indicator for whether the woman worked for pay in the preceding year,
-\[
-    Y_i^{\text{LFP}} = \indic\!\left\{\text{worked}_i = 1\right\}.
-\]
-The second is log annual income,
-\[
-    Y_i^{\text{INC}} = \log\!\left(\text{income}_i\right),
-\]
-which is only defined for women with strictly positive reported income. These two outcomes are useful for different parts of the analysis.
-For the analysis, I use the following covariates, following the specification in \citet{sloczynski2025abadie}, common to both outcome samples and all estimators. Table~\ref{tab:ae_child_covariates} lists them.
+Following \citet{sloczynski2025abadie}, the analysis revisits the
+\citet{angrist1996children} application using the 1980 U.S. Census extract
+provided by \citet{farbmacher2018increasing}. The population of interest
+consists of women with at least two children.
+Two outcome variables are considered. The first is labor-force participation,
+defined by whether the woman worked for pay in the preceding year. The second
+is log annual income, which is observed for women with strictly positive
+reported income. \\
+The treatment, denoted by \(D_i\), indicates whether a woman has more than two
+children. The instrument, denoted by \(Z_i\), indicates whether her first two
+children have the same sex. 
+Thus, \(Z_i=1\) for families with either two boys
+or two girls and \(Z_i=0\) for families with one boy and one girl.
+The conditional specifications include mother's age, age at first birth,
+first-child sex, and three indicators for race and ethnicity. Second-child sex
+is excluded as it can cause multicollinearity. This restriction is not expected to drive the conventional
+IV results, as \citet{angrist1996children} report that excluding their child-sex
+main-effect controls changes the principal labor-supply estimates only
+marginally. Complete covariate definitions
+and a detailed explanation of the specification choice are reported in
+Appendix~\ref{app:child_covariate_design}.
+Because the two outcomes are defined on different parent samples and the full
+Census samples are too large for the computationally intensive
+outcome-weight calculations, the empirical analysis uses a separate
+subsampling procedure.
+Following \citet{sloczynski2025abadie}, the
+labor-force participation parent sample contains \(394{,}840\) women, while
+the log-income parent sample contains \(220{,}502\) women with strictly
+positive reported income.
+I construct one diagnostic subsample for each outcome set using
+proportional stratified sampling without replacement and a fixed seed.
+The
+procedure is designed to retain the main features of the corresponding
+parent sample, including the instrument and treatment shares, the first-stage
+structure, and the relevant outcome distribution.
+The labor and income
+samples are drawn separately, and each contains \(3{,}000\) observations.
+The exact stratification variables, integer allocation rule, and validation
+against the parent samples are described in
+Appendix~\ref{app:subsampling}.
 
-\begin{table}[htbp]
+\subsection{Descriptive Evidence}
+\label{subsec:child_descriptives}
+
+The two diagnostic subsamples preserve the main features of their corresponding
+parent samples. In the labor-force sample, \(50.5\%\) of women have same-sex
+first two children and \(40.2\%\) have more than two children. The corresponding
+shares in the positive-income sample are \(50.3\%\) and \(34.8\%\). The
+instrument and treatment shares, as well as the raw first stages, are close to
+those in the parent samples. This subsampling procedure hence
+retains the main variation used by the IV analysis. The complete comparison
+between the parent and diagnostic samples is reported in Appendix
+Table~\ref{tab:ae_descriptive_diagnostics}.\\
+The same-sex instrument predicts additional fertility in both diagnostic
+samples. After adjustment for the common six covariates, the probability of
+having more than two children increases by \(6.5\) percentage points in the
+labor-force sample and by \(6.0\) percentage points in the positive-income
+sample. The corresponding squared HC1-robust \(t\)-statistics are \(14.1\) and
+\(12.9\). The first stage is therefore weaker than in the Vietnam application,
+but stronger than for the sixteen-year schooling margin in the Card
+application. The adjusted linear-IV benchmarks are approximately \(-0.095\)
+for work status and \(-0.182\) for maternal log income. These estimates provide
+a reference for the DML and learner comparisons below.\\
+The fitted instrument propensities provide no indication of limited overlap.
+They range from approximately \(0.45\) to \(0.55\) in the labor-force sample
+and from \(0.46\) to \(0.57\) in the positive-income sample, with no
+observations close to zero or one. Unadjusted covariate differences across
+same-sex and mixed-sex families are also small, with maximum absolute
+standardized mean differences of approximately \(0.05\) in both samples.
+Unlike in the Card application, the basic design therefore shows neither
+problematic instrument-propensity support nor substantial observed imbalance.
+Learner-specific propensity behavior is examined separately in the subsequent
+DML analysis. Complete overlap and balance diagnostics are reported in
+Appendix~\ref{app:ae_balance}.
+
+
+\subsection{Point Estimates and Learner Sensitivity}
+\label{subsec:child_estimates}
+
+Appendix Table~\ref{tab:ae_child_estimates_appendix} reports the conventional
+IV estimates and the DML estimates obtained with different nuisance learners.
+All point estimates are negative for both outcomes. For work status, the
+estimates range from approximately \(-0.095\) to \(-0.163\), corresponding to
+estimated reductions of roughly \(9.5\) to \(16.3\) percentage points. For
+maternal log income, they range from approximately \(-0.182\) to \(-0.341\)
+log points. Those estimates nevertheless are underlined by high standard errors. Standard errors range from
+approximately \(0.26\) to \(0.28\) for work status and from \(0.72\) to
+\(0.79\) for log income. The differences across estimators should therefore
+be interpreted as learner sensitivity.\\
+The 2SLS and normalized kappa estimates are almost identical. Linear DML
+specifications also remain close to these benchmarks. For work status, the
+linear PLR-IV and Wald-AIPW estimates are \(-0.102\) and \(-0.104\), compared
+with approximately \(-0.095\) for 2SLS and normalized kappa. The flexible
+learners produce somewhat more negative estimates. The tuned honest-forest,
+\texttt{ranger}, and tuned XGBoost estimates range from \(-0.101\) to
+\(-0.163\). A similar pattern appears for maternal log income. The linear DML
+estimates are approximately \(-0.214\) and \(-0.217\), while the flexible
+learner estimates are generally between \(-0.238\) and \(-0.263\). The main
+exception is the tuned XGBoost Wald-AIPW estimate of \(-0.341\), although its
+standard error of \(0.753\) remains similar to those of the other income
+specifications.\\
+Within a given learner, PLR-IV and Wald-AIPW usually produce similar results.
+The difference between the two scores is smaller than the variation across
+nuisance learners, particularly for work status. Tuning the honest forests
+also changes the point estimates only moderately. XGBoost behaves differently,
+as shown in Appendix Table~\ref{tab:ae_child_xgb_tuning_appendix}. For PLR-IV,
+tuning moves the work-status estimate from \(-0.012\) to \(-0.129\) and the
+income estimate from \(-0.035\) to \(-0.263\). The untuned Wald-AIPW estimates
+are considerably less stable, equal to \(1.177\) for work status and \(4.386\)
+for log income, with standard errors of \(2.291\) and \(9.650\). These fits
+also produce instrument and treatment propensity predictions close to the
+boundaries of the unit interval. Tuning removes the boundary
+predictions and returns both Wald-AIPW estimates to the range of the other
+DML specifications. The tuned XGBoost estimates are therefore used in the
+learner comparison below.
+
+\subsection{Translation Invariance under Complete Re-estimation}
+\label{subsec:child_translation}
+
+The transformations defined in
+Section~\ref{subsubsec:translation_transformations} allow translation
+invariance to be examined for both a binary outcome and a logged continuous
+outcome within the same empirical design. Table~\ref{tab:child_translation}
+reports the change in each estimate after repeating the complete estimation
+procedure. The classical results reproduce the central pattern documented by
+\citet{sloczynski2025abadie}. The 2SLS estimate and all three normalised kappa
+estimators are unchanged under both transformations, whereas the three
+unnormalised estimators change. The latter differences are small in the
+diagnostic samples, amounting to approximately \(0.00045\) for work status
+and \(0.00248\) for maternal log income. The subsample results therefore
+reproduce the invariance distinction rather than the magnitude of the
+full-sample estimates reported in the original study.\\
+The DML results show a clear difference across nuisance learners. Both
+parametric implementations are exactly invariant. The \texttt{ranger}
+specifications are also close to invariance, only PLR-IV exceeds the
+\(10^{-4}\) threshold for work status, while both income specifications
+produce small detectable changes. The tuned honest forests are less stable
+under complete re-estimation, with changes between approximately \(0.0023\)
+and \(0.0061\) in absolute value. These differences remain small relative to
+the underlying estimates, but they show that using an affine forest learner
+does not by itself make the complete tuned procedure numerically invariant.
+Translation may still affect the fitted nuisance functions or the tuning
+outcome when the full procedure is repeated.\\
+Tuned XGBoost produces the largest changes. PLR-IV changes by \(-0.0157\)
+for work status and by \(-0.0103\) for maternal log income. The corresponding
+Wald-AIPW changes are \(-0.0238\) and \(0.0305\). Thus, the tuning procedure
+that stabilises the XGBoost point estimates does not also guarantee
+translation invariance. There is no uniform distinction between the binary
+and logged continuous outcomes, nor does one DML score remain consistently
+more stable across all learners. Instead, the numerical response to the
+translation is mainly associated with the nuisance learner and its complete
+refitting procedure. 
+The availability of both outcome types therefore strengthens the conclusion
+that the observed sensitivity is learner-specific rather than a general
+feature of binary or continuous outcomes.
+\begin{table}[H]
 \centering
-\caption{Covariates used in the Angrist--Evans application}
-\label{tab:ae_child_covariates}
+\caption{Translation changes under complete re-estimation in the
+Angrist--Evans application}
+\label{tab:child_translation}
 \small
-\begin{tabular}{ll}
+\setlength{\tabcolsep}{7pt}
+\renewcommand{\arraystretch}{0.96}
+\begin{threeparttable}
+\begin{tabular}{@{}lrr@{}}
 \toprule
-Covariate & Definition \\
+Estimator
+& Work status
+& Maternal log income \\
 \midrule
-$\text{age}_i$        & Mother's age at census observation \\
-$\text{agefirst}_i$   & Mother's age at first birth \\
-$\text{boy}_{1i}$     & Indicator that the first child is a boy \\
-$\text{boy}_{2i}$     & Indicator that the second child is a boy \\
-$\text{Black}_i$      & Race indicator: Black \\
-$\text{Hispanic}_i$   & Ethnicity indicator: Hispanic \\
-$\text{OtherRace}_i$  & Race indicator: other race \\
+
+\multicolumn{3}{l}{\textit{Panel A: Classical benchmarks}} \\[1pt]
+2SLS
+& 0.000000
+& 0.000000 \\
+Normalised kappa, all three variants
+& 0.000000
+& 0.000000 \\
+Unnormalised kappa, three variants
+& \textbf{0.000449}
+& \textbf{[0.002483, 0.002484]} \\[2pt]
+
+\multicolumn{3}{l}{\textit{Panel B: DML implementations}} \\[1pt]
+PLR-IV, linear
+& 0.000000
+& 0.000000 \\
+Wald-AIPW, linear/logit
+& 0.000000
+& 0.000000 \\
+PLR-IV, \texttt{ranger}
+& \textbf{0.000134}
+& \textbf{$-0.000490$} \\
+Wald-AIPW, \texttt{ranger}
+& 0.000041
+& \textbf{$-0.000792$} \\
+PLR-IV, tuned honest forest
+& \textbf{0.005404}
+& \textbf{$-0.002268$} \\
+Wald-AIPW, tuned honest forest
+& \textbf{0.003532}
+& \textbf{0.006127} \\
+PLR-IV, tuned XGBoost
+& \textbf{$-0.015744$}
+& \textbf{$-0.010344$} \\
+Wald-AIPW, tuned XGBoost
+& \textbf{$-0.023762$}
+& \textbf{0.030535} \\
 \bottomrule
 \end{tabular}
+
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} Entries report the translated-outcome estimate minus
+the original-outcome estimate. The work-status outcome is shifted by one,
+while maternal income is recoded from log dollars to log cents. The
+unnormalised kappa entries cover all three variants; their work-status
+changes are identical at the reported precision. Bold entries exceed
+\(10^{-4}\) in absolute value. The same samples, covariates, cross-fitting
+design, tuning protocol, and random seed are used for the original and
+translated specifications.
+\end{tablenotes}
+\end{threeparttable}
 \end{table}
 
 
-\subsubsection{Subsampling for the Angrist--Evans Application}
-Following \citet{sloczynski2025abadie}, I use two corresponding parent samples from \citet{farbmacher2018increasing} 1980 Census extract.
-I use two corresponding parent samples. The first is the labor-force participation sample, defined for all 394,840 women with at least two children. The second is the log-income sample, restricted to the 220,502 women with strictly positive reported income.
-The full parent samples are too large for the computationally intensive diagnostics used below, especially for the estimation of the Smoother matrices.
-I therefore construct smaller diagnostic subsamples. Their purpose is to preserve the central empirical structure of the corresponding parent samples, in particular the instrument and treatment shares, the first-stage structure, and the relevant outcome distributions.
-To this end, I use proportional stratified subsampling without replacement. 
-The procedure is applied separately to the labor-force participation and log-income parent samples, using a fixed seed. Each resulting diagnostic subsample contains 3,000 observations.
-The exact stratification variables and allocation rule are described in Appendix~\ref{app:subsampling}.
-
-\subsection{Descriptive Diagnostics}
-
-Before estimating the weighted LATE estimators, I first inspect the basic empirical structure of the two created subsamples. Figure~\ref{fig:ae_instr_treat_shares} reports the marginal shares of the instrument and the treatment separately for the labor-force participation and log-income samples. \\
-Both subsamples, display instrument shares of 50.5 percent in the labor-force sample and 50.3 percent in the log-income sample. This near equal split is consistent with the random nature of child sex composition.
-The treatment shares differ more clearly across samples. In the labor-force participation sample, 40.2 percent of women have more than two children. In the positive-income sample, the corresponding share is only 34.8 percent. 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\textwidth]{pics/ae_instrument_treatment_shares.png}
-    \caption{Instrument and treatment shares in the Angrist--Evans diagnostic subsamples}
-    \label{fig:ae_instr_treat_shares}
-\end{figure}
-These marginal shares describe the composition of the two subsamples. They do not yet show whether the instrument shifts fertility behavior. The relevant first-stage question is whether women with same-sex first two children are more likely to have more than two children than women with mixed-sex first two children. 
-Hence, Table~\ref{tab:ae_raw_iv_diagnostics} reports the raw first-stage, reduced-form, and Wald contrasts. 
-In both subsamples, women whose first two children have the same sex are more likely to have more than two children. 
-In the labor-force participation sample, the treatment rate increases from 37.1 percent among mixed-sex families to 43.2 percent among same-sex families. This implies a raw first stage of 6.1 percentage points. 
-Similar in the log-income sample, a raw first stage of 5.4 percentage points is visible. 
-The positive first stage supports the relevance of the same-sex instrument. The magnitude is economically meaningful but not large. 
-The reduced forms are negative in both samples. In the labor-force participation sample, same-sex families have a labor-force participation rate that is 0.7 percentage points lower than mixed-sex families. In the log-income sample, the reduced form is also negative, with a difference of about 0.012 log points. Since the first stage is positive in both samples, these negative reduced forms imply negative raw Wald ratios. 
-This underlines as well the exclusion restriction.
-\begin{table}[H]
-\centering
-\caption{Raw first-stage, reduced-form, and Wald contrasts}
-\label{tab:ae_raw_iv_diagnostics}
-\begin{tabular}{lcc}
-\toprule
- & Labor-force sample & Log-income sample \\
-\midrule
-\(\Pr(D_i=1 \mid Z_i=0)\) & 0.371 & 0.321 \\
-\(\Pr(D_i=1 \mid Z_i=1)\) & 0.432 & 0.374 \\
-First stage & 0.061 & 0.053 \\
-Reduced form & -0.007 & -0.012 \\
-Raw Wald ratio & -0.121 & -0.230 \\
-\bottomrule
-\end{tabular}
-\end{table}
-The raw IV diagnostics show that the same-sex instrument shifts fertility behavior in both diagnostic subsamples. Since the kappa-based estimators use the instrument propensity score, I next examine the distribution of the instrument propensity score.
-Compared to the prior frameworks in this design, severe propensity-score overlap problems are not expected. The instrument is based on sibling sex composition and should therefore be close to randomly assigned. Figure~\ref{fig:ae_pscore_overlap} reflects this. In both subsamples, the fitted propensity scores are tightly concentrated around one half. The labor-force sample ranges from approximately 0.45 to 0.56, while the log-income sample ranges from approximately 0.46 to 0.58. There are no observations close to zero or one.
-This differs pretty much to the prior college proximity application
-In the prior application college proximity is an observational instrument and the estimated propensity score is more dispersed. In the present design, the instrument propensity score behaves much more like in a randomized setting. 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\textwidth]{pics/ae_pscore_overlap.png}
-    \caption{Estimated instrument propensity-score distributions in the Angrist--Evans diagnostic subsamples}
-    \label{fig:ae_pscore_overlap}
-\end{figure}
-As both sets are subsamples of a bigger dataset a short examination of the covariate balance by instrument status is conducted. Since the same-sex instrument is based on the sex composition of the first two children, large systematic differences in predetermined maternal characteristics would be unexpected. The balance diagnostics reported in Appendix~\ref{app:ae_balance} are consistent with this interpretation. Standardized mean differences are small in both diagnostic subsamples, suggesting that women with same-sex and mixed-sex first two children are similar along the observed covariates used in the propensity-score model. This supports the plausibility of the conditional independence assumption, although it cannot test the exclusion restriction directly.
-Finally, one technical feature of this design is important for the later nuisance estimation. The instrument is constructed from the sex indicators of the first and second child. Therefore, these two covariates are almost uncorrelated in the pooled sample, but become mechanically related once one conditions on the instrument. Among same-sex families, the two indicators are identical. Among mixed-sex families, they are exact opposites. Hence, within the \(Z=1\) arm their correlation is one, while within the \(Z=0\) arm their correlation is minus one.
-\begin{table}[H]
-\centering
-\caption{Structural relation between first- and second-child sex indicators}
-\label{tab:ae_child_sex_correlation}
-\begin{tabular}{llc}
-\toprule
-Sample & Panel & \(\operatorname{cor}(\text{sexk},\text{sex2nd})\) \\
-\midrule
-Labor-force sample & Pooled & 0.010 \\
-Labor-force sample & \(Z=0\) & -1.000 \\
-Labor-force sample & \(Z=1\) & 1.000 \\
-Log-income sample & Pooled & 0.005 \\
-Log-income sample & \(Z=0\) & -1.000 \\
-Log-income sample & \(Z=1\) & 1.000 \\
-\bottomrule
-\end{tabular}
-\end{table}
-This relationship is not an empirical imbalance. It follows directly from the definition of the instrument. However, it matters for later parametric nuisance models. In pooled propensity-score models, both child-sex indicators can be included as separate main effects. In arm-specific outcome or treatment models, however, including both indicators together with an intercept would create perfect collinearity. For this reason, the arm-specific parametric nuisance specifications used below omit one of the two child-sex indicators.
-
-\subsection{Reproduction of the SUW Recoding Table}
-\label{subsec:ae_child_reproduction}
-
-\citet{sloczynski2025abadie} report the Angrist--Evans application in a single table with seven outcome codings. These consist of three codings of labor-force participation and four unit codings of log income. Since the present thesis uses diagnostic subsamples of 3{,}000 observations for each outcome family, I reproduce the same structure in two separate tables. Table~\ref{tab:ae_child_labor_recode} reports the labor-force recodings and Table~\ref{tab:ae_child_income_recode} reports the income unit recodings. 
-Because this thesis uses smaller diagnostic subsamples, the purpose is not to match the full-sample point estimates exactly.\\
-The normalized estimators in Panel B behave exactly as translation invariance predicts. Within each row, the estimates are identical up to rounding across all pure outcome translations. For labor-force participation, the first two columns compare \(Y_i=1\{\text{worked}_i=1\}\) with \(Y_i+1\). For income, changing the unit of measurement before taking logarithms only adds a constant to the logged outcome. \\
-The third labor-force column requires a separate comment. The coding \(1\{\text{did not work}\}=1-1\{\text{worked}\}\) is not a pure translation. It is a reflection plus a shift, \(Y_i'=-Y_i+1\). \citet{sloczynski2025abadie} explicitly state in their table note that, for this coding, they report the additive inverse of the raw estimate. Table~\ref{tab:ae_child_labor_recode} follows this display convention: only the reported point estimate in the third labor-force column is multiplied by \(-1\), while the standard error is unchanged. This convention is used only to match the published SUW layout. It is not applied to the income table, to the DML estimates below, or to the later translation-invariance rerun analysis.\\
-The unnormalized estimators in Panel C are visibly sensitive to the outcome coding. In the labor table, for example, \(\hat\tau_a^{ml}\) equals \(-0.091\) under the original coding, \(-0.083\) under the shifted coding, and \(-0.099\) under the display-adjusted reflected coding. The implied realized outcome-weight sum of about \(0.008\) comes from comparing the first two columns, which are the genuine translation \(Y_i\) and \(Y_i+1\). The third column is consistent with the same value only after undoing the SUW display convention: the displayed value \(-0.099\) corresponds to a raw reflected estimate of \(+0.099\), and the reflection formula then gives the same implied weight sum.\\
-The diagnostic subsamples reproduce the qualitative pattern of \citet{sloczynski2025abadie}: normalized estimators are invariant to recoding, while unnormalized estimators are not.
-The magnitude of the sensitivity is smaller here than in the published full-sample table, but this is not problematic because the tables are based on different samples.
-The main point estimates are also close to the published full-sample estimates relative to the uncertainty induced by the smaller diagnostic samples. For example, the labor 2SLS estimate is \(-0.096\) in the diagnostic subsample, compared with \(-0.117\) in \citet{sloczynski2025abadie}. For log income, the corresponding estimates are \(-0.170\) and \(-0.135\). These differences are small relative to the standard errors in the diagnostic subsamples. As a rough sampling-scale benchmark, scaling the published standard errors by the square root of the sample-size ratio gives \(0.025\sqrt{394{,}840/3{,}000}\approx 0.287\) for labor and \(0.092\sqrt{220{,}502/3{,}000}\approx 0.789\) for income, close to the observed diagnostic-subsample standard errors of \(0.275\) and \(0.752\).
- The point estimates and standard errors should therefore be interpreted as subsample diagnostics. They are useful for showing that the same finite-sample mechanism is present, not for replacing the full-sample estimates reported by \citet{sloczynski2025abadie}
 
 
+
+
+\subsection{Outcome-Weight Normalisation and Concentration}
+\label{subsec:child_weights}
+
+Table~\ref{tab:child_weights} reports selected outcome-weight diagnostics for
+the two analysis samples. The kappa results give more intuition on why the translation changes
+in the preceding subsection are small. The normalised estimators are fully
+normalised in the classification of \citet{knaus2024treatment}. By contrast,
+the unnormalised kappa estimators belong to different non-normalised classes,
+although their realised total weight sums are only about \(0.00045\) for work
+status and \(0.00054\) for maternal log income.  The classification
+therefore identifies an exact difference between the estimators, while the
+realised weights show that this difference is quantitatively minor in the
+present samples. All eligible DML weight vectors have zero total mass. Most
+are scale-normalised rather than fully normalised because their treated and
+control masses are equal but differ slightly from one.\\
+The concentration diagnostics provide no indication that the estimates are
+determined by a small number of observations. Even for the untuned forests,
+the modified effective sample size exceeds \(93\%\) of the available
+observations in each treatment group. Tuning makes the honest-forest weights
+still more evenly distributed. The corresponding ratios increase to at least
+\(99.6\%\), while the largest absolute weights fall noticeably. The linear and
+kappa specifications produce similarly diffuse weights, and the
+\texttt{ranger} ratios remain close to \(97\%\). The large standard errors in
+the preceding estimate comparison therefore cannot be attributed mainly to a
+few observations receiving exceptionally large weights.\\
+The more distinctive feature is the sign composition of the weights.
+Approximately \(46\%\) to \(48\%\) of the absolute weight mass has the
+opposite sign from the conventional treated-minus-control orientation. High
+effective support therefore coexists with substantial cancellation. The
+weight magnitudes are spread broadly across the samples, but sizeable positive
+and negative components offset one another. This pattern is consistent with
+the relatively small first stage. Because the same-sex instrument changes the
+probability of additional fertility by only about six percentage points, the
+final effect is recovered from a limited net difference between much larger
+opposing components. The imprecision of the estimates is therefore more
+consistent with a weak and highly cancelling IV comparison than with
+observation-level weight concentration.\\
+Within a given nuisance learner, PLR-IV and Wald-AIPW generally have similar
+effective support and sign composition. This helps explain why changing the
+DML score usually moves the estimates less than changing the nuisance learner.
+At the same time, concentration does not fully account for learner sensitivity. Some of the more negative flexible-learner estimates retain effective sample
+sizes close to the full treatment groups. The outcome weights consequently
+clarify how the sample is used, but do not reduce all differences between the
+learners to a single concentration measure.
 
 \begin{table}[H]
 \centering
-\caption{AE98 reproduction --- labor-force participation}
-\label{tab:ae_child_labor_recode}
+\caption{Selected outcome-weight diagnostics in the Angrist--Evans application}
+\label{tab:child_weights}
 \small
-\begin{tabular}{lccc}
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{0.96}
+\begin{threeparttable}
+\begin{tabular}{@{}llccr@{}}
 \toprule
-Estimator & 1 if worked, 0 else & 2 if worked, 1 else & 1 if did not work, 0 else \\
+Estimator
+& Weight class
+& \shortstack{Opp.-sign mass\\T/C (\%)}
+& \shortstack{ESS/N\\T/C}
+& \(\max|\omega_i|\) \\
 \midrule
-\multicolumn{4}{l}{\textit{Panel A: 2SLS (HC1-robust)}} \\
-2SLS & $-0.096$ \newline $(0.275)$ & $-0.096$ \newline $(0.275)$ & $-0.096$ \newline $(0.275)$ \\
-\addlinespace
-\multicolumn{4}{l}{\textit{Panel B: Normalized kappa estimators}} \\
-$\hat\tau_u^{cb}$   & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ \\
-$\hat\tau_u^{ml}$   & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ & $-0.095$ \newline $(0.274)$ \\
-$\hat\tau_{a,10}^{ml}$ & $-0.095$ \newline $(0.275)$ & $-0.095$ \newline $(0.275)$ & $-0.095$ \newline $(0.275)$ \\
-\addlinespace
-\multicolumn{4}{l}{\textit{Panel C: Unnormalized kappa estimators}} \\
-$\hat\tau_a^{ml}$   & $-0.091$ \newline $(0.275)$ & $-0.083$ \newline $(0.277)$ & $-0.099$ \newline $(0.275)$ \\
-$\hat\tau_{a,1}^{ml}$ & $-0.091$ \newline $(0.274)$ & $-0.082$ \newline $(0.276)$ & $-0.099$ \newline $(0.273)$ \\
-$\hat\tau_{a,0}^{ml}$ & $-0.091$ \newline $(0.276)$ & $-0.083$ \newline $(0.278)$ & $-0.099$ \newline $(0.276)$ \\
+
+\multicolumn{5}{l}{\textit{Panel A: Work status}} \\[1pt]
+$\widehat{\tau}^{ml}_{u}$
+& Fully normalised
+& 46.0 / 47.3
+& 0.999 / 0.999
+& 0.0115 \\
+$\widehat{\tau}^{ml}_{a}$
+& Fully unnormalised
+& 46.0 / 47.3
+& 0.999 / 0.999
+& 0.0115 \\
+PLR-IV, forest
+& Scale-normalised
+& 45.5 / 47.0
+& 0.935 / 0.937
+& 0.0181 \\
+PLR-IV, tuned forest
+& Scale-normalised
+& 46.0 / 47.3
+& 0.997 / 0.996
+& 0.0133 \\
+Wald-AIPW, forest
+& Scale-normalised
+& 45.6 / 47.1
+& 0.944 / 0.945
+& 0.0239 \\
+Wald-AIPW, tuned forest
+& Scale-normalised
+& 46.1 / 47.4
+& 0.997 / 0.996
+& 0.0136 \\[3pt]
+
+\multicolumn{5}{l}{\textit{Panel B: Maternal log income}} \\[1pt]
+$\widehat{\tau}^{ml}_{u}$
+& Fully normalised
+& 45.7 / 47.7
+& 0.999 / 0.999
+& 0.0127 \\
+$\widehat{\tau}^{ml}_{a}$
+& Fully unnormalised
+& 45.7 / 47.7
+& 0.999 / 0.999
+& 0.0127 \\
+PLR-IV, forest
+& Scale-normalised
+& 45.6 / 47.7
+& 0.949 / 0.952
+& 0.0190 \\
+PLR-IV, tuned forest
+& Scale-normalised
+& 45.9 / 47.8
+& 0.998 / 0.998
+& 0.0139 \\
+Wald-AIPW, forest
+& Scale-normalised
+& 45.6 / 47.7
+& 0.958 / 0.959
+& 0.0224 \\
+Wald-AIPW, tuned forest
+& Scale-normalised
+& 45.9 / 47.9
+& 0.998 / 0.998
+& 0.0144 \\
 \bottomrule
 \end{tabular}
 
-\vspace{4pt}
-\parbox{0.95\textwidth}{\footnotesize \textit{Notes:} Diagnostic subsample, $N=3{,}000$; \citet{sloczynski2025abadie} report $N=394{,}840$ on the full sample. Each cell reports the point estimate with the standard error below. Covariates as in Table~\ref{tab:ae_child_covariates}. Following \citet{sloczynski2025abadie}, the third column reports the additive inverse of the raw estimate; see the discussion below.}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{AE98 reproduction --- log family income}
-\label{tab:ae_child_income_recode}
-\small
-\begin{tabular}{lcccc}
-\toprule
-Estimator & Cents & Dollars & \$1000s & \$100{,}000s \\
-\midrule
-\multicolumn{5}{l}{\textit{Panel A: 2SLS (HC1-robust)}} \\
-2SLS & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ & $-0.170$ \newline $(0.752)$ \\
-\addlinespace
-\multicolumn{5}{l}{\textit{Panel B: Normalized kappa estimators}} \\
-$\hat\tau_u^{cb}$   & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ \\
-$\hat\tau_u^{ml}$   & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ & $-0.168$ \newline $(0.751)$ \\
-$\hat\tau_{a,10}^{ml}$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ & $-0.167$ \newline $(0.754)$ \\
-\addlinespace
-\multicolumn{5}{l}{\textit{Panel C: Unnormalized kappa estimators}} \\
-$\hat\tau_a^{ml}$   & $0.011$ \newline $(0.848)$ & $-0.050$ \newline $(0.796)$ & $-0.142$ \newline $(0.756)$ & $-0.203$ \newline $(0.756)$ \\
-$\hat\tau_{a,1}^{ml}$ & $0.011$ \newline $(0.843)$ & $-0.050$ \newline $(0.791)$ & $-0.141$ \newline $(0.751)$ & $-0.201$ \newline $(0.751)$ \\
-$\hat\tau_{a,0}^{ml}$ & $0.011$ \newline $(0.854)$ & $-0.050$ \newline $(0.802)$ & $-0.143$ \newline $(0.760)$ & $-0.204$ \newline $(0.761)$ \\
-\bottomrule
-\end{tabular}
-
-\vspace{4pt}
-\parbox{0.95\textwidth}{\footnotesize \textit{Notes:} Diagnostic subsample, $N=3{,}000$; \citet{sloczynski2025abadie} report $N=220{,}502$ on the full sample. Each cell reports the point estimate with the standard error below. Covariates as in Table~\ref{tab:ae_child_covariates}.}
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} T/C denotes the observed treated and sign-oriented
+control groups. Opposite-sign mass is the share of absolute weight mass that
+does not follow the conventional treated-minus-control orientation.
+Group-specific modified effective sample sizes are divided by the corresponding
+observed group sizes. Only exact or numerically verified outcome-weight
+representations are included. XGBoost is omitted because its reconstructed
+weight vectors do not pass the estimator-reproduction check.
+\end{tablenotes}
+\end{threeparttable}
 \end{table}
 
 % ==============================================================================
@@ -3171,7 +3487,7 @@ constant or when \(p(X)\) is constant across \(X\).
 \section{Outcome-Weight Classification}
 Table~\ref{tab:knaus_weight_classes} reproduces the classification introduced
 by \citet[Table~4]{knaus2024treatment} using the notation of this thesis.
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Outcome-weight classification of Knaus (2024)}
 \label{tab:knaus_weight_classes}
@@ -3361,12 +3677,12 @@ coincides with \(\widehat\tau_u^{cb}\), consistently with the finite-sample
 equivalence discussed in Chapter~3.
 \end{remark}
 
-\newpage
+\clearpage
 
 \section{Vietnam Application: Additional diagnostics}
 
 \subsection{Draft eligibility ceilings}
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Draft-eligibility ceilings by birth cohort (Vietnam application)}
 \label{tab:vietnam_cutoffs}
@@ -3383,7 +3699,7 @@ Birth cohort & Lottery year & Eligibility ceiling \\
 \end{table}
 
 \subsection{Instrument Propensity Scores}
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{pics/i_pscore.png}
 \caption{The first Empirical Application : Distribution of the fitted propensity score
@@ -3392,9 +3708,9 @@ Birth cohort & Lottery year & Eligibility ceiling \\
 \label{fig:vietnam_pscore}
 \end{figure}
 
-\newpage
+\clearpage
 \subsection{Vietnam Design diagnostics}
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Design diagnostics: Vietnam draft lottery}
 \label{tab:vietnam_descr}
@@ -3423,12 +3739,10 @@ instrument.
 \end{table}
 
 
-\newpage
-
-\newpage
+\clearpage
 \subsection{Estimates kappa vs dml}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Point estimates for log hourly wages across age specifications}
 \label{tab:vietnam_point_estimates_age}
@@ -3513,11 +3827,11 @@ cross-fitting.
 
 
 
-\newpage
+\clearpage
 
 
 \subsection{Estimates flexible nuisance}
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{DML point estimates across nuisance learners}
 \label{tab:vietnam_dml_learners}
@@ -3594,9 +3908,10 @@ error.
 
 
 
-\newpage
-\section{Vietnam Outcome-Weight Diagnostics}
+\clearpage
 \begin{sidewaystable}[p]
+\raggedright
+\section{Vietnam Outcome-Weight Diagnostics}
 \centering
 \caption{Complete eligible outcome-weight diagnostics for the Vietnam application}
 \label{tab:vietnam_weights_full_appendix}
@@ -3698,8 +4013,8 @@ included. The forest rows use the tuned specifications.
 \end{threeparttable}
 \end{sidewaystable}
 
-\newpage
-\begin{table}[p]
+\clearpage
+\begin{table}[H]
 \centering
 \caption{Outcome-weight representation audit for excluded Vietnam vectors}
 \label{tab:vietnam_weight_representation_audit}
@@ -3738,9 +4053,9 @@ is not used in the reported diagnostics.
 \end{threeparttable}
 \end{table}
 
-\newpage
+\clearpage
 \section{Vietnam Covariate-Balance Diagnostics}
-\begin{figure}[p]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{pics/vietnam_love_cubic_thesis.png}
 \caption{Covariate balance under cubic age adjustment}
@@ -3755,7 +4070,7 @@ calculated with \texttt{cobalt} \citep{greifer2024cobalt}.
 \end{minipage}
 \end{figure}
 
-\begin{figure}[p]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{pics/vietnam_love_saturated_thesis.png}
 \caption{Covariate balance under saturated age adjustment}
@@ -3774,7 +4089,7 @@ Balance is calculated with \texttt{cobalt} \citep{greifer2024cobalt}.
 
 
 
-\newpage
+\clearpage
 
 \section{Card Application: Additional Results and Diagnostics}
 \label{app:card_design_diagnostics}
@@ -3894,7 +4209,7 @@ unconditional group-mean differences. The outcome is log hourly wage.
 
 
 \subsection{Instrument-Propensity Support}
-\label{app:card_propensity}
+\label{app:card_propensity_support}
 
 \begin{figure}[H]
 \centering
@@ -4048,7 +4363,7 @@ instrument or treatment propensities below \(0.02\) or above \(0.98\).
 \label{app:card_translation}
 
 
-\begin{table}[p]
+\begin{table}[H]
 \centering
 \caption{Complete kappa translation-invariance results in the Card application}
 \label{tab:card_translation_kappa_appendix}
@@ -4120,7 +4435,7 @@ absolute value.
 
 
 
-\begin{table}[p]
+\begin{table}[H]
 \centering
 \caption{Complete DML translation-invariance results in the Card application}
 \label{tab:card_translation_dml_appendix}
@@ -4206,7 +4521,7 @@ outcome codings. Bold changes exceed \(10^{-4}\) in absolute value.
 \end{table}
 
 
-\newpage
+\clearpage
 
 
 
@@ -4257,36 +4572,196 @@ translation result.
 \end{minipage}
 \end{table}
 
-\subsection{Covariate Balance}
+
+
+
+\clearpage
+\subsection{Complete Outcome-Weight Diagnostics}
+\label{app:card_weights_complete}
+
+Tables~\ref{tab:card_kappa_weights_appendix}
+and~\ref{tab:card_dml_weights_appendix} report all eligible outcome-weight
+diagnostics. The tables retain the four design cells as separate panels to
+avoid mixing the two treatment definitions or conditioning sets.
+
+\begin{table}[H]
+\centering
+\caption{Complete kappa outcome-weight diagnostics in the Card application}
+\label{tab:card_kappa_weights_appendix}
+\scriptsize
+\setlength{\tabcolsep}{3.6pt}
+\begin{threeparttable}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Estimator
+& \(\sum_i\omega_i\)
+& Mass T/C
+& \shortstack{Opposite-sign\\mass T/C (\%)}
+& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
+& \(\max_i|\omega_i|\) \\
+\midrule
+\multicolumn{6}{l}{\textit{Panel A: Card, schooling beyond high school}} \\[2pt]
+$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.5 / 46.0 & 0.575 / 0.510 & 0.086905 \\
+$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 44.8 / 45.3 & 0.561 / 0.497 & 0.051920 \\
+$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054816 \\
+$\hat{\tau}^{ml}_{a}$    & $-0.106150$ & 0.993 / 1.100 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054452 \\
+$\hat{\tau}^{ml}_{t}$    & $-0.106860$ & 1.000 / 1.107 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054816 \\
+$\hat{\tau}^{ml}_{a,0}$  & $-0.096543$ & 0.903 / 1.000 & 45.0 / 45.1 & 0.558 / 0.495 & 0.049524 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel B: Card, at least 16 years}} \\[2pt]
+$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 46.3 / 48.7 & 0.571 / 0.525 & 0.197058 \\
+$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 44.7 / 48.2 & 0.577 / 0.508 & 0.097168 \\
+$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.0 / 48.0 & 0.574 / 0.505 & 0.102551 \\
+$\hat{\tau}^{ml}_{a}$    & $-0.197446$ & 0.988 / 1.185 & 45.0 / 48.0 & 0.574 / 0.505 & 0.101285 \\
+$\hat{\tau}^{ml}_{t}$    & $-0.199915$ & 1.000 / 1.200 & 45.0 / 48.0 & 0.574 / 0.505 & 0.102551 \\
+$\hat{\tau}^{ml}_{a,0}$  & $-0.166608$ & 0.833 / 1.000 & 45.0 / 48.0 & 0.574 / 0.505 & 0.085466 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel C: Kitagawa, schooling beyond high school}} \\[2pt]
+$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.6 / 46.0 & 0.593 / 0.570 & 0.045670 \\
+$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.7 / 46.1 & 0.598 / 0.579 & 0.044385 \\
+$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.1 / 46.7 & 0.606 / 0.586 & 0.052601 \\
+$\hat{\tau}^{ml}_{a}$    & 0.305266 & 1.095 / 0.790 & 45.1 / 46.7 & 0.606 / 0.586 & 0.041541 \\
+$\hat{\tau}^{ml}_{t}$    & 0.278778 & 1.000 / 0.721 & 45.1 / 46.7 & 0.606 / 0.586 & 0.037937 \\
+$\hat{\tau}^{ml}_{a,0}$  & 0.386535 & 1.387 / 1.000 & 45.1 / 46.7 & 0.606 / 0.586 & 0.052601 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel D: Kitagawa, at least 16 years}} \\[2pt]
+$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.4 / 48.4 & 0.604 / 0.572 & 0.081202 \\
+$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.5 / 48.4 & 0.609 / 0.580 & 0.078334 \\
+$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 44.8 / 49.1 & 0.618 / 0.587 & 0.133832 \\
+$\hat{\tau}^{ml}_{a}$    & 0.586318 & 1.182 / 0.596 & 44.8 / 49.1 & 0.618 / 0.587 & 0.079788 \\
+$\hat{\tau}^{ml}_{t}$    & 0.495831 & 1.000 / 0.504 & 44.8 / 49.1 & 0.618 / 0.587 & 0.067474 \\
+$\hat{\tau}^{ml}_{a,0}$  & 0.983462 & 1.983 / 1.000 & 44.8 / 49.1 & 0.618 / 0.587 & 0.133832 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\scriptsize
+\item \textit{Notes:} Mass T/C reports treated mass and sign-oriented
+control mass. Opposite-sign mass is the percentage of absolute weight mass
+that does not follow the conventional treated-minus-control orientation.
+Modified ESS is divided by the observed number of treated or control
+observations.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+\begin{table}[H]
+\centering
+\caption{Complete eligible DML outcome-weight diagnostics in the Card application}
+\label{tab:card_dml_weights_appendix}
+\scriptsize
+\setlength{\tabcolsep}{3.6pt}
+\begin{threeparttable}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Estimator
+& \(\sum_i\omega_i\)
+& Mass T/C
+& \shortstack{Opposite-sign\\mass T/C (\%)}
+& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
+& \(\max_i|\omega_i|\) \\
+\midrule
+\multicolumn{6}{l}{\textit{Panel A: Card, schooling beyond high school}} \\[2pt]
+PLR-IV, tuned forest       & 0.000000 & 1.003 / 1.003 & 46.5 / 46.8 & 0.583 / 0.627 & 0.032653 \\
+Wald-AIPW, tuned forest    & 0.000000 & 0.968 / 0.968 & 45.1 / 45.6 & 0.448 / 0.449 & 0.145639 \\
+PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.6 / 47.0 & 0.623 / 0.669 & 0.032201 \\
+Wald-AIPW, linear/logit    & 0.000000 & 0.997 / 0.997 & 45.7 / 46.1 & 0.557 / 0.489 & 0.080896 \\
+PLR-IV, \texttt{ranger}    & 0.000000 & 0.992 / 0.992 & 46.5 / 46.8 & 0.573 / 0.617 & 0.033168 \\
+Wald-AIPW, \texttt{ranger} & 0.000000 & 0.985 / 0.985 & 44.8 / 45.3 & 0.435 / 0.437 & 0.135400 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel B: Card, at least 16 years}} \\[2pt]
+PLR-IV, tuned forest       & 0.000000 & 0.963 / 0.963 & 46.2 / 48.7 & 0.578 / 0.615 & 0.054681 \\
+Wald-AIPW, tuned forest    & 0.000000 & 0.944 / 0.944 & 45.4 / 48.4 & 0.398 / 0.466 & 0.276531 \\
+PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 47.0 / 49.0 & 0.619 / 0.655 & 0.067405 \\
+Wald-AIPW, linear/logit    & 0.000000 & 0.922 / 0.922 & 46.7 / 48.8 & 0.561 / 0.504 & 0.179228 \\
+PLR-IV, \texttt{ranger}    & 0.000000 & 0.942 / 0.942 & 46.2 / 48.7 & 0.566 / 0.605 & 0.053839 \\
+Wald-AIPW, \texttt{ranger} & 0.000000 & 0.950 / 0.950 & 45.1 / 48.3 & 0.406 / 0.446 & 0.254498 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel C: Kitagawa, schooling beyond high school}} \\[2pt]
+PLR-IV, tuned forest       & 0.000000 & 0.998 / 0.998 & 46.9 / 47.1 & 0.632 / 0.667 & 0.032775 \\
+Wald-AIPW, tuned forest    & 0.000000 & 0.994 / 0.994 & 45.8 / 46.1 & 0.559 / 0.531 & 0.065150 \\
+PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.6 / 46.9 & 0.639 / 0.679 & 0.030107 \\
+Wald-AIPW, linear/logit    & 0.000000 & 0.995 / 0.995 & 45.7 / 46.0 & 0.585 / 0.566 & 0.048008 \\
+PLR-IV, \texttt{ranger}    & 0.000000 & 1.005 / 1.005 & 46.9 / 47.2 & 0.638 / 0.675 & 0.038382 \\
+Wald-AIPW, \texttt{ranger} & 0.000000 & 1.001 / 1.001 & 45.6 / 46.0 & 0.578 / 0.547 & 0.056832 \\
+\addlinespace[4pt]
+\multicolumn{6}{l}{\textit{Panel D: Kitagawa, at least 16 years}} \\[2pt]
+PLR-IV, tuned forest       & 0.000000 & 1.011 / 1.011 & 46.6 / 48.8 & 0.638 / 0.654 & 0.056988 \\
+Wald-AIPW, tuned forest    & 0.000000 & 1.007 / 1.007 & 45.6 / 48.5 & 0.558 / 0.538 & 0.119277 \\
+PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.2 / 48.7 & 0.645 / 0.664 & 0.049977 \\
+Wald-AIPW, linear/logit    & 0.000000 & 0.989 / 0.989 & 45.3 / 48.4 & 0.597 / 0.567 & 0.082312 \\
+PLR-IV, \texttt{ranger}    & 0.000000 & 1.008 / 1.008 & 46.6 / 48.8 & 0.643 / 0.660 & 0.064407 \\
+Wald-AIPW, \texttt{ranger} & 0.000000 & 1.000 / 1.000 & 45.3 / 48.4 & 0.582 / 0.552 & 0.099308 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\scriptsize
+\item \textit{Notes:} Only algebraic or numerically verified
+outcome-weight representations are included. XGBoost is excluded because
+its reconstructed vectors do not reproduce the fitted estimates. T/C,
+opposite-sign mass, and modified ESS are defined as in
+Table~\ref{tab:card_kappa_weights_appendix}.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\clearpage
+
+
+\subsection{Selected Covariate-Balance Figures}
 \label{app:card_balance}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{pics/card_balance_card_educ16.png}
-\caption{Outcome-weight balance under the Card specification for the sixteen-year margin}
-\label{fig:card_balance_card_educ16}
-\begin{minipage}{0.96\textwidth}
+\includegraphics[width=0.95\textwidth]{pics/card_balance_card.png}
+\caption{Outcome-weight covariate balance under the Card conditioning set}
+\label{fig:card_balance_card}
+\begin{minipage}{0.95\textwidth}
 \footnotesize
-\textit{Notes:} Dark circles show unadjusted absolute standardised differences
-between the two treatment groups. Yellow triangles show the corresponding
-differences after applying the estimator-specific outcome weights. The dashed
-line marks \(0.1\). The figure compares untuned and tuned honest forests with
-the three normalised kappa estimators.
+\textit{Notes:} The panels compare the two treatment definitions. Points are
+absolute treated--control mean differences. Continuous covariates are
+standardised by the pooled standard deviation; binary covariates, marked by
+an asterisk, are shown as raw differences. The dashed line marks \(0.10\).
+Adjusted series use sign-oriented outcome weights that numerically reproduce
+the respective estimate. The MLE-kappa series reports
+\(\hat{\tau}^{ml}_{u}\) as a representative because the alternative
+normalisations have essentially identical balance profiles. XGBoost is
+excluded because its reconstructed outcome-weight vectors do not reproduce
+the fitted estimates.
 \end{minipage}
 \end{figure}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=\textwidth]{pics/card_balance_learners_card_educ16.png}
-\caption{Learner sensitivity of outcome-weight balance under the Card specification}
-\label{fig:card_balance_learners_card_educ16}
-\begin{minipage}{0.96\textwidth}
+\includegraphics[width=0.95\textwidth]{pics/card_balance_kitagawa.png}
+\caption{Outcome-weight covariate balance under the Kitagawa conditioning set}
+\label{fig:card_balance_kitagawa}
+\begin{minipage}{0.95\textwidth}
 \footnotesize
-\textit{Notes:} The treatment is the sixteen-year schooling margin. Dark
-circles show unadjusted absolute standardised differences and yellow triangles
-show differences after weighting. XGBoost uses the tuned specification. These
-are balance diagnostics for the weighted treatment contrast. They are not
-tests of the conditional independence or exclusion restrictions.
+\textit{Notes:} The panels compare the two treatment definitions. Points are
+absolute treated--control mean differences. Continuous covariates are
+standardised by the pooled standard deviation; binary covariates, marked by
+an asterisk, are shown as raw differences. The dashed line marks \(0.10\).
+Adjusted series use sign-oriented outcome weights that numerically reproduce
+the respective estimate. The MLE-kappa series reports
+\(\hat{\tau}^{ml}_{u}\) as a representative because the alternative
+normalisations have essentially identical balance profiles. XGBoost is
+excluded because its reconstructed outcome-weight vectors do not reproduce
+the fitted estimates.
 \end{minipage}
 \end{figure}
 
@@ -4304,9 +4779,74 @@ tests of the conditional independence or exclusion restrictions.
 
 
  % This is where the child application starts
-\newpage
+\clearpage
+\section{Empirical Child}
+\subsection{Covariate Specification and Instrument Construction}
+\label{app:child_covariate_design}
 
-\section{Subsampling Procedure for the Angrist and Evans Application}
+The common conditioning set used by all kappa and DML estimators is
+\[
+X_i=
+\left(
+\text{age}_i,
+\text{agefirst}_i,
+\text{boy}_{1i},
+\text{Black}_i,
+\text{Hispanic}_i,
+\text{OtherRace}_i
+\right).
+\]
+The definitions of these variables are the following:
+
+\begin{table}[H]
+\centering
+\caption{Covariates used in the Angrist--Evans analysis}
+\label{tab:ae_child_covariates}
+\small
+\begin{tabular}{ll}
+\toprule
+Covariate & Definition \\
+\midrule
+$\text{age}_i$        & Mother's age at census observation \\
+$\text{agefirst}_i$   & Mother's age at first birth \\
+$\text{boy}_{1i}$     & Indicator that the first child is a boy \\
+$\text{Black}_i$      & Race indicator: Black \\
+$\text{Hispanic}_i$   & Ethnicity indicator: Hispanic \\
+$\text{OtherRace}_i$  & Race indicator: other race \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Second-child sex remains part of the underlying data and is used to construct
+the instrument, but it is not included in the conditioning set \(X_i\). In
+particular,
+\[
+Z_i
+=
+1\{\text{boy}_{1i}=\text{boy}_{2i}\}.
+\]
+The relationship has two implications for the nuisance estimation. First,
+within each instrument arm, the two child-sex indicators are perfectly
+collinear. When \(Z_i=1\), the indicators are identical, whereas when \(Z_i=0\),
+one equals one minus the other. Including both indicators together with an
+intercept therefore creates exact multicollinearity parametric
+nuisance regressions.\\
+Second, a flexible learner supplied with both child-sex indicators can
+reconstruct \(Z_i\) deterministically. Conditional on both indicators,
+\[
+P(Z_i=1\mid X_i)\in\{0,1\},
+\]
+which eliminates the conditional instrument variation required by the overlap
+condition and by the DML nuisance regression for \(E[Z_i\mid X_i]\). This
+problem does not appear as a numerical collinearity problem in conventional
+pooled additive 2SLS because the two child-sex indicators enter only as
+separate main effects, while reconstructing the same-sex instrument requires
+their interaction.
+
+
+
+\clearpage
+\subsection{Subsampling Procedure}
 \label{app:subsampling}
 The diagnostic subsamples used in the Angrist--Evans application are constructed by proportional stratified subsampling without replacement.
 Let $Z_i$ denote the same-sex instrument and $D_i$ the
@@ -4314,31 +4854,266 @@ more-than-two-children treatment. For the labor-force participation sample, the
 strata are defined by $Z_i$, $D_i$, the binary labor-force outcome, positive-income
 status, race, and mother's age group. For the log-income sample, the strata are
 defined by $Z_i$, $D_i$, income decile, race, and mother's age group.
-For each parent sample, let $N_0$ denote the parent-sample size and let $n_s$ denote the size of stratum $s = 1,\ldots,S$. The target subsample size is set to $N = 3{,}000$. 
-The proportional target allocation for each stratum is
+For a given parent sample, let \(N_0\) denote its total size and let \(N_s\)
+denote the number of observations in stratum \(s=1,\ldots,S\). With target
+diagnostic-sample size \(n=3{,}000\), the proportional allocation is
+
 \[
-n_s^{\ast} = N \frac{n_s}{N_0}.
+n_s^\ast=n\frac{N_s}{N_0}.
 \]
-The preliminary allocation is obtained by taking the integer part, $\lfloor n_s^{\ast} \rfloor$. The remaining observations,
-\[
-N - \sum_{s=1}^S \lfloor n_s^{\ast} \rfloor,
-\]
-are then assigned one at a time to the strata with the largest fractional remainders, until the allocated total equals $N$ exactly. Within each stratum, the allocated number of observations is drawn randomly without replacement.
-The procedure is implemented separately for the labor-force participation and log-income parent samples, using a fixed seed. This yields two diagnostic subsamples of 3,000 observations each.
+
+The initial integer allocation is \(\lfloor n_s^\ast\rfloor\). Any remaining
+observations are assigned to the strata with the largest fractional
+remainders until the allocations sum to \(n\). Within each stratum, the
+allocated observations are then drawn uniformly without replacement.
+Finally the labor-force strata are defined by the instrument, treatment,
+labor-force outcome, positive-income status, four-category race group, and
+maternal age group (21--25, 26--30, or 31--35). The income strata are defined
+by the instrument, treatment, income decile, race group, and maternal age
+group. The two samples are drawn separately using seed 202. 
 
 
-\section{Covariate Balance and Child-Sex Indicators}
-\label{app:ae_balance}
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\textwidth]{pics/ae_raw_covariate_dist.png}
-    \caption{Covariate Balance by instrument status of having sam sex or not }
-    \label{fig:ae_instrument_covariate_balance_raw}
-\end{figure}
+
+
+\begin{table}[H]
+\centering
+\caption{Parent samples and diagnostic subsamples in the Angrist--Evans application}
+\label{tab:ae_descriptive_diagnostics}
+\small
+\begin{tabular}{lcccc}
+\toprule
+&
+\multicolumn{2}{c}{Work status}
+&
+\multicolumn{2}{c}{Maternal log income} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Measure
+& Parent
+& Diagnostic
+& Parent
+& Diagnostic \\
+\midrule
+\(N\)
+& 394{,}840 & 3{,}000
+& 220{,}502 & 3{,}000 \\
+
+\(\Pr(Z=1)\)
+& 0.5054 & 0.5050
+& 0.5018 & 0.5027 \\
+
+\(\Pr(D=1)\)
+& 0.4021 & 0.4017
+& 0.3493 & 0.3477 \\
+
+Raw first stage
+& 0.0595 & 0.0606
+& 0.0543 & 0.0530 \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\begin{minipage}{0.88\textwidth}
+\footnotesize
+\textit{Notes:} \(Z\) denotes the same-sex instrument and \(D\) indicates
+having more than two children. The raw first stage is the difference in
+treatment rates between \(Z=1\) and \(Z=0\). The diagnostic subsamples are
+used for the computational estimator and outcome-weight comparisons.
+\end{minipage}
+\end{table}
 
 \newpage
 
+\subsection{Adjusted First Stage and Overlap}
+\label{app:ae_balance}
+\begin{table}[H]
+\centering
+\caption{Adjusted first-stage and instrument-propensity diagnostics}
+\label{tab:ae_adjusted_design_diagnostics}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Outcome
+& \shortstack{Adjusted first stage\\(HC1 SE)}
+& \shortstack{Robust\\\(t^2\)}
+& \shortstack{Adjusted\\Wald}
+& \(\widehat p(X)\) range \\
+\midrule
+Work status
+& \shortstack{0.0648\\(0.0172)}
+& 14.1
+& -0.0946
+& [0.449,\,0.553] \\
 
+Maternal log income
+& \shortstack{0.0596\\(0.0166)}
+& 12.9
+& -0.1822
+& [0.464,\,0.567] \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+\begin{minipage}{0.88\textwidth}
+\footnotesize
+\textit{Notes:} The adjusted regressions control for mother's age, age at
+first birth, first-child sex, and three race and ethnicity indicators.
+Robust \(t^2\) is the squared HC1-robust first-stage \(t\)-statistic. The
+adjusted Wald estimate is the ratio of the adjusted reduced form to the
+adjusted first stage. Instrument propensities are estimated using an additive
+logit model with the same six covariates. No fitted propensity is below
+\(0.05\) or above \(0.95\).
+\end{minipage}
+\end{table}
+
+
+
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{pics/ae_pscore_overlap.png}
+\caption{Estimated instrument-propensity distributions in the Angrist--Evans diagnostic subsamples}
+\label{fig:ae_pscore_overlap}
+
+\vspace{3pt}
+\begin{minipage}{0.92\textwidth}
+\footnotesize
+\textit{Notes:} The panels report fitted probabilities from additive logit
+models for the same-sex instrument. Both models use the common six-covariate
+specification. The distributions are shown separately by observed instrument
+status. The dashed line marks a propensity of \(0.5\).
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\subsection{Point Estimates}
+\begin{table}[H]
+\centering
+\caption{Point estimates across scores and nuisance learners in the Angrist--Evans application}
+\label{tab:ae_child_estimates_appendix}
+\small
+\begin{threeparttable}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Estimator
+& Work status
+& Maternal log income \\
+\midrule
+
+\multicolumn{3}{l}{\textit{Panel A: Conventional IV and kappa benchmarks}} \\[2pt]
+
+2SLS
+& \(-0.095\)\,(0.274)
+& \(-0.182\)\,(0.755) \\
+
+$\widehat{\tau}^{cb}_{u}$
+& \(-0.095\)\,(0.274)
+& \(-0.182\)\,(0.754) \\
+
+$\widehat{\tau}^{ml}_{u}$
+& \(-0.094\)\,(0.274)
+& \(-0.182\)\,(0.755) \\[4pt]
+
+\multicolumn{3}{l}{\textit{Panel B: Tuned honest-forest DML}} \\[2pt]
+
+PLR-IV
+& \(-0.117\)\,(0.269)
+& \(-0.248\)\,(0.766) \\
+
+Wald-AIPW
+& \(-0.101\)\,(0.274)
+& \(-0.238\)\,(0.792) \\[4pt]
+
+\multicolumn{3}{l}{\textit{Panel C: Alternative DML nuisance learners}} \\[2pt]
+
+PLR-IV, linear
+& \(-0.102\)\,(0.272)
+& \(-0.214\)\,(0.761) \\
+
+Wald-AIPW, linear/logit
+& \(-0.104\)\,(0.275)
+& \(-0.217\)\,(0.775) \\
+
+PLR-IV, \texttt{ranger}
+& \(-0.148\)\,(0.255)
+& \(-0.250\)\,(0.744) \\
+
+Wald-AIPW, \texttt{ranger}
+& \(-0.163\)\,(0.265)
+& \(-0.259\)\,(0.752) \\
+
+PLR-IV, tuned XGBoost
+& \(-0.129\)\,(0.266)
+& \(-0.263\)\,(0.718) \\
+
+Wald-AIPW, tuned XGBoost
+& \(-0.117\)\,(0.267)
+& \(-0.341\)\,(0.753) \\
+
+\bottomrule
+\end{tabular}
+
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} Each cell reports the point estimate followed by its
+standard error in parentheses. Work status is a binary outcome, whereas
+maternal income is measured in log dollars. All conditional specifications
+use mother's age, age at first birth, first-child sex, and three race and
+ethnicity indicators. DML specifications use five-fold cross-fitting.
+Honest-forest and XGBoost results use tuned nuisance learners. The reconstructed
+XGBoost outcome-weight vectors do not pass the exact estimator-reproduction
+check and are therefore retained for the estimate comparison but excluded
+from the subsequent outcome-weight diagnostics.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Nested XGBoost tuning in the Angrist--Evans application}
+\label{tab:ae_child_xgb_tuning_appendix}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{threeparttable}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Score
+& Outcome
+& \shortstack{Untuned\\estimate (SE)}
+& \shortstack{Tuned\\estimate (SE)} \\
+\midrule
+PLR-IV
+& Work status
+& \(-0.012\)\,(0.345)
+& \(-0.129\)\,(0.266) \\
+
+PLR-IV
+& Maternal log income
+& \(-0.035\)\,(0.844)
+& \(-0.263\)\,(0.718) \\
+
+Wald-AIPW
+& Work status
+& \(1.177\)\,(2.291)
+& \(-0.117\)\,(0.267) \\
+
+Wald-AIPW
+& Maternal log income
+& \(4.386\)\,(9.650)
+& \(-0.341\)\,(0.753) \\
+\bottomrule
+\end{tabular}
+
+\begin{tablenotes}
+\footnotesize
+\item \textit{Notes:} Hyperparameters are selected separately within each
+outer training fold using nuisance-prediction loss. The treatment-effect
+estimate is not used for tuning. All reported nuisance losses are lower after
+tuning.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
 % ==============================================================================
 \bibliographystyle{apalike}
 \bibliography{references}
