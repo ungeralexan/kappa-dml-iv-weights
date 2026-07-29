@@ -16,6 +16,11 @@ nuisance learners. Diagnostics cover numerical weight identities,
 normalization, effective sample size, sign cancellation, covariate balance,
 learner sensitivity, and translation invariance.
 
+Detailed notes on the custom kappa implementation, propensity-score fitting,
+analytical standard errors, outcome-weight reconstruction, and its relationship
+to available R and Stata software are provided in
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md).
+
 ## Repository structure
 
 ```text
@@ -113,7 +118,7 @@ Run a notebook from its own application directory, or use
 rmarkdown::render("vietnam_final/vietnam_presentation_4.Rmd")
 ```
 
-The XGBoost tuning notebooks default to:
+The Vietnam and Card XGBoost tuning notebooks default to:
 
 ```r
 RERUN_TUNING <- FALSE
@@ -122,6 +127,12 @@ RERUN_TUNING <- FALSE
 In this mode they read the verified `.rds` exports rather than repeating
 expensive nested tuning. The main application notebooks also import these
 exports. Keep the exports when an ordinary, reasonably fast render is desired.
+
+The two Child tuning notebooks currently do not expose a
+`RERUN_TUNING` switch and rerun their tuning exercises when rendered. Their
+verified exports are nevertheless read by `child_test.Rmd` and the downstream
+translation analysis. Avoid rendering the Child tuning notebooks unless a
+deliberate retuning run is intended.
 
 ## Recommended execution order
 
@@ -170,12 +181,14 @@ vietnam_translation_xgb_rerun_export.rds
 
 ## Repeating the XGBoost tuning
 
-To deliberately repeat a tuning exercise, change the corresponding notebook
-to:
+For Vietnam and Card, deliberately repeat a tuning exercise by changing the
+corresponding notebook to:
 
 ```r
 RERUN_TUNING <- TRUE
 ```
+
+The Child tuning notebooks currently retune whenever they are rendered.
 
 The tuning design uses seed 42, five outer cross-fitting folds, three inner
 folds, fifteen random-search evaluations, and fold-specific tuning. These

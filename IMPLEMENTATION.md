@@ -158,6 +158,46 @@ The application notebooks compare linear or logistic nuisance models with
 honest forests, Ranger, and XGBoost variants. Expensive XGBoost tuning is
 performed in separate notebooks and exported as `.rds` pipeline artifacts.
 
+For PLR-IV, the outcome, instrument, and treatment nuisance functions are all
+implemented as regression tasks. The parametric specification therefore uses
+linear regression for all three functions. For Wald-AIPW, the
+instrument-specific outcome functions are regression tasks, while the
+instrument propensity and instrument-specific treatment functions are binary
+classification tasks. Its parametric specification combines linear outcome
+regressions with logistic instrument and treatment models. The Ranger and
+XGBoost specifications follow the same regression/classification mapping.
+
+The headline outcome-weight specifications are fitted with
+`OutcomeWeights::dml_with_smoother()` and honest
+`grf::regression_forest()` nuisance learners. This implementation uses
+regression forests for every nuisance function, including functions with a
+binary response. All DML specifications use seed 42 and five outer
+cross-fitting folds.
+
+The headline honest forests pass `tune.parameters = "all"` to each GRF fit
+inside its outer training sample. GRF then uses its internal out-of-bag tuning
+procedure to select the sample fraction, `mtry`, minimum node size, honesty
+fraction, honesty pruning rule, split-balance parameter `alpha`, and imbalance
+penalty. This is distinct from the explicit inner cross-validation used for
+XGBoost.
+
+The XGBoost specifications use fold-specific nested tuning through
+`DoubleML` and `mlr3tuning`. Within each of the five outer training samples,
+each nuisance learner is tuned separately by three-fold inner
+cross-validation and 15 random-search evaluations. The search varies
+`nrounds` from 50 to 400, `max_depth` from 2 to 5, `eta` from 0.02 to 0.20,
+and `min_child_weight` from 1 to 8. PLR-IV uses RMSE for all three nuisance
+functions. Wald-AIPW uses RMSE for its outcome regression and Bernoulli
+log-loss for its instrument and treatment classification models.
+`tune_on_folds = TRUE` ensures that the outer evaluation fold is excluded
+from both nuisance fitting and hyperparameter selection, and it implies that
+the selected hyperparameters may differ across outer folds.
+
+The Vietnam and Card tuning notebooks default to loading their verified
+exports with `RERUN_TUNING = FALSE`. The current Child tuning notebooks have
+no corresponding switch and rerun tuning when rendered; their stored exports
+are consumed directly by the downstream Child analysis.
+
 Complete-pipeline transformation checks rerun the relevant nuisance estimation,
 cross-fitting, and tuning rules after the outcome has been shifted. They are
 distinct from frozen-weight algebraic checks, which hold a fitted weight vector
