@@ -194,12 +194,10 @@
 \section*{Abstract}
 \addcontentsline{toc}{section}{Abstract}
 
-This thesis studies classical kappa estimators of the LATE together with
+This thesis studies classical kappa estimators of the local average treatment effect together with
 machine-learning-assisted IV estimators, focusing on Wald-AIPW and PLR-IV. It combines \citet{abadie2003semiparametric} kappa framework with recent results on estimator
 normalization and outcome weights to place both estimator classes within a common
-diagnostic framework. In particular, the thesis constructs and implements outcome weights for five kappa-based
-estimators and uses them to examine normalization,
-covariate balance, weight concentration, and sensitivity to outcome transformations.
+diagnostic framework. 
 
 A central contribution is the extension of translation-invariance analysis from
 classical kappa estimators to complete data-adaptive estimation procedures. Rather than
@@ -243,156 +241,45 @@ double machine learning.
 \setcounter{page}{1}
 
 \section{Introduction}
-Causal estimates should not depend on an arbitrary choice of measurement units. 
-A change from dollars to cents therefore translates every logged outcome by the same
-constant without changing the underlying economic comparison. An estimator of an effect
-on log wages or income should consequently be unchanged. Yet this requirement need not
-hold for all finite-sample weighting estimators of the local average treatment effect
-(LATE). \citet{sloczynski2025abadie} show that several consistent but unnormalized
-estimators can react strongly to the centering of the outcome and to the monetary unit
-chosen before taking logarithms. Normalization is therefore not merely a presentational
-choice. It can determine whether an estimate respects an economically irrelevant
-transformation of the data.\\
-This issue is particularly relevant when instrument validity is conditional on observed
-covariates. Applied work commonly handles such settings with additive two-stage least
-squares (2SLS). A clean LATE interpretation, however, requires the covariate specification
-to capture the relevant conditional structure of instrument assignment
-\citep{sloczynski2021when,blandhol2026tsls}. The kappa theorem of
-\citet{abadie2003semiparametric} offers a flexible alternative. It represents moments of
-the latent complier population through observed-data weights that depend on the
-conditional instrument propensity score. The same population identification result gives
-rise to several sample estimators because alternative expressions for the complier share
-need not coincide in finite samples. These estimators can target the same population
-parameter while assigning different coefficients to the observed outcomes.\\
-Flexible estimation of the required conditional relationships has become possible within
-the double machine learning (DML) framework of \citet{chernozhukov2018double}. Orthogonal
-scores and cross-fitting allow nuisance functions to be estimated with parametric models
-or machine-learning methods. They do not by themselves reveal how a fitted multi-step
-procedure combines the observations in a realized sample. The outcome-weight framework
-of \citet{knaus2024treatment} supplies this missing finite-sample perspective. It represents a fitted estimate as a weighted sum of the observed outcomes. This
-common representation makes classical kappa estimators, partially linear IV estimators,
-and augmented estimators comparable at the level of the sample that produces the reported
-estimate.
+Causal estimates should not depend on economically arbitrary choices in the coding of an outcome. Recording wages or income in cents rather than dollars before taking logarithms leaves the underlying economic comparison unchanged. An estimated effect on the logarithmic outcome should therefore remain unchanged. Nevertheless, \citet{sloczynski2025abadie} show that several consistent but unnormalized kappa estimators can respond strongly to such additive shifts. 
+This underlines the importance of normalization as it determines whether an estimator is invariant to transformations that do not alter the economic content of the data.
+This issue arises when instrument validity holds only after conditioning on observed covariates. Although applied work commonly relies on additive two-stage least squares, its interpretation as a LATE requires the covariate specification to capture the relevant conditional structure of instrument assignment \citep{sloczynski2021when,blandhol2026tsls}. The kappa theorem of \citet{abadie2003semiparametric} instead identifies complier moments through weights based on the conditional instrument propensity score. Its equivalent population representations generate sample estimators that can assign different coefficients to the observed outcomes and satisfy different normalization properties.
+This thesis compares these classical kappa estimators with data-adaptive IV estimators constructed within the double machine learning framework of \citet{chernozhukov2018double}. Using the outcome-weight representation of \citet{knaus2024treatment}, each fitted estimator is examined through the observation-level coefficients that reproduce its estimate. This representation provides the basis for studying properties such as normalization or  effective support across the estimators and empirical designs considered below.
 
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
 \subsection{Related literature}
 
-The starting point is the interpretation of instrumental-variable estimands under
-heterogeneous treatment effects. \citet{angrist1995identification} and
-\citet{angrist1996identification} establish conditions under which a binary instrument
-identifies the average treatment effect for compliers. \citet{imbens1997compliers} extend
-this perspective from the complier mean to the marginal distributions of potential
-outcomes for compliers. Their analysis also demonstrates that conventional IV procedures
-implicitly construct weighted outcome distributions. \citet{abadie2003semiparametric}
-then develops a general semiparametric representation for complier moments when
-instrument assignment is valid conditional on covariates. His kappa weights make the
-complier population statistically accessible even though individual compliance types are
-unobserved.\\
-Subsequent work translated conditional LATE identification into flexible estimators.
-\citet{tan2006regression} develops regression and weighting procedures that adjust the
-instrument comparison for covariates. \citet{frolich2007nonparametric} derives a
-nonparametric estimator based on the ratio of weighted reduced-form and first-stage
-contrasts. This unnormalized ratio became the main weighting construction in the
-subsequent methodological literature, although weighting estimators of the LATE remain
-uncommon in empirical practice \citep{sloczynski2025abadie}. \citet{uysal2011three}
-proposes a separately normalized version of this estimator. More generally, Abadie's
-alternative representations of the complier share generate several consistent sample
-analogues. The resulting estimator multiplicity is a finite-sample issue because the
-corresponding population denominators are equal under the identifying assumptions.\\
-Normalization has a longer history in survey sampling and inverse-probability weighting
-\citep{hajek1971comment,busso2014finite}. Its role in conditional IV estimation is linked
-closely to the estimation of the instrument propensity score. Covariate-balancing methods
-choose propensity-score parameters to satisfy balance conditions rather than only to fit
-instrument assignment \citep{imai2014covariate}. \citet{heiler2022efficient} adapts this
-principle to LATE estimation and obtains exact finite-sample balance across instrument
-groups together with normalized treatment-effect estimates. Building on this literature,
-\citet{sloczynski2025abadie} provide a unified analysis of five kappa-based LATE
-estimators. They show that only two are fully normalized and use translation invariance
-and logarithmic scale invariance as criteria for distinguishing the normalized from the
-unnormalized estimators. They also show that the normalized estimator proposed by
-\citet{uysal2011three} retains useful denominator properties under either form of
-one-sided noncompliance. Their simulations and three empirical applications motivate its
-use as the principal normalized benchmark in this thesis.\\
-A parallel literature studies what the implied weights of an estimator reveal about its
-finite-sample behavior. \citet{chattopadhyay2023implied} derive observation-level weights
-for linear regression and use them to examine covariate balance, representativeness,
-extrapolation, and effective support. \citet{knaus2024treatment} provides a general
-construction for pseudo-IV estimators and derives outcome weights for prominent DML and
-generalized-random-forest estimators. His results show that implementation choices
-determine whether exact outcome weights are available and which normalization properties
-they satisfy. In particular, partially linear estimators may have zero total weight mass
-without assigning masses of one and minus one to the treated and untreated components.
-The framework also permits diagnostic tools developed for explicit weighting estimators
-to be applied to causal machine-learning procedures.\\
-The term “weight” refers to different objects in these literatures, and
-these objects must be separated for the empirical analysis below.
-Abadie's kappa weights are identification objects that recover moments of the complier
-population. Balancing weights are chosen to satisfy prespecified covariate moments.
-Outcome weights are the realized observation-level coefficients that reproduce a fitted estimate as a weighted sum of the observed outcomes. They also differ from effect weights, which
-describe how an estimator aggregates heterogeneous causal effects under additional
-population assumptions \citep{knaus2024treatment}. This thesis is concerned primarily
-with outcome weights. Instrument-balancing weights enter separately when the conditional
-instrument propensity score is assessed.
+The literature underlying this thesis developed from the identification of treatment effects for compliers towards increasingly flexible estimation and, more recently, the analysis of the observation-level weights implied by fitted causal estimators. \citet{angrist1995identification} and \citet{angrist1996identification} establish the conditions under which a binary instrument identifies the local average treatment effect for compliers when treatment effects are heterogeneous. \citet{imbens1997compliers} extend this framework beyond the complier mean to the marginal distributions of potential outcomes for compliers. Their analysis illustrates that instrumental-variable procedures can be understood through the weighted outcome distributions they implicitly construct. \citet{abadie2003semiparametric} subsequently develops a general semiparametric representation for moments of the complier population when instrument assignment is valid conditional on observed covariates. The resulting kappa weights recover these moments from observed data even though individual compliance types remain unobserved.\\
+Subsequent work translated this conditional identification result into estimators that allow for flexible covariate adjustment. \citet{tan2006regression} develops regression and weighting procedures for instrumental-variable settings with covariates, while \citet{frolich2007nonparametric} derives a nonparametric LATE estimator based on a ratio of weighted reduced-form and first-stage contrasts. This unnormalized ratio became an important reference point in the literature, although weighting estimators of the LATE have remained uncommon in empirical applications \citep{sloczynski2025abadie}. \citet{uysal2011three} proposes a separately normalized version of the estimator. \\
+Normalization has a longer history in survey sampling and inverse-probability weighting \citep{hajek1971comment,busso2014finite}. In conditional IV estimation, it is closely connected to the estimation of the instrument propensity score. Covariate-balancing approaches estimate propensity-score parameters by directly targeting balance conditions rather than relying exclusively on the fit of the instrument-assignment model \citep{imai2014covariate}. \citet{heiler2022efficient} transfers this principle to LATE estimation and constructs normalized estimators that achieve exact finite-sample balance across instrument groups. Building on these developments, \citet{sloczynski2025abadie} provide a unified analysis of five kappa-based LATE estimators. They show that only two of these estimators are fully normalized and distinguish normalized from unnormalized estimators through translation invariance and scale invariance for logarithmic outcomes. They further demonstrate that the separately normalized estimator proposed by \citet{uysal2011three} retains a positive denominator by construction under either form of one-sided noncompliance. Their theoretical results, simulations, and empirical applications motivate the use of this estimator as the principal normalized kappa benchmark in the present analysis.\\
+A related development concerns the use of machine learning to estimate the conditional relationships required for causal and instrumental-variable estimation. \citet{chernozhukov2018double} introduce the double machine learning framework, which combines Neyman-orthogonal scores with cross-fitting to reduce the sensitivity of low-dimensional parameter estimates to regularization error and overfitting in estimated nuisance functions. Their framework covers both partially linear IV models and LATE estimation based on augmented scores. DML therefore permits more flexible adjustment than fixed parametric specifications, but its inferential theory does not by itself describe how the fitted procedure distributes weight across the observations in a particular sample.\\
+A parallel literature examines this realized weighting structure. \citet{chattopadhyay2023implied} derive observation-level weights for linear regression estimators and use them to study covariate balance, representativeness, extrapolation, and effective support. \citet{knaus2024treatment} develops a general framework for deriving outcome weights from estimators represented through moment conditions. He applies the framework to prominent DML and generalized-random-forest estimators and shows that implementation choices determine whether an exact outcome-weight representation exists and which normalization properties it satisfies. The framework thereby extends diagnostics traditionally associated with explicit weighting estimators to multi-step causal machine-learning procedures. This characterization is consistent with the purpose of Knaus’s framework, which establishes when fitted estimators admit numerically equivalent weighted-outcome representations and emphasizes that their properties depend on implementation choices. \\
+The term ``weight'' refers to different objects across these literatures. Abadie's kappa weights identify moments of the complier population, while instrument-balancing weights are chosen to satisfy covariate-balance conditions. Outcome weights are the realized coefficients on the observed outcomes that reproduce a fitted estimate. They differ from effect weights, which describe how an estimand aggregates heterogeneous causal effects under additional population assumptions \citep{knaus2024treatment}. The present thesis focuses primarily on outcome weights, while instrument-balancing weights enter separately in the assessment of the conditional instrument propensity score.
+Taken together, the literature establishes conditional LATE identification, develops normalized and unnormalized kappa estimators, permits flexible nuisance estimation through DML, and provides tools for recovering outcome weights from fitted estimators. The comparative analysis of classical kappa and data-adaptive IV estimators within a common outcome-weight framework remains less developed. This thesis conducts such a comparison while applying the same invariance and finite-sample diagnostics within each empirical IV design.
 
 
 
 
-\subsection{Contribution and empirical approach}
+\subsection{Research question and empirical approach}
 
-This thesis combines the normalization analysis of \citet{sloczynski2025abadie} with
-the outcome-weight framework of \citet{knaus2024treatment}. It applies this combination
-to classical and data-adaptive LATE estimators. Its main question is what observation-level
-outcome weights reveal about the finite-sample behavior of kappa weighting estimators and
-DML estimators of the LATE. It asks which fitted estimators satisfy the relevant
-normalization and invariance properties. It then examines differences in effective
-support, concentration, sign cancellation, and covariate balance. Finally, it studies how
-these properties vary with the propensity specification, nuisance learner, and IV design.\\
-The analysis makes three contributions. First, it implements five kappa estimators and
-two instrument-propensity estimators in the same R workflow as partially linear IV and
-Wald augmented inverse-probability-weighted estimators. Candidate outcome weights are
-recovered and checked against the reported point estimates before they enter the
-diagnostic analysis. Second, the classical outcome-recoding exercises are extended to the
-complete DML procedure. Nuisance estimation, cross-fitting, and tuning are rerun after
-each transformation rather than holding one fitted weight vector fixed. Third, every
-valid outcome-weight vector is examined with a common diagnostic sequence. The sequence
-covers normalization, modified effective sample size, maximum absolute weights, sign
-cancellation, and covariate balance. A separate positive instrument-IPW diagnostic in the
-Card application evaluates the design-stage propensity model without conflating it with
-the final outcome contrast.\\
+Against this background, the central research question is how observation-level outcome weights characterize the finite-sample behavior of classical kappa estimators and data-adaptive IV estimators. Three subsidiary questions structure the analysis. First, do the fitted estimators satisfy the relevant normalization and outcome-invariance properties? Second, do estimators that produce similar point estimates nevertheless differ in effective support, weight concentration, sign cancellation, or covariate balance? Third, how sensitive are these properties to the specification of the instrument propensity score, the choice and tuning of nuisance learners, and the underlying IV design?\\
+The empirical analysis compares five kappa estimators with partially linear IV and Wald-AIPW estimators.  Outcome transformations are evaluated at the level of the complete estimation procedure, so that nuisance estimation and hyperparameter tuning are repeated rather than holding a previously fitted weight vector fixed. 
 The empirical analysis returns to the three applications studied by
-\citet{sloczynski2025abadie}. This preserves comparability with their normalization
-results while creating a deliberate progression across IV designs. The Vietnam draft
-lottery of \citet{angrist1990lifetime} provides a low-dimensional benchmark with
-institutionally randomized assignment conditional on birth cohort. The college-proximity
-design of \citet{card1993using} introduces an observational instrument, richer covariate
-adjustment, and two binary schooling margins with different first-stage strength. The
-fertility design of \citet{angrist1996children} adds a large parent sample, a binary
-labor-supply outcome, and a logged monetary outcome.
-The applications differ in the source of instrument variation, the complexity
-of the covariate adjustment, sample size, treatment definition, and outcome
-scale. This variation allows the diagnostic findings to be compared across
-substantively different IV settings.
-
-% TODO: Revisit this paragraph after all final application tables and robustness checks
-% have been completed. Add two or three quantitative headline comparisons.
-The results currently establish several broad patterns. The normalized kappa estimators
-are stable under the examined outcome translations, whereas the unnormalized estimators
-can change materially when only the outcome origin or monetary unit changes. The
-outcome-weight representation traces this sensitivity to their realized normalization
-properties. The DML estimators are generally stable in the low-dimensional Vietnam
-design, but their finite-sample weights depend on the nuisance implementation. This
-dependence becomes more consequential in the observational Card design, where an
-untuned boosted-tree specification produces extreme weights and little effective support.
-The diagnostics also show that similar point estimates or similar covariate balance need
-not imply similar normalization or sign composition. Point estimates and conventional
-balance plots therefore provide only a partial account of how an estimator uses the
-sample.\\
-The remainder of the thesis first introduces the conditional LATE framework and defines
-the kappa and DML estimators. It then develops their outcome-weight representations and
-the links among normalization and outcome invariance. The diagnostic section defines the
-finite-sample measures used in the Vietnam, Card, and Angrist and Evans applications. The
-final sections synthesize the cross-application evidence, discuss limitations, and
-conclude.
-
+\citet{sloczynski2025abadie}. 
+The remainder of the thesis introduces the conditional LATE framework and the estimators, derives their outcome-weight representations and invariance properties, defines the finite-sample diagnostics, presents the three empirical applications, and concludes by synthesizing the cross-application evidence.
 
 
 
@@ -1567,7 +1454,7 @@ representations in the main comparison. Extracted vectors that fail the
 identity may be reported separately as learner-sensitivity evidence, but they
 are not interpreted on the same footing.
 \end{sloppypar}
-\newpage
+
 
 
 
@@ -1720,8 +1607,13 @@ Translation invariance concerns additive shifts in the analyzed outcome. For pos
 monetary outcomes, a closely related question is whether the estimate depends on the
 units in which the underlying variable is measured. This issue is covered by the broader
 concept of scale equivariance studied by \citet{sloczynski2025abadie}.\\
-Let \(R=(R_1,\ldots,R_N)'\) denote a strictly positive outcome and define
-\(f(R)=(g(R_1),\ldots,g(R_N))'\), where
+Let \(R\) denote a strictly positive outcome and define
+\[
+R=(R_1,\ldots,R_N)',
+\qquad
+f(R)=(g(R_1),\ldots,g(R_N))',
+\]
+where
 \[
     g(r)=\alpha_2r^{\alpha_1}-\alpha_3.
 \]
@@ -1772,7 +1664,8 @@ and estimated instrument propensity score, but not on the outcome. Re-estimating
 kappa estimator after translating the outcome therefore provides a transparent
 finite-sample illustration of the invariance results derived by
 \citet{sloczynski2025abadie}.\\
-In the following the empirical applications first reproduce these classical outcome-transformation
+In the following the empirical applications first reproduce these classical\linebreak
+outcome-transformation
 comparisons. In the Vietnam and Card settings, the relevant specifications are applied
 to the original samples used in the corresponding replication exercises. In the
 Angrist--Evans setting, the same comparison is conducted on the diagnostic subsamples
@@ -1852,7 +1745,6 @@ examines whether the same invariance is preserved across increasingly
 data-adaptive IV estimation procedures.
 
 
-\newpage
 
 
 
@@ -2602,7 +2494,7 @@ estimates underlying these comparisons.
 \caption{Translation invariance under complete re-estimation in the Card application}
 \label{tab:card_translation}
 \footnotesize
-\setlength{\tabcolsep}{4.5pt}
+\setlength{\tabcolsep}{3pt}
 \begin{threeparttable}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -2613,9 +2505,9 @@ Estimator
 & Card & Kitagawa & Card & Kitagawa \\
 \midrule
 \multicolumn{5}{l}{\textit{Panel A: Kappa benchmark}} \\[2pt]
-Normalised kappa, all three variants
+\shortstack[l]{Normalised kappa,\\all three variants}
 & 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
-Unnormalised kappa, range over three variants
+\shortstack[l]{Unnormalised kappa, range\\over three variants}
 & \textbf{[$-0.492$,$-0.445$]}
 & \textbf{[1.284,1.780]}
 & \textbf{[$-0.921$,$-0.767$]}
@@ -2809,7 +2701,8 @@ imply equally concentrated weights or the same observed comparison.
 
 
 \newpage
-\section{Empirical Application: Fertility and Mothers' Labor-Market Outcomes}
+\section[Empirical Application: Fertility and Mothers' Labor-Market Outcomes]
+{Empirical Application: Fertility and Mothers'\\ Labor-Market Outcomes}
 \label{sec:child}
 The third application revisits the fertility design of
 \citet{angrist1996children} and studies how having an additional child affects
@@ -3197,6 +3090,54 @@ weight vectors do not pass the estimator-reproduction check.
 \end{threeparttable}
 \end{table}
 
+
+\subsection{Covariate Balance}
+\label{subsec:child_balance}
+
+The final diagnostic examines whether the outcome weights reduce observed
+differences between women with and without additional children.
+Figures~\ref{fig:child_balance_work} and
+\ref{fig:child_balance_income} report the results for the work-status and
+maternal-income samples. The normalised and unnormalised kappa estimators
+balance all six covariates almost exactly in both samples. The same is true
+for the parametric DML specifications, while the random forest
+implementations also remain comfortably below the \(0.1\) reference line.\\
+The tuned honest forests produce a more selective pattern. For work status,
+both PLR-IV and Wald-AIPW reduce the initial age differences substantially.
+The largest remaining difference is maternal age, equal to \(0.105\) for
+PLR-IV and \(0.096\) for Wald-AIPW, while all other covariates remain below
+the reference line. The corresponding random forest differences are at
+most \(0.043\) and \(0.026\), respectively. Thus, all eligible learner
+specifications provide broadly satisfactory balance in the binary-outcome
+sample, although the tuned-forest PLR-IV result remains marginally above the
+reference value.\\
+The income sample reveals a clearer learner difference. The tuned
+honest-forest weights retain a substantial difference in age at first birth,
+with adjusted values of \(0.509\) for PLR-IV and \(0.461\) for Wald-AIPW.
+The remaining covariates stay below \(0.063\), indicating that the imbalance
+is concentrated in one variable rather than spread across the conditioning
+set. This pattern is not shared by the other flexible learner.
+Random forest keeps every difference below \(0.071\). The result should
+therefore not be interpreted as a general failure of flexible DML or of the
+income sample. Instead, it shows that the weighted comparison produced by the
+honest forests remains sensitive to age at first birth in this particular
+specification. This may contribute to the difference between the forest and
+conventional income estimates, but it cannot explain the full learner
+ordering because the Random Forest estimates are also more negative while
+maintaining good balance.\\
+Taken together, the estimates are consistently negative across
+conventional IV and DML specifications, but their large standard errors leave
+substantial uncertainty about the effect magnitudes. The translation and
+outcome-weight diagnostics separate the exact normalisation differences
+between estimators from their realised behavior, which is characterized by
+broad support and considerable sign cancellation. Covariate balance is
+generally strong, although the income honest-forest result shows that the
+choice of nuisance learner can still alter the comparison along an important
+observed characteristic.
+
+
+
+
 % ==============================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -3243,14 +3184,11 @@ The Card application is useful for this thesis because it changes the empirical 
 % ==============================================================================
 % REFERENCES
 % ==============================================================================
-\newpage
-
 
 % ==============================================================================
 % APPENDICES
 % ==============================================================================
-\newpage
-\section{Appendix}
+\clearpage
 \appendix
 \renewcommand{\thesection}{\Alph{section}}
 
@@ -3557,7 +3495,7 @@ The two kappa components $\kappa_{i1}$ and $\kappa_{i0}$ decompose $r_i$ as foll
 Equation~\eqref{eq:a1_kappa_decomp} is the central identity: the treated part of $r_i$
 is $\kappa_{i1}$ and the untreated part is $-\kappa_{i0}$.
 
-\paragraph{PIVE representation.}
+\paragraph{PIVE representation.}\mbox{}\\
 Define the diagonal transformation matrix
 $\mathbf{T}^{a,1} = \mathrm{diag}(r_1, \ldots, r_N)$.
 Using \eqref{eq:a1_kappa_decomp}, the pseudo-treatment is
@@ -3708,7 +3646,6 @@ Birth cohort & Lottery year & Eligibility ceiling \\
 \label{fig:vietnam_pscore}
 \end{figure}
 
-\clearpage
 \subsection{Vietnam Design diagnostics}
 \begin{table}[H]
 \centering
@@ -3739,7 +3676,6 @@ instrument.
 \end{table}
 
 
-\clearpage
 \subsection{Estimates kappa vs dml}
 
 \begin{table}[H]
@@ -3827,9 +3763,6 @@ cross-fitting.
 
 
 
-\clearpage
-
-
 \subsection{Estimates flexible nuisance}
 \begin{table}[H]
 \centering
@@ -3911,7 +3844,7 @@ error.
 \clearpage
 \begin{sidewaystable}[p]
 \raggedright
-\section{Vietnam Outcome-Weight Diagnostics}
+\subsection{Vietnam Outcome-Weight Diagnostics}
 \centering
 \caption{Complete eligible outcome-weight diagnostics for the Vietnam application}
 \label{tab:vietnam_weights_full_appendix}
@@ -4054,7 +3987,7 @@ is not used in the reported diagnostics.
 \end{table}
 
 \clearpage
-\section{Vietnam Covariate-Balance Diagnostics}
+\subsection{Vietnam Covariate-Balance Diagnostics}
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{pics/vietnam_love_cubic_thesis.png}
@@ -4135,11 +4068,6 @@ Regional indicators, \texttt{reg661}, \(\ldots\), \texttt{reg668} & Yes & No \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\newpage
-
-
-
 
 \subsection{Card Descriptive diagnostics}
 \label{app:card_propensity}
@@ -4236,8 +4164,6 @@ not a test of the IV assumptions.
 
 
 
-\newpage
-
 \subsection{Point Estimates and Learner Tuning}
 \label{app:card_point_estimates}
 
@@ -4321,12 +4247,12 @@ loss.
 \scriptsize
 \setlength{\tabcolsep}{5pt}
 \begin{threeparttable}
-\begin{tabular}{lccc}
+\begin{tabular}{@{}lccc@{}}
 \toprule
 Design cell
-& Untuned estimate (SE)
-& Tuned estimate (SE)
-& Boundary share, untuned \(\rightarrow\) tuned \\
+& \shortstack{Untuned\\estimate (SE)}
+& \shortstack{Tuned\\estimate (SE)}
+& \shortstack{Boundary share\\untuned \(\rightarrow\) tuned} \\
 \midrule
 Card--schooling beyond high school
 & \(-13.416\) (14.411) & 0.382 (0.214)
@@ -4356,8 +4282,6 @@ instrument or treatment propensities below \(0.02\) or above \(0.98\).
 
 
 
-
-\newpage
 
 \subsection{Complete-Pipeline Translation-Invariance Results}
 \label{app:card_translation}
@@ -4521,12 +4445,6 @@ outcome codings. Bold changes exceed \(10^{-4}\) in absolute value.
 \end{table}
 
 
-\clearpage
-
-
-
-
-
 \subsection{Outcome-Weight Normalisation and Concentration}
 \label{app:card_weights}
 
@@ -4571,7 +4489,6 @@ are signed. The table reports selected estimators needed to interpret the
 translation result.
 \end{minipage}
 \end{table}
-
 
 
 
@@ -4845,7 +4762,6 @@ their interaction.
 
 
 
-\clearpage
 \subsection{Subsampling Procedure}
 \label{app:subsampling}
 The diagnostic subsamples used in the Angrist--Evans application are constructed by proportional stratified subsampling without replacement.
@@ -4921,8 +4837,6 @@ used for the computational estimator and outcome-weight comparisons.
 \end{minipage}
 \end{table}
 
-\newpage
-
 \subsection{Adjusted First Stage and Overlap}
 \label{app:ae_balance}
 \begin{table}[H]
@@ -4986,7 +4900,6 @@ status. The dashed line marks a propensity of \(0.5\).
 \end{figure}
 
 
-\newpage
 \subsection{Point Estimates}
 \begin{table}[H]
 \centering
@@ -5114,7 +5027,30 @@ tuning.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
-% ==============================================================================
+
+
+
+
+
+\clearpage
+\subsection{Covariate Balancing in the Child design}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{pics/ae_balance_work.png}
+\caption{Outcome-weight covariate balance for work status in the Angrist--Evans application}
+\label{fig:child_balance_work}
+\label{fig:child_balance}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{pics/ae_balance_income.png}
+\caption{Outcome-weight covariate balance for maternal log income in the Angrist--Evans application}
+\label{fig:child_balance_income}
+\end{figure}
+
+\clearpage
 \bibliographystyle{apalike}
 \bibliography{references}
 
