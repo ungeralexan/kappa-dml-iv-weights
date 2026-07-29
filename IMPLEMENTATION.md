@@ -135,15 +135,104 @@ estimator.
 ## Outcome weights and identity checks
 
 `kappa_outcome_weights()` constructs a closed-form outcome-weight vector for
-each reported kappa estimator. A valid vector must satisfy
+each reported kappa estimator from the observed instrument `Z`, treatment `D`,
+and fitted instrument propensity scores `p`. Propensity-score estimation is
+completed before this function is called; no outcome regression or additional
+optimization is performed during kappa weight construction.
+
+For the normalized Uysal estimator, the function computes
+
+$$
+s_1=\sum_i\frac{Z_i}{p_i},\qquad
+s_0=\sum_i\frac{1-Z_i}{1-p_i},
+$$
+
+the normalized first-stage contrast
+
+$$
+\widehat\Delta_D^u
+=
+\frac{\sum_iD_iZ_i/p_i}{s_1}
+-
+\frac{\sum_iD_i(1-Z_i)/(1-p_i)}{s_0},
+$$
+
+and the final outcome weights
+
+$$
+\omega_i^u
+=
+\frac{
+Z_i/(p_i s_1)
+-
+(1-Z_i)/\{(1-p_i)s_0\}
+}{
+\widehat\Delta_D^u
+}.
+$$
+
+This is the formula derived in the thesis appendix. The other kappa vectors
+are constructed as
+
+$$
+\omega_i^{a,10}
+=
+\frac{\kappa_{1i}}{\sum_j\kappa_{1j}}
+-
+\frac{\kappa_{0i}}{\sum_j\kappa_{0j}},
+$$
+
+while the three unnormalized estimators use
+
+$$
+\omega_i^a
+=
+\frac{(Z_i-p_i)/\{p_i(1-p_i)\}}{\sum_j\kappa_j},
+\qquad
+\omega_i^{a,1}
+=
+\frac{(Z_i-p_i)/\{p_i(1-p_i)\}}{\sum_j\kappa_{1j}},
+\qquad
+\omega_i^{a,0}
+=
+\frac{(Z_i-p_i)/\{p_i(1-p_i)\}}{\sum_j\kappa_{0j}}.
+$$
+
+In the R implementation these are returned as `w_a`, `w_a1`, and `w_a0`.
+
+Every candidate vector must satisfy
 
 $$
 \widehat\tau=\sum_{i=1}^N\omega_iY_i
 $$
 
-to the project's numerical tolerance. `check_weight_identity()` performs this
-reconstruction check. Candidate vectors that fail the check are not used in
-weight-based diagnostics.
+to the project's numerical tolerance of $10^{-8}$.
+`check_weight_identity()` performs this reconstruction check for the
+closed-form kappa vectors.
+
+### DML outcome-weight extraction
+
+The DML outcome weights are obtained from the development version
+`0.2.0.9000` of `OutcomeWeights`, using GitHub commit
+`0c94f940b04c14d0247b46842af37752e306b79e`.
+
+The headline PLR-IV and Wald-AIPW specifications use
+`OutcomeWeights::dml_with_smoother()` with five-fold cross-fitting and honest
+`grf` regression-forest smoothers. Their fitted observation-level vectors are
+recovered with `OutcomeWeights::get_outcome_weights()`. The alternative
+parametric, Ranger, and XGBoost specifications are fitted as
+`DoubleMLPLIV` or `DoubleMLIIVM` objects. Where the learner and package method
+support weight recovery, their stored nuisance fits are passed to the
+corresponding `DoubleML` method of `get_outcome_weights()`.
+
+`check_doubleml_identity()` applies the same reconstruction requirement to a
+weight object extracted from a `DoubleML` fit. A vector is classified as an
+exact outcome-weight representation only when its inner product with the
+observed outcome reproduces the fitted coefficient within $10^{-8}$. Vectors
+that fail this identity, including the affected XGBoost extractions in the
+current analysis, may be retained as explicitly flagged learner-sensitivity
+information but are excluded from the main normalization, concentration, and
+covariate-balance comparison.
 
 The diagnostics are computed from unrounded weights and include normalization
 masses, effective support, maximum absolute weights, sign composition,
