@@ -1,0 +1,574 @@
+---
+title: "Vietnam Draft Lottery — Smoother-Matrix Diagnostics"
+subtitle: "Affine smoothers (Condition 3) and treatment-prediction alignment (Condition 5)"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  cache = TRUE,
+  autodep = TRUE
+)
+options(knitr.kable.NA = "—")
+```
+
+# Purpose
+
+This notebook checks the sufficient smoother conditions in Knaus (2024)
+directly on the fitted Vietnam nuisance functions. It does not replace the
+outcome-weight reproduction gate.
+
+For an outcome smoother \(\widehat m=S Y\), Condition 3 requires
+
+\[
+S\mathbf 1_N=\mathbf 1_N.
+\]
+
+Thus, every row of \(S\) must sum to one. For Wald-AIPW the condition is
+checked separately for \(S_0^z\) and \(S_1^z\). Condition 3 is sufficient for
+normalised outcome weights. Full normalisation additionally requires
+
+\[
+S D=\widehat D
+\]
+
+for PLR-IV (Condition 5a), or
+
+\[
+S_0^zD=\widehat D_0^z,\qquad
+S_1^zD=\widehat D_1^z
+\]
+
+for Wald-AIPW (Condition 5b).
+
+The main analysis below fits only the tuned honest forests. The optional
+section reconstructs matrices for OLS/logit and `ranger`. It is disabled by
+default because those models are already examined in the main Vietnam
+notebook and the \(N\times N\) matrices are memory intensive.
+
+```{r switches}
+RUN_ALTERNATIVE_LEARNERS <- FALSE
+```
+
+# Setup
+
+```{r packages}
+library(haven)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(knitr)
+library(kableExtra)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+source(file.path("..", "functions_all.R"))
+```
+
+```{r data}
+sipp <- read_dta("sipp.dta")
+sipp_clean <- sipp[
+  sipp$rsncode != 999 &
+    !is.na(sipp$educ) &
+    !is.na(sipp$kwage),
+]
+
+sipp_clean$age <- sipp_clean$age_5
+sipp_clean$age_fac <- factor(sipp_clean$age_5)
+
+Y <- log(sipp_clean$kwage)
+Z <- as.integer(sipp_clean$rsncode)
+D <- as.integer(sipp_clean$nvstat)
+
+X_cubic <- make_X(
+  ~ 0 + age + I(age^2) + I(age^3),
+  data = sipp_clean
+)
+X_saturated_full <- make_X(~ 0 + age_fac, data = sipp_clean)
+X_saturated <- X_saturated_full[, -1, drop = FALSE]
+
+stopifnot(
+  length(Y) == 3027L,
+  nrow(X_cubic) == length(Y),
+  nrow(X_saturated) == length(Y)
+)
+```
+
+# Diagnostic helpers
+
+```{r helpers}
+rep_matrix <- function(x, repetition = 1L) {
+  dx <- dim(x)
+  if (length(dx) == 3L) {
+    return(x[repetition, , , drop = TRUE])
+  }
+  as.matrix(x)
+}
+
+rep_prediction <- function(x, repetition = 1L) {
+  if (is.null(dim(x))) return(as.numeric(x))
+  as.numeric(x[, repetition])
+}
+
+affine_row <- function(S, specification, estimator, smoother) {
+  row_mass <- rowSums(S)
+  target <- rep(1, nrow(S))
+  data.frame(
+    Specification = specification,
+    Estimator = estimator,
+    Smoother = smoother,
+    `Minimum row sum` = min(row_mass),
+    `Maximum row sum` = max(row_mass),
+    `Maximum |row sum - 1|` = max(abs(row_mass - 1)),
+    `Condition 3` = isTRUE(all.equal(row_mass, target)),
+    check.names = FALSE
+  )
+}
+
+alignment_row <- function(S, D, D_hat, specification, estimator, condition) {
+  reconstructed <- as.numeric(S %*% D)
+  difference <- reconstructed - as.numeric(D_hat)
+  data.frame(
+    Specification = specification,
+    Estimator = estimator,
+    Condition = condition,
+    RMSE = sqrt(mean(difference^2)),
+    `Maximum absolute difference` = max(abs(difference)),
+    Satisfied = isTRUE(all.equal(reconstructed, as.numeric(D_hat))),
+    check.names = FALSE
+  )
+}
+
+show_table <- function(x, caption, digits = 8) {
+  x |>
+    kbl(
+      caption = caption,
+      row.names = FALSE,
+      digits = digits
+    ) |>
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = FALSE
+    )
+}
+```
+
+# Tuned honest forests
+
+The `dml_with_smoother()` objects store the cross-fitted outcome smoother
+matrices under `NuPa.hat$smoothers`. The cubic and saturated models are fitted
+with the same five-fold design and tuning rule used in the Vietnam analysis.
+
+```{r fit-honest-forests, cache=TRUE}
+set.seed(42)
+forest_cubic <- dml_with_smoother(
+  Y, D, X_cubic, Z,
+  n_cf_folds = 5,
+  tune.parameters = "all"
+)
+
+set.seed(42)
+forest_saturated <- dml_with_smoother(
+  Y, D, X_saturated, Z,
+  n_cf_folds = 5,
+  tune.parameters = "all"
+)
+
+forest_fits <- list(
+  "Cubic age" = forest_cubic,
+  "Saturated age" = forest_saturated
+)
+```
+
+## Condition 3: affine outcome smoothers
+
+```{r forest-condition-3}
+condition3_forest <- do.call(rbind, lapply(names(forest_fits), function(spec) {
+  fit <- forest_fits[[spec]]
+  sm <- fit$NuPa.hat$smoothers
+
+  rbind(
+    affine_row(
+      rep_matrix(sm$S), spec,
+      "PLR-IV", "S"
+    ),
+    affine_row(
+      rep_matrix(sm$S.z0), spec,
+      "Wald-AIPW", "S.z0"
+    ),
+    affine_row(
+      rep_matrix(sm$S.z1), spec,
+      "Wald-AIPW", "S.z1"
+    )
+  )
+}))
+
+show_table(
+  condition3_forest,
+  "Condition 3 — row sums of the tuned honest-forest outcome smoothers",
+  digits = 15
+)
+```
+
+## Conditions 5a and 5b: treatment-prediction alignment
+
+```{r forest-condition-5}
+condition5_forest <- do.call(rbind, lapply(names(forest_fits), function(spec) {
+  fit <- forest_fits[[spec]]
+  sm <- fit$NuPa.hat$smoothers
+  pr <- fit$NuPa.hat$predictions
+
+  rbind(
+    alignment_row(
+      rep_matrix(sm$S), D, rep_prediction(pr$D.hat),
+      spec, "PLR-IV", "5a: S D = D.hat"
+    ),
+    alignment_row(
+      rep_matrix(sm$S.z0), D, rep_prediction(pr$D.hat.z0),
+      spec, "Wald-AIPW", "5b: S.z0 D = D.hat.z0"
+    ),
+    alignment_row(
+      rep_matrix(sm$S.z1), D, rep_prediction(pr$D.hat.z1),
+      spec, "Wald-AIPW", "5b: S.z1 D = D.hat.z1"
+    )
+  )
+}))
+
+show_table(
+  condition5_forest,
+  "Conditions 5a and 5b — treatment-prediction alignment",
+  digits = 8
+)
+```
+
+## Outcome-weight reproduction gate
+
+Condition 3 is interpreted only after the extracted outcome weights reproduce
+the estimator. This table keeps the representation check separate from the
+smoother conditions.
+
+```{r forest-reproduction}
+forest_reproduction <- do.call(rbind, lapply(names(forest_fits), function(spec) {
+  fit <- forest_fits[[spec]]
+  omega <- get_outcome_weights(fit)$omega
+  estimates <- summary(fit)
+
+  data.frame(
+    Specification = spec,
+    Estimator = c("PLR-IV", "Wald-AIPW"),
+    `omega'Y` = c(
+      as.numeric(omega["PLR-IV", ] %*% Y),
+      as.numeric(omega["Wald-AIPW", ] %*% Y)
+    ),
+    Estimate = c(
+      get_estimate(estimates, "PLR-IV"),
+      get_estimate(estimates, "Wald-AIPW")
+    ),
+    `Reproduces estimate` = c(
+      isTRUE(all.equal(
+        as.numeric(omega["PLR-IV", ] %*% Y),
+        get_estimate(estimates, "PLR-IV")
+      )),
+      isTRUE(all.equal(
+        as.numeric(omega["Wald-AIPW", ] %*% Y),
+        get_estimate(estimates, "Wald-AIPW")
+      ))
+    ),
+    check.names = FALSE
+  )
+}))
+
+show_table(
+  forest_reproduction,
+  "Estimator-specific outcome-weight reproduction",
+  digits = 12
+)
+```
+
+# Optional OLS/logit and ranger audit
+
+The development version of `OutcomeWeights` can reconstruct the cross-fitted
+outcome smoother matrix from stored `DoubleML` fold models:
+
+- OLS supplies a linear-smoother matrix. With an intercept its rows should sum
+  to one, although the raw cubic cross-product reconstruction is numerically
+  ill-conditioned.
+- `ranger` reconstructs forest weights from terminal-node membership and
+  in-bag counts. The learners must therefore be fitted with
+  `keep.inbag = TRUE`.
+
+The code below is disabled by default. Set
+`RUN_ALTERNATIVE_LEARNERS <- TRUE` above to execute it.
+
+```{r alternative-helpers, eval=RUN_ALTERNATIVE_LEARNERS}
+make_dml_data <- function(X) {
+  dat <- as.data.frame(X)
+  dat$y <- Y
+  dat$d <- D
+  dat$z <- Z
+  DoubleMLData$new(
+    data = dat,
+    y_col = "y",
+    d_cols = "d",
+    z_cols = "z",
+    x_cols = colnames(X)
+  )
+}
+
+fit_pliv_object <- function(dml_data, learner) {
+  set.seed(42)
+  object <- DoubleMLPLIV$new(
+    data = dml_data,
+    ml_l = learner(),
+    ml_m = learner(),
+    ml_r = learner(),
+    n_folds = 5
+  )
+  object$fit(store_models = TRUE, store_predictions = TRUE)
+  object
+}
+
+fit_iivm_object <- function(dml_data, outcome_learner,
+                            instrument_learner, treatment_learner) {
+  set.seed(42)
+  object <- DoubleMLIIVM$new(
+    data = dml_data,
+    ml_g = outcome_learner(),
+    ml_m = instrument_learner(),
+    ml_r = treatment_learner(),
+    n_folds = 5,
+    score = "LATE"
+  )
+  object$fit(store_models = TRUE, store_predictions = TRUE)
+  object
+}
+
+extract_doubleml_smoothers <- function(object, dml_data) {
+  type <- class(object)[1]
+  dat <- as.matrix(dml_data$data)
+  test_ids <- object$smpls[[1]]$test_ids
+  train_ids <- object$smpls[[1]]$train_ids
+  x_cols <- dml_data$x_cols
+  y_col <- dml_data$y_col
+
+  smoother <- getFromNamespace("get_DoubleML_smoother", "OutcomeWeights")
+
+  if (type == "DoubleMLPLIV") {
+    fold_models <- object$models$ml_l$d[[1]]
+    return(list(
+      S = smoother(
+        fold_models, test_ids, train_ids, dat,
+        x_cols, y_col, NULL
+      )
+    ))
+  }
+
+  if (type == "DoubleMLIIVM") {
+    z <- dat[, dml_data$z_cols]
+    return(list(
+      S.z0 = smoother(
+        object$models$ml_g0$d[[1]], test_ids, train_ids, dat,
+        x_cols, y_col, z == 0
+      ),
+      S.z1 = smoother(
+        object$models$ml_g1$d[[1]], test_ids, train_ids, dat,
+        x_cols, y_col, z == 1
+      )
+    ))
+  }
+
+  stop("Only DoubleMLPLIV and DoubleMLIIVM are supported here.")
+}
+```
+
+```{r fit-alternative-learners, eval=RUN_ALTERNATIVE_LEARNERS, cache=TRUE}
+dml_data <- list(
+  "Cubic age" = make_dml_data(X_cubic),
+  "Saturated age" = make_dml_data(X_saturated)
+)
+
+alternative_fits <- list()
+for (spec in names(dml_data)) {
+  dat <- dml_data[[spec]]
+
+  alternative_fits[[paste(spec, "PLR-IV OLS", sep = " | ")]] <-
+    list(
+      specification = spec,
+      estimator = "PLR-IV",
+      learner = "OLS",
+      data = dat,
+      object = fit_pliv_object(dat, function() lrn("regr.lm"))
+    )
+
+  alternative_fits[[paste(spec, "Wald-AIPW OLS/logit", sep = " | ")]] <-
+    list(
+      specification = spec,
+      estimator = "Wald-AIPW",
+      learner = "OLS/logit",
+      data = dat,
+      object = fit_iivm_object(
+        dat,
+        function() lrn("regr.lm"),
+        function() lrn("classif.log_reg"),
+        function() lrn("classif.log_reg")
+      )
+    )
+
+  alternative_fits[[paste(spec, "PLR-IV ranger", sep = " | ")]] <-
+    list(
+      specification = spec,
+      estimator = "PLR-IV",
+      learner = "ranger",
+      data = dat,
+      object = fit_pliv_object(
+        dat,
+        function() lrn("regr.ranger", keep.inbag = TRUE)
+      )
+    )
+
+  alternative_fits[[paste(spec, "Wald-AIPW ranger", sep = " | ")]] <-
+    list(
+      specification = spec,
+      estimator = "Wald-AIPW",
+      learner = "ranger",
+      data = dat,
+      object = fit_iivm_object(
+        dat,
+        function() lrn("regr.ranger", keep.inbag = TRUE),
+        function() lrn("classif.ranger", keep.inbag = TRUE),
+        function() lrn("classif.ranger", keep.inbag = TRUE)
+      )
+    )
+}
+```
+
+```{r alternative-results, eval=RUN_ALTERNATIVE_LEARNERS}
+alternative_audit <- lapply(alternative_fits, function(entry) {
+  object <- entry$object
+  smoothers <- extract_doubleml_smoothers(object, entry$data)
+  omega <- get_outcome_weights(object, dml_data = entry$data)$omega
+  reproduces <- isTRUE(all.equal(
+    as.numeric(omega %*% Y),
+    as.numeric(object$coef)
+  ))
+
+  if (entry$estimator == "PLR-IV") {
+    c3 <- affine_row(
+      smoothers$S, entry$specification,
+      paste(entry$estimator, entry$learner), "S"
+    )
+    c5 <- alignment_row(
+      smoothers$S, D, as.numeric(object$predictions$ml_r),
+      entry$specification,
+      paste(entry$estimator, entry$learner),
+      "5a: S D = D.hat"
+    )
+  } else {
+    c3_z0 <- affine_row(
+      smoothers$S.z0, entry$specification,
+      paste(entry$estimator, entry$learner), "S.z0"
+    )
+    c3_z1 <- affine_row(
+      smoothers$S.z1, entry$specification,
+      paste(entry$estimator, entry$learner), "S.z1"
+    )
+    c3 <- rbind(c3_z0, c3_z1)
+    c5 <- rbind(
+      alignment_row(
+        smoothers$S.z0, D, as.numeric(object$predictions$ml_r0),
+        entry$specification,
+        paste(entry$estimator, entry$learner),
+        "5b: S.z0 D = D.hat.z0"
+      ),
+      alignment_row(
+        smoothers$S.z1, D, as.numeric(object$predictions$ml_r1),
+        entry$specification,
+        paste(entry$estimator, entry$learner),
+        "5b: S.z1 D = D.hat.z1"
+      )
+    )
+  }
+
+  c3_output <- data.frame(
+    Specification = c3$Specification,
+    Estimator = c3$Estimator,
+    Smoother = c3$Smoother,
+    `Maximum |row sum - 1|` = c3$`Maximum |row sum - 1|`,
+    `Condition 3` = c3$`Condition 3`,
+    `Reproduces estimate` = reproduces,
+    check.names = FALSE
+  )
+
+  c5_output <- data.frame(
+    Specification = c5$Specification,
+    Estimator = c5$Estimator,
+    Condition = c5$Condition,
+    RMSE = c5$RMSE,
+    `Maximum absolute difference` = c5$`Maximum absolute difference`,
+    Satisfied = c5$Satisfied,
+    `Reproduces estimate` = reproduces,
+    check.names = FALSE
+  )
+
+  list(condition3 = c3_output, condition5 = c5_output)
+})
+
+alternative_condition3 <- do.call(
+  rbind,
+  lapply(alternative_audit, `[[`, "condition3")
+)
+alternative_condition5 <- do.call(
+  rbind,
+  lapply(alternative_audit, `[[`, "condition5")
+)
+
+show_table(
+  alternative_condition3,
+  "Optional affine-smoother audit — OLS/logit and ranger",
+  digits = 15
+)
+
+show_table(
+  alternative_condition5,
+  "Optional treatment-prediction alignment — OLS/logit and ranger",
+  digits = 8
+)
+```
+
+# Why tuned XGBoost is not included
+
+An XGBoost smoother matrix can be reconstructed only for a restricted class
+of fitted boosters supported by `OutcomeWeights`. In particular, the current
+method requires `alpha = 0`, `subsample = 1`, and `max_delta_step = 0`. The
+stored Vietnam XGBoost exports contain estimates, reconstructed outcome-weight
+vectors, and diagnostics, but not the fitted fold-specific booster objects
+needed to recover the smoother matrices.
+
+More importantly, all current XGBoost outcome-weight vectors fail the
+estimator-reproduction gate. A row-sum calculation on another reconstructed
+matrix would therefore not validate their normalisation or balance
+diagnostics. For the thesis, XGBoost remains in the point-estimate and
+translation-invariance comparisons but is excluded from the smoother and
+outcome-weight diagnostics.
+
+# Interpretation
+
+The checks have a strict order:
+
+1. Verify that \(\omega'Y\) reproduces the estimator.
+2. If it does, use Condition 3 to explain zero total weight mass.
+3. Use Conditions 5a or 5b to distinguish full from scale normalisation.
+
+A passing affine row-sum check cannot rescue a failed outcome-weight
+representation. Conversely, Condition 3 may pass while Condition 5 fails;
+that is precisely the theoretical pattern associated with scale-normalised
+weights.
