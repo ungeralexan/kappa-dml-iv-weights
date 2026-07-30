@@ -40,14 +40,11 @@ Y_i^{\mathrm{shift}}=Y_i+\log(100),
 \]
 
 which is the cents recoding used in the SUW reproduction. The empirical check is
-the direct difference between the two separately fitted point estimates. This
-is the full-pipeline rerun called Method A in the thesis, but throughout this
-notebook it is simply referred to as the rerun check. It extends the classical
+the direct difference between the two separately fitted point estimates. 
+It extends the classical
 kappa comparison to data-adaptive estimators by allowing outcome nuisances and
 tuning choices to be re-estimated under the same cross-fitting protocol after
-the translation. Reusing the
-original fitted models or selected hyperparameters would not evaluate the
-complete implemented estimator.
+the translation. 
 
 <div class="note-box">
 **Two workflows.** The same pure additive shift is applied to the cubic-age
@@ -59,9 +56,7 @@ each of these two analysis specifications.
 
 For the table classification, estimates are described as unchanged within
 \(10^{-4}\) when the absolute rerun difference does not exceed this
-pre-specified reporting tolerance. This is not an `all.equal()` tolerance, a
-theoretical normalization criterion, or Knaus's display epsilon. The exact
-rerun difference remains reported in every table.
+pre-specified reporting tolerance. 
 
 # Setup
 
@@ -124,9 +119,7 @@ INNER_FOLDS <- 3
 **XGBoost rule.** Original-outcome tuned estimates are
 imported from the two tuning exports. For the shifted outcome, nested tuning
 is rerun with the same seed, five outer folds, three inner folds, fifteen
-random-search evaluations, and `tune_on_folds = TRUE`. Reusing median
-hyperparameters would define a different estimator and is deliberately not
-done.
+random-search evaluations, and `tune_on_folds = TRUE`. 
 </div>
 
 ## Data — the exact main-analysis sample
@@ -170,14 +163,6 @@ data.frame(
 
 # 1. Kappa estimators
 
-<div class="note-box">
-The normalized estimators should remain unchanged after the complete rerun.
-The unnormalized estimators have no general translation-invariance guarantee:
-they are expected to move unless the fitted sample weights happen to satisfy
-the required normalization, as occurs in the saturated-age specification.
-These fits are cheap and provide the classical benchmark for the data-adaptive
-estimators below.
-</div>
 
 ```{r kappa-builders}
 kappa_estimator_names <- c("tau_cb_u","tau_ml_u","tau_ml_a10",
@@ -200,18 +185,18 @@ if(RUN_KAPPA)kappa_ti_all<-do.call(rbind,lapply(workflows,build_kappa_rows))
 if(RUN_KAPPA) {
   kappa_ti_all <- classify_rerun_results(kappa_ti_all)
   display_rerun_results(kappa_ti_all) %>%
-    kbl(caption="Kappa estimators — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kbl(caption="Kappa estimators — original versus shifted log wage",digits=4,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!kappa_ti_all$invariant),background="#fffbf0") %>%
     footnote(general=paste0(
       "Shading marks absolute rerun differences above ",
-      format(RERUN_TOLERANCE,scientific=TRUE),
+      "10^-4",
       ". This occurs for the cubic unnormalized kappa variants."
     ))
 }
 ```
 
-# 2. Headline DML: tuned honest forest
+# 2. DML tuned forest
 
 ```{r dml-headline-builder}
 build_dml_headline_rows <- function(wf) {
@@ -243,7 +228,7 @@ if(RUN_DML)dml_headline_ti_all<-do.call(rbind,lapply(workflows,build_dml_headlin
 if(RUN_DML) {
   dml_headline_ti_all <- classify_rerun_results(dml_headline_ti_all)
   display_rerun_results(dml_headline_ti_all) %>%
-    kbl(caption="Tuned honest forest — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kbl(caption="Tuned honest forest — original versus shifted log wage",digits=4,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!dml_headline_ti_all$invariant),background="#fffbf0") %>%
     footnote(general="The exact rerun differences are shown; all four are unchanged within the stated reporting tolerance.")
@@ -252,13 +237,6 @@ if(RUN_DML) {
 
 # 3. OLS/logit and Ranger learners
 
-<div class="note-box">
-“OLS/logit” describes the nuisance learner, not the linear-age feature
-specification. Every row is evaluated once with cubic-age features and once
-with saturated-age features. PLR-IV uses OLS for all three nuisances;
-Wald-AIPW uses OLS for the outcome nuisance and logistic regression for the
-binary instrument and treatment nuisances.
-</div>
 
 ```{r learner-setup}
 make_dml_data <- function(Y,D,Z,X){df<-as.data.frame(X);df$y<-Y;df$d<-D;df$z<-Z
@@ -290,7 +268,7 @@ if(RUN_LM_RF)learner_ti_all<-do.call(rbind,lapply(workflows,function(wf)rbind(
 if(RUN_LM_RF) {
   learner_ti_all <- classify_rerun_results(learner_ti_all)
   display_rerun_results(learner_ti_all) %>%
-    kbl(caption="DoubleML learners — original versus shifted log wage",digits=8,row.names=FALSE) %>%
+    kbl(caption="DoubleML learners — original versus shifted log wage",digits=4,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!learner_ti_all$invariant),background="#fffbf0") %>%
     footnote(general="OLS/logit labels the nuisance learner class; cubic and saturated identify the feature specification. All reported rerun differences are within the numerical threshold.")
@@ -360,13 +338,13 @@ if(RUN_XGB_RERUN){
 if(RUN_XGB_RERUN) {
   xgb_ti_all <- classify_rerun_results(xgb_ti_all)
   display_rerun_results(xgb_ti_all) %>%
-    kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",digits=8,row.names=FALSE) %>%
+    kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",digits=4,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!xgb_ti_all$invariant),background="#fffbf0") %>%
     footnote(general=paste0(
       "Original estimates are imported from the saved tuning results; shifted estimates rerun nested tuning. ",
       "Shading marks absolute rerun differences above ",
-      format(RERUN_TOLERANCE,scientific=TRUE), "."
+      "10^-4."
     ))
 }
 ```
@@ -377,9 +355,7 @@ and honest-forest implementations are unchanged within the stated reporting
 tolerance after the complete rerun. The cubic unnormalized kappa results reproduce the sensitivity reported
 by SUW, while the kappa variants coincide under the saturated-age
 specification. The tuned XGBoost estimates show small but visible rerun
-differences. These changes are compatible with the absence of a general
-normalization result for boosted-tree implementations discussed by Knaus.
-Their magnitudes refer only to the present implementation and tuning protocol.
+differences. 
 The cubic OLS PLR-IV rerun result is not contradicted by its borderline
 reproduction check in the main presentation: that separate `FALSE` arises
 from numerical reconstruction of the raw-cubic OLS smoother, not from a

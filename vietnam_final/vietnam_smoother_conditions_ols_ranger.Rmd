@@ -1,0 +1,481 @@
+---
+title: "The Vietnam Draft Lottery — Smoother Conditions for Alternative DML Learners"
+subtitle: "PLR-IV and Wald-AIPW with OLS/logit and ranger"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size:15px; color:#2c2c2c; }
+h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
+h2 { color:#2c7bb6; margin-top:28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size:13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo=TRUE,
+  message=FALSE,
+  warning=FALSE,
+  cache=TRUE,
+  autodep=TRUE,
+  cache.extra="vietnam-ols-ranger-smoother-audit-v1"
+)
+options(knitr.kable.NA="—")
+```
+
+# Purpose
+
+This notebook checks the smoother conditions in Knaus (2024) for the
+alternative Vietnam DoubleML learners. It covers PLR-IV and Wald-AIPW under
+cubic and saturated age adjustment, using OLS/logit and `ranger` nuisance
+learners. Honest forests and XGBoost are not fitted here.
+
+For an outcome smoother \(\widehat m=S Y\), Condition 3 requires
+
+\[
+S\mathbf 1_N=\mathbf 1_N.
+\]
+
+Full normalization additionally requires
+
+\[
+S D=\widehat D
+\]
+
+for PLR-IV (Condition 5a), or
+
+\[
+S_0^zD=\widehat D_0^z,\qquad
+S_1^zD=\widehat D_1^z
+\]
+
+for Wald-AIPW (Condition 5b). The two Wald-AIPW branches are reported
+separately.
+
+<div class="warn-box">
+The smoother matrices contain \(N^2\) elements. Each model is therefore
+fitted, audited, and released before the next model is processed. The
+notebook may still require substantial memory while a Wald-AIPW model is
+being checked.
+</div>
+
+# Setup
+
+```{r packages, cache=FALSE}
+library(haven)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+source(file.path("..","functions_all.R"))
+
+if (!exists("get_DoubleML_smoother",
+            envir=asNamespace("OutcomeWeights"),
+            inherits=FALSE)) {
+  stop("The installed OutcomeWeights version does not provide get_DoubleML_smoother().")
+}
+```
+
+```{r data}
+sipp<-read_dta("sipp.dta")
+sipp<-sipp[
+  sipp$rsncode!=999&
+    !is.na(sipp$educ)&
+    !is.na(sipp$kwage),
+]
+
+sipp$age<-sipp$age_5
+sipp$age_fac<-factor(sipp$age_5)
+
+Y<-as.numeric(log(sipp$kwage))
+D<-as.integer(sipp$nvstat)
+Z<-as.integer(sipp$rsncode)
+
+X_cubic<-make_X(
+  ~0+age+I(age^2)+I(age^3),
+  data=sipp
+)
+X_saturated_full<-make_X(~0+age_fac,data=sipp)
+X_saturated<-X_saturated_full[,-1,drop=FALSE]
+
+specifications<-list(
+  "Cubic age"=X_cubic,
+  "Saturated age"=X_saturated
+)
+
+stopifnot(
+  length(Y)==3027L,
+  all(vapply(specifications,nrow,integer(1))==length(Y))
+)
+```
+
+# Diagnostic functions
+
+```{r helpers}
+make_dml_data<-function(X){
+  dat<-as.data.frame(X)
+  dat$y<-Y
+  dat$d<-D
+  dat$z<-Z
+  DoubleMLData$new(
+    data=dat,
+    y_col="y",
+    d_cols="d",
+    z_cols="z",
+    x_cols=colnames(X)
+  )
+}
+
+fit_pliv<-function(dml_data,learner){
+  set.seed(42)
+  object<-DoubleMLPLIV$new(
+    data=dml_data,
+    ml_l=learner(),
+    ml_m=learner(),
+    ml_r=learner(),
+    n_folds=5
+  )
+  invisible(capture.output(
+    object$fit(store_models=TRUE,store_predictions=TRUE)
+  ))
+  object
+}
+
+fit_wald<-function(dml_data,outcome_learner,
+                     instrument_learner,treatment_learner){
+  set.seed(42)
+  object<-DoubleMLIIVM$new(
+    data=dml_data,
+    ml_g=outcome_learner(),
+    ml_m=instrument_learner(),
+    ml_r=treatment_learner(),
+    n_folds=5,
+    score="LATE"
+  )
+  invisible(capture.output(
+    object$fit(store_models=TRUE,store_predictions=TRUE)
+  ))
+  object
+}
+
+prediction_vector<-function(x){
+  as.numeric(drop(x))
+}
+
+extract_smoothers<-function(object,dml_data){
+  smoother<-getFromNamespace("get_DoubleML_smoother","OutcomeWeights")
+  dat<-as.matrix(dml_data$data)
+  test_ids<-object$smpls[[1]]$test_ids
+  train_ids<-object$smpls[[1]]$train_ids
+  x_cols<-dml_data$x_cols
+  y_col<-dml_data$y_col
+
+  if (inherits(object,"DoubleMLPLIV")) {
+    return(list(
+      S=smoother(
+        object$models$ml_l$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,NULL
+      )
+    ))
+  }
+
+  if (inherits(object,"DoubleMLIIVM")) {
+    z<-dat[,dml_data$z_cols]
+    return(list(
+      S.z0=smoother(
+        object$models$ml_g0$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,z==0
+      ),
+      S.z1=smoother(
+        object$models$ml_g1$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,z==1
+      )
+    ))
+  }
+
+  stop("Unsupported DoubleML class.")
+}
+
+extract_weight_vector<-function(object,dml_data,estimator){
+  omega<-get_outcome_weights(
+    object=object,
+    dml_data=dml_data
+  )$omega
+  if (is.null(dim(omega))) return(as.numeric(omega))
+  if (!is.null(rownames(omega))&&estimator%in%rownames(omega)) {
+    return(as.numeric(omega[estimator,]))
+  }
+  as.numeric(omega[1,])
+}
+
+condition3_row<-function(S,specification,estimator,learner,smoother,
+                           reproduces){
+  row_sums<-rowSums(S)
+  target<-rep(1,nrow(S))
+  data.frame(
+    Specification=specification,
+    Estimator=estimator,
+    Learner=learner,
+    Smoother=smoother,
+    `Minimum row sum`=min(row_sums),
+    `Maximum row sum`=max(row_sums),
+    `Maximum |row sum - 1|`=max(abs(row_sums-1)),
+    `Condition 3`=isTRUE(all.equal(row_sums,target)),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+
+condition5_row<-function(S,D,D_hat,specification,estimator,learner,
+                           condition,reproduces){
+  reconstructed<-as.numeric(S%*%D)
+  difference<-reconstructed-as.numeric(D_hat)
+  data.frame(
+    Specification=specification,
+    Estimator=estimator,
+    Learner=learner,
+    Condition=condition,
+    RMSE=sqrt(mean(difference^2)),
+    `Maximum absolute difference`=max(abs(difference)),
+    Satisfied=isTRUE(all.equal(reconstructed,as.numeric(D_hat))),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+
+classify_weights<-function(total,treated,control,reproduces){
+  if (!isTRUE(reproduces)) {
+    return("Not interpreted: reproduction failed")
+  }
+  total_zero<-isTRUE(all.equal(as.numeric(total),0))
+  treated_one<-isTRUE(all.equal(as.numeric(treated),1))
+  control_one<-isTRUE(all.equal(as.numeric(control),1))
+
+  if (total_zero&&treated_one&&control_one) return("Fully normalized")
+  if (total_zero) return("Scale-normalized")
+  if (treated_one&&!control_one) return("Untreated-unnormalized")
+  if (!treated_one&&control_one) return("Treated-unnormalized")
+  "Fully unnormalized"
+}
+
+weight_row<-function(w,specification,estimator,learner,reproduces){
+  total<-sum(w)
+  treated<-sum(w[D==1])
+  control<--sum(w[D==0])
+  data.frame(
+    Specification=specification,
+    Estimator=estimator,
+    Learner=learner,
+    `Overall sum`=total,
+    `Treated sum`=treated,
+    `Control sum`=control,
+    `Realized class`=classify_weights(
+      total,treated,control,reproduces
+    ),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+```
+
+# Sequential audit
+
+```{r audit-functions}
+audit_one<-function(specification,estimator,learner){
+  dml_data<-make_dml_data(specifications[[specification]])
+
+  if (estimator=="PLR-IV"&&learner=="OLS") {
+    object<-fit_pliv(dml_data,function()lrn("regr.lm"))
+  } else if (estimator=="PLR-IV"&&learner=="ranger") {
+    object<-fit_pliv(
+      dml_data,
+      function()lrn("regr.ranger",keep.inbag=TRUE)
+    )
+  } else if (estimator=="Wald-AIPW"&&learner=="OLS/logit") {
+    object<-fit_wald(
+      dml_data,
+      function()lrn("regr.lm"),
+      function()lrn("classif.log_reg"),
+      function()lrn("classif.log_reg")
+    )
+  } else if (estimator=="Wald-AIPW"&&learner=="ranger") {
+    object<-fit_wald(
+      dml_data,
+      function()lrn("regr.ranger",keep.inbag=TRUE),
+      function()lrn("classif.ranger",keep.inbag=TRUE),
+      function()lrn("classif.ranger",keep.inbag=TRUE)
+    )
+  } else {
+    stop("Unsupported estimator and learner combination.")
+  }
+
+  smoothers<-extract_smoothers(object,dml_data)
+  w<-extract_weight_vector(object,dml_data,estimator)
+  estimate<-get_dml_coef(object)
+  reproduces<-check_weight_identity(w,Y,estimate)
+
+  if (estimator=="PLR-IV") {
+    condition3<-condition3_row(
+      smoothers$S,specification,estimator,learner,"S",reproduces
+    )
+    condition5<-condition5_row(
+      smoothers$S,D,prediction_vector(object$predictions$ml_r),
+      specification,estimator,learner,
+      "5a: S D = D.hat",reproduces
+    )
+  } else {
+    condition3<-rbind(
+      condition3_row(
+        smoothers$S.z0,specification,estimator,learner,
+        "S.z0",reproduces
+      ),
+      condition3_row(
+        smoothers$S.z1,specification,estimator,learner,
+        "S.z1",reproduces
+      )
+    )
+    condition5<-rbind(
+      condition5_row(
+        smoothers$S.z0,D,
+        prediction_vector(object$predictions$ml_r0),
+        specification,estimator,learner,
+        "5b: S.z0 D = D.hat.z0",reproduces
+      ),
+      condition5_row(
+        smoothers$S.z1,D,
+        prediction_vector(object$predictions$ml_r1),
+        specification,estimator,learner,
+        "5b: S.z1 D = D.hat.z1",reproduces
+      )
+    )
+  }
+
+  weights<-weight_row(
+    w,specification,estimator,learner,reproduces
+  )
+
+  list(
+    condition3=condition3,
+    condition5=condition5,
+    weights=weights
+  )
+}
+```
+
+```{r run-audit, cache=TRUE}
+audit_grid<-rbind(
+  data.frame(Estimator="PLR-IV",Learner="OLS"),
+  data.frame(Estimator="PLR-IV",Learner="ranger"),
+  data.frame(Estimator="Wald-AIPW",Learner="OLS/logit"),
+  data.frame(Estimator="Wald-AIPW",Learner="ranger")
+)
+
+condition3_parts<-list()
+condition5_parts<-list()
+weight_parts<-list()
+result_index<-1L
+
+for (specification in names(specifications)) {
+  for (i in seq_len(nrow(audit_grid))) {
+    result<-audit_one(
+      specification,
+      audit_grid$Estimator[i],
+      audit_grid$Learner[i]
+    )
+    condition3_parts[[result_index]]<-result$condition3
+    condition5_parts[[result_index]]<-result$condition5
+    weight_parts[[result_index]]<-result$weights
+    rm(result)
+    invisible(gc())
+    result_index<-result_index+1L
+  }
+}
+
+condition3_results<-do.call(rbind,condition3_parts)
+condition5_results<-do.call(rbind,condition5_parts)
+weight_results<-do.call(rbind,weight_parts)
+```
+
+# Results
+
+## Condition 3: affine outcome smoothers
+
+```{r condition3-table}
+condition3_results%>%
+  kbl(
+    caption="Condition 3 — affine outcome-smoother audit",
+    digits=12,
+    row.names=FALSE
+  )%>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    full_width=TRUE
+  )%>%
+  collapse_rows(columns=c(1,2,3),valign="middle")
+```
+
+## Conditions 5a and 5b: treatment-prediction alignment
+
+```{r condition5-table}
+condition5_results%>%
+  kbl(
+    caption="Conditions 5a and 5b — outcome-smoother and treatment-prediction alignment",
+    digits=10,
+    row.names=FALSE
+  )%>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    full_width=TRUE
+  )%>%
+  collapse_rows(columns=c(1,2,3),valign="middle")
+```
+
+For Wald-AIPW, Condition 5b is satisfied only if both instrument-specific
+rows are marked `TRUE`.
+
+## Realized outcome-weight classification
+
+```{r weight-table}
+weight_results%>%
+  kbl(
+    caption="Realized normalization class of the verified outcome weights",
+    digits=8,
+    row.names=FALSE
+  )%>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    full_width=TRUE
+  )%>%
+  collapse_rows(columns=c(1,2),valign="middle")
+```
+
+<div class="note-box">
+The smoother conditions and realized weight masses answer different
+questions. Condition 3 and Conditions 5a/5b describe why normalization
+should arise from the fitted nuisance implementation. The final table
+classifies only vectors that reproduce their estimator. A passing smoother
+condition does not override a failed outcome-weight reproduction check.
+</div>
+
+# Session information
+
+```{r session-info, cache=FALSE}
+sessionInfo()
+```

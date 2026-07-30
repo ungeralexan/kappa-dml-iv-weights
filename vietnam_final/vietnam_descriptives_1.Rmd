@@ -1,6 +1,6 @@
 ---
-title: "Angrist (1990) — Design and Descriptive Diagnostics"
-subtitle: "Sample construction · treatment uptake · IV building blocks · overlap and balance"
+title: "The Vietnam Draft Lottery — Design and Descriptive Evidence"
+subtitle: "Sample construction · treatment uptake · linear-IV building blocks · overlap"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 output:
@@ -56,7 +56,7 @@ col_grey <- "#4d4d4d"
 ```{r data, include=FALSE}
 data_candidates <- c("sipp.dta", file.path("vietnam_final", "sipp.dta"))
 data_file <- data_candidates[file.exists(data_candidates)][1]
-if (is.na(data_file)) stop("Could not find sipp.dta in the notebook or project directory.")
+if (is.na(data_file)) stop("No dataset found.")
 
 sipp_raw <- read_dta(data_file)
 
@@ -87,7 +87,7 @@ sipp$p_sat <- logit_mle(sipp$Z, X_sat)
 ```
 
 <div class="note-box">
-**Purpose.** This notebook documents the analysis sample and the empirical features that matter for the draft-lottery IV design before the main estimators are compared. Following the SUW replication, the conditioning variable is `age = age_5` (respondent age, not birth cohort), entered linearly, cubically, or through age indicators. Estimator-specific weight diagnostics remain in the main analysis notebook.
+**Purpose.** This notebook documents the analysis sample and the empirical features that matter for the draft-lottery IV design before the main estimators are compared. Following the SUW replication, the conditioning variable is `age = age_5`, entered linearly, cubically, or through age indicators. 
 </div>
 
 ---
@@ -95,7 +95,7 @@ sipp$p_sat <- logit_mle(sipp$Z, X_sat)
 # 1. Sample Construction and Data Quality
 
 <div class="note-box">
-The analysis sample follows the SUW restriction by excluding `rsncode == 999` and observations with missing education or wages. The complete variable inventory is retained as a reproducibility check and is not intended as a thesis table.
+The analysis sample follows the SUW restriction by excluding `rsncode == 999` and observations with missing education or wages.
 </div>
 
 ```{r sample-size}
@@ -228,7 +228,7 @@ compliance_block(sipp$nvstat, "nvstat (veteran)") %>%
   add_header_above(c(" " = 1, "Cell counts" = 4, "Conditional treatment rates" = 2,
                      "Descriptive contrasts" = 3)) %>%
   column_spec(9, bold = TRUE, color = "#2c7bb6") %>%
-  footnote(general = "The unadjusted gap is Pr(D=1|Z=1) − Pr(D=1|Z=0). Veteran service among ineligible men documents incomplete take-up of assignment, but a principal-strata interpretation additionally requires the relevant unconditional IV assumptions.")
+  footnote(general = "The unadjusted gap is Pr(D=1|Z=1) − Pr(D=1|Z=0).")
 ```
 
 ---
@@ -236,7 +236,7 @@ compliance_block(sipp$nvstat, "nvstat (veteran)") %>%
 # 4. First Stage, Reduced Form, and Linear-IV Benchmarks
 
 <div class="note-box">
-The first stage, reduced form, and their ratio provide transparent linear-IV benchmarks for the three age specifications. For the single instrument, the reported HC1-robust statistic is the squared robust t-statistic. The conventional threshold of 10 is shown only as a descriptive screen.
+The first stage, reduced form, and their ratio provide transparent linear-IV benchmarks for the three age specifications. With one excluded instrument, the squared HC1 t-statistic is the corresponding one-degree-of-freedom heteroskedasticity-robust Wald statistic. It is reported descriptively and not evaluated against a fixed weak-instrument threshold.
 </div>
 
 ```{r first-stage-table}
@@ -260,16 +260,14 @@ fs_rows <- rbind(
 fs_rows$first_stage <- round(fs_rows$first_stage, 4)
 fs_rows$robust_se   <- round(fs_rows$robust_se, 4)
 fs_rows$robust_t2   <- round(fs_rows$robust_t2, 1)
-fs_rows$Screen <- ifelse(fs_rows$robust_t2 >= 10, "Above 10", "Below 10")
 
 fs_rows %>%
   kbl(caption = "First-stage strength: effect of draft eligibility (Z) on veteran status",
-      col.names = c("Spec","First stage δ̂","Robust SE","Robust t²","Screen"),
-      align = c("l","r","r","r","c")) %>%
+      col.names = c("Spec","First stage δ̂","HC1 SE","HC1 Wald statistic"),
+      align = c("l","r","r","r")) %>%
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = TRUE, font_size = 13) %>%
-  row_spec(which(fs_rows$robust_t2 < 10), background = "#fdeaea", bold = TRUE) %>%
-  footnote(general = "Robust t² is the squared HC1 t-statistic for Z. Values below 10 would be highlighted as a conventional descriptive warning; the threshold is not a formal robust weak-IV test.")
+  footnote(general = "The HC1 Wald statistic is the squared robust t-statistic for Z. It is a descriptive first-stage diagnostic, not a formal weak-IV-robust test.")
 ```
 
 ```{r rf-wald-table}
@@ -307,13 +305,13 @@ rbind(
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = TRUE, font_size = 13) %>%
   column_spec(4, bold = TRUE) %>%
-  footnote(general = "With the same linear age controls in both equations, the adjusted ratio equals the just-identified 2SLS coefficient. These are linear-IV benchmarks; a conditional LATE interpretation requires the additional conditions discussed in the thesis.")
+  footnote(general = "With the same age controls in both equations, the adjusted ratio equals the just-identified 2SLS coefficient.")
 ```
 
-## First Stage by Age (design-specific)
+## First Stage by Age 
 
 <div class="note-box">
-Because draft-eligibility ceilings differ across cohorts, eligibility and veteran rates vary with age. The figure displays the treatment contrast within observed age cells; it is a descriptive view of first-stage heterogeneity rather than a separate identification test.
+Because draft-eligibility ceilings differ across cohorts, eligibility and veteran rates vary with age. The figure displays the treatment contrast within observed age cells, it is a descriptive view of first-stage heterogeneity rather than a separate identification test.
 </div>
 
 ```{r first-stage-age-plot, fig.height=5}
@@ -345,10 +343,10 @@ ggplot(fs_age, aes(x = factor(age_5), y = vet_rate, fill = Zlab)) +
 
 ---
 
-# 5. Propensity Score: Concentration & Overlap
+# 5. Instrument Propensity Scores and Overlap
 
 <div class="note-box">
-The propensity score is p(X) = Pr(Z = 1 | X), fitted with the same `logit_mle` implementation used by the analysis code. Eligibility varies with age, but the fitted probabilities remain away from zero and one in this sample. This section therefore assesses empirical support for the later inverse-propensity components without treating overlap as evidence for all IV assumptions.
+The instrument propensity score is p(X) = Pr(Z = 1 | X). It is fitted with the same logit MLE used by the MLE-based kappa estimators. The CBPS estimator uses its own balancing fit, while the DML estimators use learner-specific nuisance models. This section therefore describes support for the MLE-based inverse-propensity terms rather than every propensity model used later.
 </div>
 
 ## Summary Statistics
@@ -356,25 +354,24 @@ The propensity score is p(X) = Pr(Z = 1 | X), fitted with the same `logit_mle` i
 ```{r ps-summary}
 ps_summary <- function(p, name) {
   data.frame(Specification = name,
-             Min = min(p), P05 = quantile(p,0.05), P25 = quantile(p,0.25),
-             Mean = mean(p), P75 = quantile(p,0.75), P95 = quantile(p,0.95),
-             Max = max(p), SD = sd(p),
-             `near 0/1` = mean(p < 0.05 | p > 0.95),
+             Min = min(p),
+             P05 = unname(quantile(p, 0.05)),
+             Median = median(p),
+             P95 = unname(quantile(p, 0.95)),
+             Max = max(p),
              check.names = FALSE)
 }
 ps_tab <- bind_rows(ps_summary(sipp$p_lin, "Linear age"),
                     ps_summary(sipp$p_cub, "Cubic age"),
                     ps_summary(sipp$p_sat, "Saturated age"))
-ps_tab[,2:10] <- lapply(ps_tab[,2:10], function(x) round(x, 4))
+ps_tab[,2:6] <- lapply(ps_tab[,2:6], function(x) round(x, 4))
 
 ps_tab %>%
   kbl(caption = "Propensity score p̂(X) = Pr(Z=1|X): summary by specification",
-      align = c("l", rep("r", 9))) %>%
+      align = c("l", rep("r", 5))) %>%
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = TRUE, font_size = 12.5) %>%
-  column_spec(9, bold = TRUE) %>%
-  column_spec(10, bold = TRUE, color = "#d7191c") %>%
-  footnote(general = "Dispersion reflects the age structure of draft eligibility. The near-boundary share records the fraction of fitted probabilities below 0.05 or above 0.95.")
+  footnote(general = "The minimum, lower tail, median, upper tail, and maximum summarize the empirical support relevant for inverse-propensity weighting.")
 ```
 
 ## Distribution by Instrument Status
@@ -405,44 +402,3 @@ ggplot(ps_long, aes(x = p_hat, fill = Zlab)) +
         plot.caption = element_text(colour = "grey50", size = 9))
 ```
 
----
-
-# 6. Unadjusted Covariate Balance
-
-<div class="note-box">
-Standardized mean differences describe the age composition of the two eligibility groups before adjustment. The differences are expected because eligibility rules vary by cohort and motivate conditioning on age; they are not a direct test of instrument validity. Kolmogorov–Smirnov statistics supplement the mean differences.
-</div>
-
-```{r unadj-balance, fig.height=4.5}
-covs <- data.frame(age = sipp$age, age2 = sipp$age2, age3 = sipp$age3)
-
-# stats/binary declared in bal.tab() so cobalt computes KS upstream of love.plot()
-bal <- bal.tab(covs, treat = sipp$Z,
-               binary = "std", s.d.denom = "pooled",
-               stats  = c("mean.diffs", "ks.statistics"))
-
-love.plot(bal,
-          stats      = c("mean.diffs", "ks.statistics"),
-          binary     = "std",
-          abs        = TRUE,
-          thresholds = c(m = 0.1),
-          var.order  = "unadjusted",
-          colors     = col_z1,
-          shapes     = "circle",
-          title      = "Unadjusted covariate balance across the instrument Z (age polynomial)")
-```
-
-```{r unadj-balance-table}
-smd_tab <- bal$Balance
-smd_tab$Variable <- rownames(smd_tab)
-keep_cols <- intersect(c("Variable","Type","Diff.Un"), names(smd_tab))
-smd_tab[, keep_cols] %>%
-  arrange(desc(abs(Diff.Un))) %>%
-  mutate(Diff.Un = round(Diff.Un, 3)) %>%
-  kbl(caption = "Unadjusted standardized differences across Z (sorted by |SMD|)",
-      col.names = c("Variable","Type","SMD (unadjusted)"),
-      align = c("l","l","r"), row.names = FALSE) %>%
-  kable_styling(bootstrap_options = c("striped","hover","condensed"),
-                full_width = FALSE, font_size = 12.5) %>%
-  footnote(general = "SMD across the instrument. |SMD| > 0.1 (a common rule of thumb) flags covariates imbalanced with respect to Z — here, the age structure the design adjusts for.")
-```

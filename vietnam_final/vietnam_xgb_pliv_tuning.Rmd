@@ -1,6 +1,6 @@
 ---
-title: "Angrist (1990) — XGBoost Nuisance Tuning for PLR-IV"
-subtitle: "Vietnam draft lottery: nested tuning inside each outer cross-fitting fold"
+title: "The Vietnam Draft Lottery — XGBoost Tuning for PLR-IV"
+subtitle: "Nested nuisance tuning within the cross-fitting design"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 output:
@@ -45,28 +45,24 @@ SEED <- 42
 N_CF <- 5
 TUNE_EVALS <- 15
 INNER_FOLDS <- 3
-EXTRACT_WEIGHTS <- TRUE
+EXPORT_WEIGHT_VECTORS <- TRUE
 RERUN_TUNING <- FALSE
 EXPORT_PATH <- "vietnam_xgb_pliv_tuning_export.rds"
 ```
 
 <div class="note-box">
-**Purpose.** This notebook mirrors `vietnam_xgb_tuning.Rmd` for PLR-IV
-using `DoubleMLPLIV`. It estimates untuned and fold-specifically tuned
-XGBoost nuisances for cubic and saturated age, evaluates their out-of-fold
-prediction losses, extracts outcome weights, checks whether `ω′Y` reproduces
-`τ̂`, and exports all downstream objects. The main Vietnam notebook
-imports the export and never retunes XGBoost during an ordinary knit.
-By default, `RERUN_TUNING = FALSE` renders the report from the verified
-export. It should be changed to `TRUE` only when the nested tuning procedure
-itself is deliberately re-estimated.
+**Purpose.** This notebook compares untuned and fold-specifically tuned
+XGBoost nuisance learners for PLR-IV under the cubic- and saturated-age
+specifications. Tuning is performed within each outer training fold. The
+estimates, nuisance losses, tuning records, and outcome-weight reproduction
+audit are exported to the main Vietnam notebook.
 </div>
 
 <div class="warn-box">
-**Runtime.** PLR-IV tunes three regression nuisances (`ml_l`, `ml_m`, and
-`ml_r`) separately within every outer training fold. Keep
-`EXTRACT_WEIGHTS = TRUE`; otherwise the export cannot retain the numerical
-reproduction audit used by the main presentation.
+**Runtime.** A full rerun tunes three nuisance models using five outer folds,
+three inner folds, and 15 random-search evaluations per nuisance and outer
+fold. With `RERUN_TUNING = FALSE`, the notebook reads the existing export and
+does not refit XGBoost.
 </div>
 
 # Setup
@@ -152,7 +148,7 @@ cells <- list("Cubic age"=list(Y=Y,D=D,Z=Z,X=X_cub),
 
 # Fit: untuned versus tuned XGBoost
 
-```{r fit-all, include=FALSE}
+```{r fit-all, include=FALSE, cache.extra=list(RERUN_TUNING,SEED,N_CF,TUNE_EVALS,INNER_FOLDS)}
 if (RERUN_TUNING) {
   results <- list()
   for(cn in names(cells)) {
@@ -213,12 +209,10 @@ loss_rows %>% kbl(digits=4,caption="PLR-IV nuisance losses: untuned vs. tuned (l
 
 ## 3. Tuning protocol
 
-The tuned estimator does not have one final hyperparameter vector. The
-settings are selected separately within each outer training fold, and the
-corresponding fold-specific model produces the held-out predictions. The
-relevant reproducibility information is therefore the prespecified search
-design rather than a vector of medians assembled across different fitted
-models.
+The tuned estimator does not use a single global hyperparameter vector.
+Parameters are selected inside each outer training fold and used to predict
+its held-out observations. Reproducibility therefore depends on the
+prespecified search design and fold-specific selections.
 
 ```{r tuning-protocol}
 data.frame(
@@ -265,13 +259,7 @@ if (RERUN_TUNING) {
 }
 ```
 
-<div class="note-box">
-The existing export retains the median fold summary for audit purposes.
-Future substantive reruns additionally save the underlying fold-specific
-values. Neither object is a reusable global XGBoost recipe.
-</div>
-
-## 4. Outcome-weight diagnostics and export
+## 4. Outcome-weight audit and export
 
 ```{r weight-helpers}
 omega_vec<-function(om){w<-om$omega;if(is.null(dim(w)))return(as.vector(w))
@@ -281,15 +269,17 @@ extract_xgb_w<-function(r,cell){if(is.null(r)||is.null(r$obj))stop("fitted Doubl
 safe_extract_xgb_w<-function(r,cell)tryCatch(extract_xgb_w(r,cell),error=function(e)NULL)
 one_diag_row<-function(cn,label,r,cell){
   w<-safe_extract_xgb_w(r,cell)
-  if(is.null(r)||is.null(w))return(data.frame(Cell=cn,Learner=label,Estimate=if(is.null(r))NA else r$coef,
-    ESS_mod=NA,`Sigma omega`=NA,`Sigma abs omega`=NA,`Treated mass`=NA,
-    `Control mass (-sum control weights)`=NA,`max abs omega`=NA,`ω′Y reproduces τ̂`=NA,
-    check.names=FALSE))
-  wb<-weight_bridge(w,cell$D,label);ov<-wb[wb$Scope=="Overall",];tr<-wb[wb$Scope=="Treated",];co<-wb[wb$Scope=="Control",]
-  data.frame(Cell=cn,Learner=label,Estimate=r$coef,ESS_mod=ov$ESS_mod,
-    `Sigma omega`=ov$Sum_w,`Sigma abs omega`=ov$Sum_abs_w,`Treated mass`=tr$Sum_w,
-    `Control mass (-sum control weights)`=co$Sum_w,`max abs omega`=ov$Max_abs_w,
-    `ω′Y reproduces τ̂`=tryCatch(check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
+  if(is.null(r)||is.null(w))return(data.frame(
+    Cell=cn,Learner=label,Estimate=if(is.null(r))NA else r$coef,
+    `Overall sum`=NA,`Treated sum`=NA,`Control sum`=NA,
+    `ω′Y reproduces τ̂`=NA,check.names=FALSE))
+  data.frame(
+    Cell=cn,Learner=label,Estimate=r$coef,
+    `Overall sum`=sum(w),
+    `Treated sum`=sum(w[cell$D==1]),
+    `Control sum`=-sum(w[cell$D==0]),
+    `ω′Y reproduces τ̂`=tryCatch(
+      check_weight_identity(w,cell$Y,r$coef),error=function(e)NA),
     check.names=FALSE)}
 ```
 
@@ -301,26 +291,50 @@ if (RERUN_TUNING) {
 } else {
   xgb_pliv_weight_table <- stored_export$weight_diagnostics
 }
-# Older cached exports contain conventional Kish ESS. It is not displayed
-# because signed contrast weights do not define a nonnegative weighted sample.
-xgb_pliv_weight_display <- xgb_pliv_weight_table[, setdiff(
-  names(xgb_pliv_weight_table), c("ESS", "Weight status")
-), drop=FALSE]
 if ("Identity ok" %in% names(xgb_pliv_weight_table))
   names(xgb_pliv_weight_table)[names(xgb_pliv_weight_table)=="Identity ok"] <- "ω′Y reproduces τ̂"
-if ("Identity ok" %in% names(xgb_pliv_weight_display))
-  names(xgb_pliv_weight_display)[names(xgb_pliv_weight_display)=="Identity ok"] <- "ω′Y reproduces τ̂"
-xgb_pliv_weight_display%>%kbl(digits=4,caption="Vietnam PLR-IV XGBoost outcome-weight audit")%>%
-  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE)%>%
-  row_spec(which(xgb_pliv_weight_display$Learner=="PLR-IV XGB tuned"),background="#eef6ff")%>%
-  footnote(general="These quantities audit the available reconstructed vectors. Rows marked FALSE are not interpreted as exact estimator diagnostics and are not carried into the main presentation. Reproduction uses Knaus's all.equal() criterion with R's default tolerance; conventional Kish ESS is omitted.")
+
+learner_variant<-function(label){
+  if(grepl("untuned",label,fixed=TRUE))"untuned" else "tuned"
+}
+audit_vector<-function(cell_name,learner_label){
+  variant<-learner_variant(learner_label)
+  if(RERUN_TUNING){
+    return(safe_extract_xgb_w(results[[cell_name]][[variant]],cells[[cell_name]]))
+  }
+  tryCatch(stored_export$omega_vectors[[cell_name]][[variant]],error=function(e)NULL)
+}
+xgb_pliv_weight_display<-do.call(rbind,lapply(seq_len(nrow(xgb_pliv_weight_table)),function(i){
+  row<-xgb_pliv_weight_table[i,,drop=FALSE]
+  cell_name<-as.character(row$Cell)
+  learner_label<-as.character(row$Learner)
+  w<-audit_vector(cell_name,learner_label)
+  d<-cells[[cell_name]]$D
+  data.frame(
+    Cell=cell_name,
+    Variant=if(learner_variant(learner_label)=="untuned")"Untuned XGBoost" else "Tuned XGBoost",
+    `Overall sum`=if(is.null(w))NA_real_ else sum(w),
+    `Treated sum`=if(is.null(w))NA_real_ else sum(w[d==1]),
+    `Control sum`=if(is.null(w))NA_real_ else -sum(w[d==0]),
+    `ω′Y reproduces τ̂`=if(is.null(w))NA else
+      check_weight_identity(w,cells[[cell_name]]$Y,as.numeric(row$Estimate)),
+    check.names=FALSE
+  )
+}))
+xgb_pliv_weight_display%>%
+  kbl(digits=4,caption="Vietnam PLR-IV — reconstructed XGBoost weight audit",
+      align=c("l","l","r","r","r","c"))%>%
+  kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=FALSE)%>%
+  collapse_rows(columns=1,valign="middle")%>%
+  row_spec(which(xgb_pliv_weight_display$Variant=="Tuned XGBoost"),background="#eef6ff")%>%
+  footnote(general="The sums describe reconstructed outcome-weight vectors. Control weights are reported with reversed sign. A normalized contrast has overall, treated, and control sums of 0, 1, and 1. Reproduction follows all.equal() check with R's default tolerance. Failed vectors are excluded from further outcome-weight diagnostics.")
 ```
 
 ```{r omega-and-identities}
 if (RERUN_TUNING) {
   xgb_pliv_omega_vectors<-lapply(names(cells),function(cn)list(
-    untuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$untuned,cells[[cn]])else NULL,
-    tuned=if(EXTRACT_WEIGHTS)safe_extract_xgb_w(results[[cn]]$tuned,cells[[cn]])else NULL))
+    untuned=if(EXPORT_WEIGHT_VECTORS)safe_extract_xgb_w(results[[cn]]$untuned,cells[[cn]])else NULL,
+    tuned=if(EXPORT_WEIGHT_VECTORS)safe_extract_xgb_w(results[[cn]]$tuned,cells[[cn]])else NULL))
   names(xgb_pliv_omega_vectors)<-names(cells)
   xgb_pliv_identity_checks<-lapply(names(cells),function(cn){cell<-cells[[cn]];R<-results[[cn]];W<-xgb_pliv_omega_vectors[[cn]]
     list(
@@ -335,7 +349,7 @@ if (RERUN_TUNING) {
 }
 ```
 
-```{r export, include=FALSE}
+```{r export, include=FALSE, cache=FALSE}
 if (RERUN_TUNING) {
   xgb_pliv_export<-list(estimate_comparison=rows,nuisance_losses=loss_rows,
     hyperparameters=hp_summary,hyperparameters_raw=hp_raw,
@@ -343,16 +357,9 @@ if (RERUN_TUNING) {
     identity_checks=xgb_pliv_identity_checks,
     settings=list(seed=SEED,n_cf=N_CF,tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,
       tune_on_folds=TRUE,learner="xgboost",dml_class="DoubleMLPLIV",
-      score="partialling out",extract_weights=EXTRACT_WEIGHTS,cells=names(cells)),
+      score="partialling out",export_weight_vectors=EXPORT_WEIGHT_VECTORS,cells=names(cells)),
     sample_info=list(n=nrow(sipp),mean_Z=mean(Z),mean_D=mean(D),outcome="log(kwage)",
                      specifications=names(cells)))
   saveRDS(xgb_pliv_export,EXPORT_PATH)
 }
 ```
-
-<div class="note-box">
-The main analysis reads `vietnam_xgb_pliv_tuning_export.rds`. With
-`tune_on_folds = TRUE`, the exported estimate and weight vectors come from
-fold-specific fitted models. The median summaries are descriptive and must
-not be copied into a new fit.
-</div>
