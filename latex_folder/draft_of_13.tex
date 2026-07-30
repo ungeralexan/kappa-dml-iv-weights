@@ -1517,8 +1517,8 @@ effect under both outcome codings. This is the transformation examined by
 present analysis repeats this comparison and extends it to PLR-IV and
 Wald-AIPW. The classification follows the rerun criterion defined
 in Section~\ref{subsec:full_pipeline_invariance}. Appendix
-Table~\ref{tab:vietnam_translation} reports the underlying estimates and
-rerun changes.
+Table~\ref{tab:vietnam_translation_appendix} reports the underlying estimates,
+while Table~\ref{tab:vietnam_translation} summarises the rerun changes.
 The kappa estimates reproduce the main classical result. Under cubic age
 adjustment, the three normalised kappa estimators are translation invariant,
 whereas the three unnormalised estimators are not. For the latter group,
@@ -1540,7 +1540,7 @@ The result applies to both PLR-IV and
 Wald-AIPW under cubic and saturated age adjustment. The largest rerun change,
 approximately \(0.003\), occurs for cubic PLR-IV.
 The remaining changes are
-smaller and are reported in Appendix
+smaller and are reported in
 Table~\ref{tab:vietnam_translation}. Although these differences are small
 relative to the corresponding point estimates, they show that the complete
 tuned XGBoost procedures respond to the economically irrelevant change in
@@ -1559,84 +1559,67 @@ specifications is therefore the main exception.
 \label{tab:vietnam_translation}
 \footnotesize
 \begin{threeparttable}
-\begin{tabular}{@{}l rrr rrr@{}}
+\begin{tabular}{@{}l rr@{}}
 \toprule
-& \multicolumn{3}{c}{Cubic age}
-& \multicolumn{3}{c}{Saturated age} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-7}
 Estimator
-& Dollars & Cents & Change
-& Dollars & Cents & Change \\
+& Cubic age
+& Saturated age \\
 \midrule
 
-\multicolumn{7}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
+\multicolumn{3}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
 
 $\hat{\tau}_{u}^{cb}$
-& 0.210 & 0.210 & 0.00000
-& 0.241 & 0.241 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 $\hat{\tau}_{u}^{ml}$
-& 0.202 & 0.202 & 0.00000
-& 0.241 & 0.241 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 $\hat{\tau}_{a,10}$
-& 0.204 & 0.204 & 0.00000
-& 0.241 & 0.241 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 $\hat{\tau}_{a}$
-& 0.314 & 0.537 & \textbf{0.22217}
-& 0.241 & 0.241 & 0.00000 \\
+& \textbf{0.2222} & 0.0000 \\
 
 $\hat{\tau}_{t}$
-& 0.302 & 0.515 & \textbf{0.21341}
-& 0.241 & 0.241 & 0.00000 \\
+& \textbf{0.2134} & 0.0000 \\
 
 $\hat{\tau}_{a,0}$
-& 0.317 & 0.540 & \textbf{0.22378}
-& 0.241 & 0.241 & 0.00000 \\[4pt]
+& \textbf{0.2238} & 0.0000 \\[4pt]
 
-\multicolumn{7}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
+\multicolumn{3}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
 
 PLR-IV
-& 0.243 & 0.243 & 0.00000
-& 0.242 & 0.242 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 Wald-AIPW
-& 0.229 & 0.229 & 0.00000
-& 0.244 & 0.244 & 0.00002 \\[4pt]
+& 0.0000 & 0.0000 \\[4pt]
 
-\multicolumn{7}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
+\multicolumn{3}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
 
 PLR-IV, OLS
-& 0.239 & 0.239 & 0.00000
-& 0.270 & 0.270 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 Wald-AIPW, OLS/logit
-& 0.218 & 0.218 & 0.00000
-& 0.247 & 0.247 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 PLR-IV, \texttt{ranger}
-& 0.270 & 0.270 & 0.00000
-& 0.283 & 0.283 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 Wald-AIPW, \texttt{ranger}
-& 0.246 & 0.246 & 0.00000
-& 0.261 & 0.261 & 0.00000 \\
+& 0.0000 & 0.0000 \\
 
 PLR-IV, tuned XGBoost
-& 0.265 & 0.268 & \textbf{0.00292}
-& 0.281 & 0.280 & $\mathbf{-0.00052}$ \\
+& \textbf{0.0029} & $\mathbf{-0.0005}$ \\
 
 Wald-AIPW, tuned XGBoost
-& 0.238 & 0.238 & $\mathbf{-0.00031}$
-& 0.253 & 0.252 & $\mathbf{-0.00153}$ \\
+& $\mathbf{-0.0003}$ & $\mathbf{-0.0015}$ \\
 
 \bottomrule
 \end{tabular}
 
 \begin{tablenotes}
 \footnotesize
-\item \textit{Notes:}  An estimate is
+\item \textit{Notes:} An estimate is
 classified as unchanged when the absolute rerun change does not exceed
 \(10^{-4}\). Bold values exceed this threshold.
 \end{tablenotes}
@@ -1656,8 +1639,7 @@ Accordingly, the XGBoost reconstructions and the cubic PLR-IV reconstruction
 with OLS nuisances are excluded from the weight diagnostics. The latter is a
 borderline numerical-conditioning case, while all XGBoost vectors fail the
 same estimator-specific reproduction criterion. The corresponding numerical
-gaps are reported in Appendix
-Table~\ref{tab:vietnam_weight_representation_audit}.\\
+gaps are not interpreted as outcome-weight diagnostics.\\
 Table~\ref{tab:vietnam_weight_normalization} reports the aggregate weight
 masses of the remaining estimators. Under cubic age adjustment, the three
 normalised kappa estimators are fully normalised.
@@ -1823,62 +1805,79 @@ Under saturated age adjustment, the unadjusted differences are already below
 
 
 
-\section{Empirical Application: Returns to Schooling}
+
+
+
+\section{College Proximity and Returns to Schooling}
 \label{sec:card}
 
-The second application revisits \citet{card1993using}, who uses proximity to a four-year college as an instrument for schooling. Individuals who live near a college face lower commuting and relocation costs and may therefore be more likely to continue their education after high school. The instrument uses this variation in access to estimate the effect of schooling on wages.\\
-Unlike an individually randomised instrument, college proximity is related to residential location. Where a person grows up may be associated with family background, regional characteristics, and local labour-market conditions that also affect education and wages.The empirical design therefore relies on conditioning on observed covariates. 
+The second empirical application revisits \citet{card1993using}, who uses
+proximity to a four-year college as an instrument for schooling. Living near
+a college may lower the costs of continuing education and thereby increase
+educational attainment. College proximity can therefore provide variation in
+schooling that is used to estimate its effect on wages. However, proximity is
+not individually randomised. Residential location may be related to family
+background and regional characteristics. A direct comparison between individuals who
+grew up near and far from a college would therefore not identify the effect of
+schooling.
+Following the empirical design in \citet{sloczynski2025abadie}, the analysis
+uses the National Longitudinal Survey of Young Men. The analysis sample
+contains \(N=3{,}010\) men. The outcome \(Y_i\) is log hourly wage, while the
+instrument \(Z_i\) indicates whether an individual grew up near a four-year
+college in 1966. Two binary treatment definitions are considered. The first
+indicates schooling beyond high school, and the second indicates completion
+of at least sixteen years of schooling. These definitions represent different
+education margins and therefore correspond to different causal parameters.
+Appendix Table~\ref{tab:card_design_appendix} provides the exact definitions
+of the instrument, treatments, and outcome.\\
+The analysis considers the two conditioning sets used by
+\citet{sloczynski2025abadie}. The Card specification includes a broader set of
+individual and regional characteristics. The Kitagawa specification provides
+a more parsimonious alternative based on \citet{kitagawa2015test}. Comparing
+the two specifications shows how the estimates
+change with the conditioning set. The included covariates are reported in
+Appendix Table~\ref{tab:card_covariates_appendix}.\\
+Before turning to the estimates, the descriptive diagnostics provide an
+initial assessment of the two treatment margins and the available empirical
+support. College proximity is common in the sample. \(68.2\%\) of the men grew
+up near a four-year college. Overall, \(50.5\%\) completed more than twelve
+years of schooling and \(27.1\%\) completed at least sixteen years. The
+corresponding unconditional treatment rates are \(12.2\) and \(6.9\)
+percentage points higher among individuals who grew up near a college.\\
+Covariate adjustment reduces both first-stage coefficients. For schooling
+beyond high school, the adjusted first stage is \(6.4\) percentage points
+under the Card specification and \(6.5\) percentage points under the Kitagawa
+specification. The corresponding squared HC1-robust \(t\)-statistics are
+\(12.5\) and \(9.0\). At the sixteen-year margin, the adjusted first stages
+are lower, at \(3.0\) and \(3.8\) percentage points, with squared robust
+\(t\)-statistics of \(3.5\) and \(3.9\). This shows 
+that the instrument contains considerably less first-stage information for
+the sixteen-year treatment than for schooling beyond high school. Appendix
+Table~\ref{tab:card_descriptive_diagnostics} reports the complete results.\\
+The fitted instrument propensities are bounded away from zero, but the upper
+tail reveals an asymmetric support concern. Under the Card specification,
+\(40\) observations with \(Z_i=0\) have \(\hat p(X_i)>0.90\). By contrast, no observation
+with \(Z_i=1\) has \(\hat p(X_i)<0.10\) under either specification. Limited
+support is therefore concentrated among observations that have a high fitted
+probability of living near a college but are observed with \(Z_i=0\),
+particularly under the richer Card specification. This does may lead to larger inverse-propensity
+components and more concentrated outcome weights. Appendix Figure~\ref{fig:card_propensity_appendix} shows the fitted
+propensity-score distributions.
 
-\subsection{Data and Design}
-\label{subsec:card_data}
 
 
-Following \citet{sloczynski2025abadie}, the analysis uses the National
-Longitudinal Survey of Young Men. The supplied analysis file contains
-\(N=3{,}010\) men. 
-The outcome is log hourly wage, and the instrument indicates whether an individual grew up near a four-year college in 1966.
-Two binary treatment definitions are considered, those entail schooling beyond high school and completion of at least sixteen years of schooling. 
-Appendix Table~\ref{tab:card_design_appendix}provides the exact definitions of the instrument, treatments, and outcome.\\
-The analysis retains the Card and Kitagawa conditioning sets used by \citet{sloczynski2025abadie}. The Card specification contains a broader set of individual and regional characteristics, whereas the Kitagawa specification provides a more parsimonious alternative \citep{kitagawa2015test}. Using both specifications makes it possible to examine how the estimates and their weight diagnostics depend on the selected conditioning set. The complete covariate definitions are reported in Appendix Table~\ref{tab:card_covariates_appendix}.
 
 
-\subsection{Descriptive Evidence}
-\label{subsec:card_descriptives}
 
-It can be seen that college proximity is common in the sample as \(68.2\%\) of the men grew up near
-a four-year college. Overall, \(50.5\%\) completed more than twelve years of
-schooling, while \(27.1\%\) completed at least sixteen years. Before adjustment,
-the corresponding treatment rates are \(12.2\) and \(6.9\) percentage points
-higher among individuals who grew up near a college. 
-These are the unconditional contrasts once covariate adjustment is applied it reduces both first stages.
-For schooling beyond high
-school, the adjusted difference is \(6.4\) percentage points under the Card
-specification and \(6.5\) percentage points under the Kitagawa specification.
-The associated squared HC1-robust \(t\)-statistics are \(12.5\) and \(9.0\).
-For the sixteen-year margin, the adjusted first stages are only \(3.0\) and
-\(3.8\) percentage points, with squared robust \(t\)-statistics of \(3.5\) and
-\(3.9\). Relative to the conventional \(F\)-statistic threshold of about ten,
-the first margin is borderline and the second is distinctly weak. 
-The linear-IV benchmarks are also sensitive to adjustment. The raw Wald ratios
-of \(1.279\) and \(2.274\) fall to \(0.575\)--\(0.661\) and
-\(0.991\)--\(1.392\), respectively, once the two conditioning sets are used.
-In particular, the small first stage for the sixteen-year margin makes its
-Wald ratio sensitive to relatively small changes in the reduced form or first
-stage.\\
-The fitted instrument propensities remain bounded away from zero, but support
-is less comfortable in the upper tail. Under the Card specification,
-\(40\) observations with \(Z_i=0\) have \(\hat p(X_i)>0.90\), even though
-their observed instrument value is zero. The corresponding number is \(9\)
-under the Kitagawa specification, and no observation with \(Z_i=1\) has
-\(\hat p(X_i)<0.10\) under either specification.
-The support concern is
-therefore concentrated among high-propensity observations with \(Z_i=0\),
-particularly under the Card specification. Since the kappa weights contain
-inverse instrument-propensity terms, this pattern may contribute to more
-concentrated weights and lower effective sample sizes in the subsequent
-analysis. Appendix Table~\ref{tab:card_descriptive_diagnostics} reports the
-underlying values, while Appendix Figure~\ref{fig:card_propensity_appendix}
-shows the fitted distributions.
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2660,10 +2659,6 @@ The Card application is useful for this thesis because it changes the empirical 
 
 % [WRITE HERE — learner convergence, XGBoost issue, ~0.5 page]
 
-\subsection{Practical Guidance}
-\label{subsec:practical}
-
-% [WRITE HERE — when to use which estimator, always check sum(omega), ~0.5 page]
 
 \subsection{Limitations}
 \label{subsec:limitations}
@@ -3303,7 +3298,6 @@ Sample size \(N\)                              & \(3{,}027\) &  \\
 \(P(Z_i=1)\)                                   & \(0.456\)   &  \\
 \(P(D_i=1\mid Z_i=0)\)                         & \(0.265\)   &  \\
 \(P(D_i=1\mid Z_i=1)\)                         & \(0.404\)   &  \\
-Unadjusted uptake difference                   & \(0.139\)   &  \\
 \addlinespace
 First stage, linear age                        & \(0.0949\)  & \(30.1\) \\
 First stage, cubic age                         & \(0.0882\)  & \(26.3\) \\
@@ -3457,6 +3451,99 @@ XGBoost
 \footnotesize
 \item \textit{Notes:} The outcome is log hourly wages measured in
 dollars. All specifications use five-fold cross-fitting. 
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsection{Complete Translation-Invariance Results}
+\begin{table}[H]
+\centering
+\caption{Translation invariance under complete re-estimation: underlying estimates}
+\label{tab:vietnam_translation_appendix}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{threeparttable}
+\begin{tabular}{@{}l rrr rrr@{}}
+\toprule
+& \multicolumn{3}{c}{Cubic age}
+& \multicolumn{3}{c}{Saturated age} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Estimator
+& Dollars & Cents & Change
+& Dollars & Cents & Change \\
+\midrule
+
+\multicolumn{7}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
+
+$\hat{\tau}_{u}^{cb}$
+& 0.210 & 0.210 & 0.0000
+& 0.241 & 0.241 & 0.0000 \\
+
+$\hat{\tau}_{u}^{ml}$
+& 0.202 & 0.202 & 0.0000
+& 0.241 & 0.241 & 0.0000 \\
+
+$\hat{\tau}_{a,10}$
+& 0.204 & 0.204 & 0.0000
+& 0.241 & 0.241 & 0.0000 \\
+
+$\hat{\tau}_{a}$
+& 0.314 & 0.537 & \textbf{0.2222}
+& 0.241 & 0.241 & 0.0000 \\
+
+$\hat{\tau}_{t}$
+& 0.302 & 0.515 & \textbf{0.2134}
+& 0.241 & 0.241 & 0.0000 \\
+
+$\hat{\tau}_{a,0}$
+& 0.317 & 0.540 & \textbf{0.2238}
+& 0.241 & 0.241 & 0.0000 \\[4pt]
+
+\multicolumn{7}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
+
+PLR-IV
+& 0.243 & 0.243 & 0.0000
+& 0.242 & 0.242 & 0.0000 \\
+
+Wald-AIPW
+& 0.229 & 0.229 & 0.0000
+& 0.244 & 0.244 & 0.0000 \\[4pt]
+
+\multicolumn{7}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
+
+PLR-IV, OLS
+& 0.239 & 0.239 & 0.0000
+& 0.270 & 0.270 & 0.0000 \\
+
+Wald-AIPW, OLS/logit
+& 0.218 & 0.218 & 0.0000
+& 0.247 & 0.247 & 0.0000 \\
+
+PLR-IV, \texttt{ranger}
+& 0.270 & 0.270 & 0.0000
+& 0.283 & 0.283 & 0.0000 \\
+
+Wald-AIPW, \texttt{ranger}
+& 0.246 & 0.246 & 0.0000
+& 0.261 & 0.261 & 0.0000 \\
+
+PLR-IV, tuned XGBoost
+& 0.265 & 0.268 & \textbf{0.0029}
+& 0.281 & 0.280 & $\mathbf{-0.0005}$ \\
+
+Wald-AIPW, tuned XGBoost
+& 0.238 & 0.238 & $\mathbf{-0.0003}$
+& 0.253 & 0.252 & $\mathbf{-0.0015}$ \\
+
+\bottomrule
+\end{tabular}
+
+\begin{tablenotes}
+\scriptsize
+\item \textit{Notes:} Change is the estimate obtained after recoding log wages
+from dollars to cents minus the original estimate. An estimate is classified
+as unchanged when the absolute rerun change does not exceed \(10^{-4}\).
+Bold values exceed this threshold.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
