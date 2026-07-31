@@ -1781,9 +1781,7 @@ All six kappa estimators
 \(-\sum_{i:D_i=0}\omega_i\), so the control component is shown in its
 treated-minus-control orientation. ``Yes'' means that
 \(\boldsymbol{\omega}'\mathbf{Y}\) reproduces the fitted estimate under the
-estimator-specific \texttt{all.equal()} check. Algebraic kappa weights
-reproduce their estimator by construction. A failed representation is not
-assigned a normalisation class.
+estimator-specific \texttt{all.equal()} check. 
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
@@ -1866,70 +1864,55 @@ propensity-score distributions.
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 \subsection{Estimates across Treatment Margins and Conditioning Sets}
 \label{subsec:card_estimates}
 
-The results involve two comparisons. Schooling beyond high school and
-completion of at least sixteen years define different treatment margins and
-therefore different causal parameters. Within each margin, the richer Card
-specification is the baseline and the parsimonious Kitagawa specification
-measures sensitivity to the conditioning set. The 2SLS and kappa estimates
-reproduce Table~3 of \citet{sloczynski2025abadie} and are retained as
-benchmarks. Those authors also caution that exclusion or monotonicity may fail
-in this application. The results below are therefore interpreted as evidence
-on estimator behaviour rather than as a definitive ranking of returns to
-schooling. Appendix Figure~\ref{fig:card_point_estimates_appendix} and
-Table~\ref{tab:card_selected_estimates_appendix} report the selected results.\\
-All selected tuned estimates are positive, but those for the sixteen-year
-margin are generally larger and less precise. Its adjusted first stage is
-only \(3.0\)--\(3.8\) percentage points, compared with \(6.4\)--\(6.5\)
-percentage points for schooling beyond high school. The larger
-sixteen-year coefficients should therefore not be interpreted as stronger
-evidence of a larger effect. This margin instead provides the
-weak-first-stage stress case for the comparisons below.\\
-The most persistent point-estimate pattern is the separation between the two
-DML scores. PLR-IV generally lies closer to 2SLS, whereas Wald-AIPW lies
-closer to the normalised kappa estimates. This grouping appears under both
-treatment definitions and both conditioning sets, and it remains visible
-when the tuned forest is replaced by tuned XGBoost. The comparison is
-numerical, as it does not imply that PLR-IV and 2SLS have the same estimand or
-that the normalised kappa estimates provide the correct benchmark.\\
-Sensitivity is concentrated rather than universal. Most normalised kappa and
-tuned DML estimates change moderately across conditioning sets, whereas
-\(\hat{\tau}^{ml}_{t}\) changes from \(0.171\) to \(0.769\) for schooling
-beyond high school and from \(0.319\) to \(1.367\) for the sixteen-year
-margin. Learner sensitivity is strongest in the Card--sixteen-year cell.
-There, PLR-IV ranges from \(0.956\) with tuned XGBoost to \(1.419\) with
-linear nuisances, and Wald-AIPW ranges from \(0.493\) with \texttt{ranger} to
-\(0.884\) with the parametric learner. Instability is therefore concentrated
-in the unnormalised estimators and the weakest first-stage cell.\\
-Honest-forest tuning changes the estimates only marginally. XGBoost is
-different because its untuned Wald-AIPW estimates are anomalous. For
-Card--schooling beyond high school, tuning changes the estimate from
-\(-13.416\) to \(0.382\). For Kitagawa--sixteen years, it changes from
-\(-3.656\), with a standard error of \(100.914\), to \(0.477\), with a
-standard error of \(0.514\). 
-Tuning also reduces boundary propensity predictions, although they remain
-more common under the richer Card specification. Appendix
-Table~\ref{tab:card_xgb_tuning_appendix} reports all four cases. Tuned
-XGBoost is retained as a sensitivity specification rather than as the
-preferred learner. The next subsection connects these patterns to translation
-invariance.
+This subsection establishes the point-estimate benchmark using log hourly
+wages measured in dollars. 
+The 2SLS and kappa estimates reproduce the main patterns in
+\citet[Table~3]{sloczynski2025abadie}. Appendix
+Figure~\ref{fig:card_point_estimates_appendix} and
+Table~\ref{tab:card_selected_estimates_appendix} report the selected results.
+Estimates for the sixteen-year treatment are generally larger and less
+precise than those for schooling beyond high school. This is also the margin
+for which the preceding diagnostics showed considerably less first-stage
+information. However, the two treatment definitions describe different
+schooling margins and therefore different causal parameters. The larger
+sixteen-year coefficients should consequently not be interpreted as evidence
+of a larger return to that education level. Moreover,
+\citet{sloczynski2025abadie} caution that exclusion or monotonicity may fail
+in this application. The results are therefore interpreted primarily as
+evidence on estimator behaviour.
+The classical estimates show that sensitivity to the conditioning set is
+concentrated among the unnormalised kappa estimators. For example,
+\(\hat{\tau}^{ml}_{t}\) changes from \(0.171\) under Card to \(0.769\) under
+Kitagawa for schooling beyond high school, and from \(0.319\) to \(1.367\) at
+the sixteen-year margin. The normalised kappa estimates are considerably more
+stable. 
+Across the parametric,  honest-forest, \texttt{ranger}, and tuned-XGBoost
+implementations, the estimates cluster more clearly by DML score than by
+nuisance learner. For schooling beyond high school, PLR-IV ranges from
+\(0.568\) to \(0.685\), whereas Wald-AIPW ranges from \(0.238\) to \(0.399\).
+At the sixteen-year margin, the corresponding ranges are \(0.943\) to
+\(1.419\) for PLR-IV and \(0.477\) to \(0.884\) for Wald-AIPW. PLR-IV
+therefore generally lies closer to 2SLS, while Wald-AIPW lies closer to the
+normalised kappa estimates. This grouping appears under both conditioning
+sets and across the different nuisance learners. It is a numerical comparison
+and does not imply that the estimators target identical parameters or that
+either benchmark is necessarily preferred.
+For XGBoost, tuning affects the two DML scores differently. The PLR-IV
+estimates change moderately, with the largest movements occurring under the
+Card conditioning set. The effect is considerably stronger for Wald-AIPW.
+Its untuned estimates are negative in all four cells. After fold-specific
+tuning, the Wald-AIPW estimates range from \(0.238\) to \(0.730\), placing
+them within the broader range of the other DML and normalised kappa results.
+Appendix Table~\ref{tab:card_xgb_tuning_appendix} reports the complete
+untuned and tuned comparison. The following subsection
+examines whether these point-estimate patterns remain stable when the outcome
+is translated.
+
+
+
 
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:card_translation}
@@ -2642,6 +2625,7 @@ I find like that the propensity score is more or less clean, in the way we do no
 
 
 The Card application is useful for this thesis because it changes the empirical design relative to the Vietnam draft lottery.  In the Card application, by contrast, college proximity is observational. The credibility of the instrument depends on conditioning on individual, family, regional, and labour-market characteristics. The instrument propensity score is therefore no longer nearly flat, and the choice of covariate specification becomes part of the empirical problem.
+When it comes to the card framework also a big differences and that maybe can also be attributed to a weak first stage is the power of tuning in a way if we tune how powerfull that is. As once we tune basically it can be seen that the values for the Xgboost converge way more ot the otehr values of the etsimators and on the otehr side without tuning it is pretty much visible that the values goy haywire with the standard default values of xgboost a pattern not observed for other learners and also for the vietnam framework. Maybe also something that is due to the covariate specifciation. 
 
 
 \subsection{Cross-Application Summary}
@@ -3840,94 +3824,170 @@ Table~\ref{tab:card_xgb_tuning_appendix}.
 
 \begin{table}[H]
 \centering
-\caption{Selected point estimates in the Card application}
+\caption{Dollar-outcome point estimates in the Card application}
 \label{tab:card_selected_estimates_appendix}
 \scriptsize
 \setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{0.98}
 \begin{threeparttable}
-\begin{tabular}{lcccc}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
 & \multicolumn{2}{c}{Schooling beyond high school}
 & \multicolumn{2}{c}{At least sixteen years} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
-Estimator & Card & Kitagawa & Card & Kitagawa \\
+Estimator
+& Card & Kitagawa
+& Card & Kitagawa \\
 \midrule
+
+\multicolumn{5}{l}{\textit{Panel A: Linear-IV benchmark}} \\[2pt]
+
 2SLS
-& 0.661 (0.295) & 0.575 (0.308)
-& 1.392 (0.801) & 0.991 (0.611) \\
-\addlinespace
-\(\hat{\tau}^{cb}_{u}\)
-& 0.376 (0.223) & 0.331 (0.236)
-& 0.853 (0.549) & 0.588 (0.433) \\
-\(\hat{\tau}^{ml}_{u}\)
-& 0.331 (0.202) & 0.356 (0.244)
-& 0.619 (0.387) & 0.628 (0.448) \\
-\(\hat{\tau}^{ml}_{t}\)
-& 0.171 (0.367) & 0.769 (0.308)
-& 0.319 (0.687) & 1.367 (0.648) \\
-\addlinespace
-PLR-IV, tuned forest
-& 0.681 (0.289) & 0.593 (0.340)
-& 1.140 (0.535) & 1.030 (0.684) \\
-Wald-AIPW, tuned forest
-& 0.279 (0.214) & 0.292 (0.249)
-& 0.530 (0.398) & 0.535 (0.462) \\
-PLR-IV, tuned XGBoost
-& 0.577 (0.258) & 0.612 (0.350)
-& 0.956 (0.459) & 1.010 (0.655) \\
-Wald-AIPW, tuned XGBoost
-& 0.382 (0.214) & 0.238 (0.258)
-& 0.730 (0.429) & 0.477 (0.514) \\
+& 0.661 (0.295)
+& 0.575 (0.308)
+& 1.392 (0.801)
+& 0.991 (0.611) \\
+
+\addlinespace[4pt]
+\multicolumn{5}{l}{\textit{Panel B: Normalised kappa estimators}} \\[2pt]
+
+\(\widehat{\tau}^{cb}_{u}\)
+& 0.376 (0.223)
+& 0.331 (0.236)
+& 0.853 (0.549)
+& 0.588 (0.433) \\
+
+\(\widehat{\tau}^{ml}_{u}\)
+& 0.331 (0.202)
+& 0.356 (0.244)
+& 0.619 (0.387)
+& 0.628 (0.448) \\
+
+\(\widehat{\tau}^{ml}_{a,10}\)
+& 0.346 (0.200)
+& 0.293 (0.252)
+& 0.586 (0.356)
+& 0.836 (0.821) \\
+
+\addlinespace[4pt]
+\multicolumn{5}{l}{\textit{Panel C: Unnormalised kappa estimators}} \\[2pt]
+
+\(\widehat{\tau}^{ml}_{a}\)
+& 0.170 (0.370)
+& 0.842 (0.362)
+& 0.315 (0.696)
+& 1.617 (0.891) \\
+
+\(\widehat{\tau}^{ml}_{t}\)
+& 0.171 (0.367)
+& 0.769 (0.308)
+& 0.319 (0.687)
+& 1.367 (0.648) \\
+
+\(\widehat{\tau}^{ml}_{a,0}\)
+& 0.154 (0.354)
+& 1.066 (0.574)
+& 0.266 (0.639)
+& 2.712 (2.577) \\
+
+\addlinespace[4pt]
+\multicolumn{5}{l}{\textit{Panel E: Wald-AIPW across nuisance learners}} \\[2pt]
+
+Wald-AIPW, linear/logit
+& 0.399 (0.248)
+& 0.311 (0.235)
+& 0.884 (0.608)
+& 0.534 (0.409) \\
+
+Wald-AIPW, tuned honest forest
+& 0.279 (0.214)
+& 0.292 (0.249)
+& 0.530 (0.398)
+& 0.535 (0.462) \\
+
+Wald-AIPW, \texttt{ranger}
+& 0.262 (0.195)
+& 0.294 (0.231)
+& 0.493 (0.375)
+& 0.514 (0.408) \\
+
 \bottomrule
 \end{tabular}
+
 \begin{tablenotes}
 \footnotesize
-\item \textit{Notes:} Each cell reports the point estimate followed by its
-standard error in parentheses. The outcome is log hourly wage measured in
-dollars. The 2SLS and kappa rows reproduce the corresponding results in
-\citet[Table~3]{sloczynski2025abadie}. DML estimates use five-fold
-cross-fitting. Hyperparameter tuning is based only on nuisance-prediction
-loss.
+\item \textit{Notes:}  The outcome is log hourly wage measured in
+dollars. The Card and Kitagawa columns use different conditioning sets.
+The 2SLS and kappa point estimates reproduce the corresponding results in
+\citet[Table~3]{sloczynski2025abadie}. 
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
 
 
 
+
 \begin{table}[H]
 \centering
-\caption{Nested XGBoost tuning for Wald-AIPW}
+\caption{Nested XGBoost tuning in the Card application}
 \label{tab:card_xgb_tuning_appendix}
 \scriptsize
 \setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{0.98}
 \begin{threeparttable}
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
 Design cell
 & \shortstack{Untuned\\estimate (SE)}
-& \shortstack{Tuned\\estimate (SE)}
-& \shortstack{Boundary share\\untuned \(\rightarrow\) tuned} \\
+& \shortstack{Tuned\\estimate (SE)} \\
 \midrule
+
+\multicolumn{3}{l}{\textit{Panel A: PLR-IV}} \\[2pt]
+
 Card--schooling beyond high school
-& \(-13.416\) (14.411) & 0.382 (0.214)
-& \(0.3453\rightarrow0.1312\) \\
+& 0.891 (0.337)
+& 0.577 (0.258) \\
+
 Card--at least sixteen years
-& \(-3.198\) (4.054) & 0.730 (0.429)
-& \(0.3759\rightarrow0.1106\) \\
+& 1.285 (0.562)
+& 0.956 (0.459) \\
+
 Kitagawa--schooling beyond high school
-& \(-0.113\) (0.627) & 0.238 (0.258)
-& \(0.0045\rightarrow0.0000\) \\
+& 0.682 (0.402)
+& 0.612 (0.350) \\
+
 Kitagawa--at least sixteen years
-& \(-3.656\) (100.914) & 0.477 (0.514)
-& \(0.0053\rightarrow0.0002\) \\
+& 1.076 (0.711)
+& 1.010 (0.655) \\
+
+\addlinespace[5pt]
+\multicolumn{3}{l}{\textit{Panel B: Wald-AIPW}} \\[2pt]
+
+Card--schooling beyond high school
+& \(-13.416\) (14.411)
+& 0.382 (0.214) \\
+
+Card--at least sixteen years
+& \(-3.198\) (4.054)
+& 0.730 (0.429) \\
+
+Kitagawa--schooling beyond high school
+& \(-0.113\) (0.627)
+& 0.238 (0.258) \\
+
+Kitagawa--at least sixteen years
+& \(-3.656\) (100.914)
+& 0.477 (0.514) \\
+
 \bottomrule
 \end{tabular}
+
 \begin{tablenotes}
 \footnotesize
-\item \textit{Notes:} Hyperparameters are selected separately within each
-outer training fold using nuisance-prediction loss. The treatment-effect
-estimate is not used for tuning. Boundary share is the fraction of fitted
-instrument or treatment propensities below \(0.02\) or above \(0.98\).
+\item \textit{Notes:} All procedures use five outer cross-fitting folds.
+For the tuned specifications, nuisance hyperparameters are selected separately
+within each outer training sample using three-fold inner cross-validation and
+15 random-search evaluations. 
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
