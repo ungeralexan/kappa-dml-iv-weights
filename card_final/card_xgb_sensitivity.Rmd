@@ -1,0 +1,286 @@
+---
+title: "Card (1995) — XGBoost Tuning Sensitivity"
+subtitle: "Predictive losses, estimates, and numerical outcome-weight reproduction"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 12.5px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  cache = FALSE, fig.width = 13, fig.height = 6
+)
+
+library(haven)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+
+source(file.path("..", "functions_all.R"))
+```
+
+<div class="note-box">
+This notebook compares the untuned and fold-specifically tuned XGBoost
+specifications stored by the two tuning notebooks. It reads the verified
+exports and does not refit or retune any model.
+</div>
+
+```{r data-and-exports, include=FALSE}
+card <- read_dta("card.dta")
+card <- card[!is.na(card$wage) & !is.na(card$educ), ]
+if (nrow(card) != 3010L) stop("Expected the Card analysis sample to contain 3,010 observations.")
+
+card$somecol <- as.integer(card$educ >= 13)
+card$educ16  <- as.integer(card$educ >= 16)
+Y <- log(card$wage / 100)
+
+wald_export <- readRDS("card_xgb_tuning_export.rds")
+pliv_export <- readRDS("card_xgb_pliv_tuning_export.rds")
+
+required <- c(
+  "estimate_comparison", "fit_summaries", "nuisance_losses",
+  "weight_diagnostics", "omega_vectors", "settings", "sample_info"
+)
+if (!all(required %in% names(wald_export)) ||
+    !all(required %in% names(pliv_export))) {
+  stop("At least one XGBoost export has an incomplete schema.")
+}
+if (!isTRUE(wald_export$settings$tune_on_folds) ||
+    !isTRUE(pliv_export$settings$tune_on_folds)) {
+  stop("The tuned exports must use tune_on_folds=TRUE.")
+}
+
+cells <- c(
+  "Card / some college",
+  "Card / college completion",
+  "Kitagawa / some college",
+  "Kitagawa / college completion"
+)
+if (!all(cells %in% names(wald_export$omega_vectors)) ||
+    !all(cells %in% names(pliv_export$omega_vectors))) {
+  stop("The exports do not contain all four Card design cells.")
+}
+
+extract_comparison <- function(export, estimator) {
+  do.call(rbind, lapply(cells, function(cell) {
+    do.call(rbind, lapply(c("untuned", "tuned"), function(variant) {
+      fit <- export$fit_summaries[[cell]][[variant]]
+      w <- as.numeric(export$omega_vectors[[cell]][[variant]])
+      estimate <- as.numeric(fit$coef)
+      gap <- abs(sum(w * Y) - estimate)
+      data.frame(
+        Estimator = estimator,
+        Cell = cell,
+        Variant = ifelse(variant == "untuned", "Untuned", "Tuned"),
+        Estimate = estimate,
+        SE = as.numeric(fit$se),
+        Reproduction_gap = gap,
+        Reproduces = check_weight_identity(w, Y, estimate),
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
+}
+
+comparison <- rbind(
+  extract_comparison(pliv_export, "PLR-IV"),
+  extract_comparison(wald_export, "Wald-AIPW")
+)
+comparison$Variant <- factor(comparison$Variant, levels = c("Untuned", "Tuned"))
+comparison$Cell <- factor(comparison$Cell, levels = cells)
+
+loss_reduction <- function(export, estimator, columns, labels) {
+  do.call(rbind, lapply(cells, function(cell) {
+    z <- export$nuisance_losses[export$nuisance_losses$Cell == cell, ]
+    untuned <- z[grepl("untuned", z$Learner, fixed = TRUE), ]
+    tuned <- z[
+      grepl("tuned", z$Learner, fixed = TRUE) &
+        !grepl("untuned", z$Learner, fixed = TRUE),
+    ]
+    if (nrow(untuned) != 1L || nrow(tuned) != 1L) {
+      stop("Could not identify one tuned and one untuned loss row.")
+    }
+    data.frame(
+      Estimator = estimator,
+      Cell = cell,
+      Nuisance = labels,
+      Reduction_pct = 100 * (
+        unlist(untuned[1, columns], use.names = FALSE) -
+          unlist(tuned[1, columns], use.names = FALSE)
+      ) / unlist(untuned[1, columns], use.names = FALSE),
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+
+loss_plot_data <- rbind(
+  loss_reduction(
+    pliv_export, "PLR-IV",
+    c("Outcome l RMSE", "Instrument m RMSE", "Treatment r RMSE"),
+    c("Outcome", "Instrument", "Treatment")
+  ),
+  loss_reduction(
+    wald_export, "Wald-AIPW",
+    c("Outcome RMSE", "Instrument log-loss", "Treatment log-loss"),
+    c("Outcome", "Instrument", "Treatment")
+  )
+)
+loss_plot_data$Cell <- factor(loss_plot_data$Cell, levels = cells)
+```
+
+# 1. Nuisance-prediction losses
+
+```{r loss-reduction-plot, fig.height=6.5}
+ggplot(
+  loss_plot_data,
+  aes(x = Reduction_pct, y = Nuisance, color = Estimator)
+) +
+  geom_vline(xintercept = 0, color = "grey65", linewidth = 0.4) +
+  geom_point(size = 2.8) +
+  facet_wrap(~ Cell, ncol = 2) +
+  scale_color_viridis_d(option = "D", end = 0.82) +
+  labs(
+    x = "Reduction in recorded validation loss after tuning (%)",
+    y = NULL,
+    color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+Positive values mean that the tuned specification has a lower recorded
+validation loss. The loss functions differ across the two estimators and are
+therefore compared only within estimator and nuisance.
+
+# 2. Point estimates
+
+```{r estimate-plot, fig.height=7.5}
+ggplot(comparison, aes(x = Variant, y = Estimate, group = 1)) +
+  geom_line(color = "#777777", linewidth = 0.55) +
+  geom_point(aes(color = Variant), size = 2.8) +
+  geom_text(
+    aes(label = sprintf("%.3f", Estimate)),
+    vjust = -0.75, size = 3.1, show.legend = FALSE
+  ) +
+  facet_wrap(~ Estimator + Cell, scales = "free_y", ncol = 4) +
+  scale_color_viridis_d(option = "D", end = 0.82) +
+  scale_y_continuous(expand = expansion(mult = c(0.10, 0.18))) +
+  labs(x = NULL, y = "Estimate", color = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 25, hjust = 1),
+    strip.text = element_text(size = 9)
+  )
+```
+
+```{r estimate-table}
+comparison %>%
+  transmute(
+    Estimator, Cell, Variant,
+    Estimate = round(Estimate, 4),
+    SE = round(SE, 4)
+  ) %>%
+  kbl(
+    caption = "XGBoost estimates: untuned and fold-specifically tuned",
+    align = c("l", "l", "l", "r", "r")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE
+  ) %>%
+  collapse_rows(columns = c(1, 2), valign = "middle")
+```
+
+The panels use separate vertical scales because the untuned Wald-AIPW
+estimates and standard errors differ substantially across cells. The table
+reports the standard errors; the plot is limited to the point-estimate
+comparison.
+
+# 3. Numerical outcome-weight reproduction
+
+```{r reproduction-plot, fig.height=5.5}
+ggplot(
+  comparison,
+  aes(x = Reproduction_gap, y = Cell, color = Variant)
+) +
+  geom_point(size = 2.8, position = position_dodge(width = 0.45)) +
+  facet_wrap(~ Estimator, ncol = 1, scales = "free_y") +
+  scale_x_log10() +
+  scale_color_viridis_d(option = "D", end = 0.82) +
+  labs(
+    x = "Absolute reproduction gap |sum(omega_i Y_i) - tau_hat|",
+    y = NULL,
+    color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+This is a numerical diagnostic for the reconstructed outcome weights. It is
+not a tuning criterion.
+
+```{r reproduction-table}
+comparison %>%
+  transmute(
+    Estimator, Cell, Variant,
+    `|ω′Y−τ̂|` = Reproduction_gap,
+    `ω′Y reproduces τ̂` = ifelse(Reproduces, "TRUE", "FALSE")
+  ) %>%
+  kbl(
+    digits = 10,
+    format.args = list(scientific = TRUE),
+    caption = "XGBoost outcome-weight representation audit",
+    align = c("l", "l", "l", "r", "c")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE
+  ) %>%
+  collapse_rows(columns = c(1, 2), valign = "middle") %>%
+  footnote(
+    general = paste(
+      "Each fitted estimator is assessed separately using Knaus's all.equal()",
+      "criterion with R's default tolerance. A FALSE vector is excluded from",
+      "normalization, concentration, and balance diagnostics."
+    )
+  )
+```
+
+# 4. Reading the comparison
+
+The recorded nuisance-prediction losses are lower after tuning in every
+reported cell and nuisance. The reductions are larger under the Card
+specification than under the Kitagawa specification.
+
+For PLR-IV, tuning lowers the point estimate in all four cells. For Wald-AIPW,
+the untuned estimates vary much more across cells, while the tuned estimates
+lie between 0.238 and 0.730. These comparisons describe the effect of the
+stated tuning protocol. They do not establish that the tuned causal estimates
+are closer to the underlying treatment effects.
+
+None of the reconstructed XGBoost vectors passes the estimator-reproduction
+gate. The notebook therefore does not report normalization, concentration, or
+balance diagnostics for those vectors. This numerical failure does not remove
+the XGBoost point estimates from the learner-sensitivity or translation
+analysis.

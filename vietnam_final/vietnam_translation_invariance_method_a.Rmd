@@ -89,12 +89,21 @@ classify_rerun_results <- function(x) {
 }
 
 display_rerun_results <- function(x) {
-  out <- x[,c("Specification","Estimator","Shift_k","tau_original",
-              "tau_shifted","rerun_difference","invariant")]
-  names(out) <- c("Specification","Estimator","Shift",
-                  "Original estimate","Shifted estimate","Rerun change",
-                  "Unchanged within 10^-4")
-  out
+  fixed_four <- function(value) {
+    value <- round(as.numeric(value), 4)
+    value[abs(value) < 0.00005] <- 0
+    formatC(value, format = "f", digits = 4)
+  }
+  data.frame(
+    Specification = x$Specification,
+    Estimator = x$Estimator,
+    Shift = fixed_four(x$Shift_k),
+    `Original estimate` = fixed_four(x$tau_original),
+    `Shifted estimate` = fixed_four(x$tau_shifted),
+    `Rerun change` = fixed_four(x$rerun_difference),
+    Invariant = x$invariant,
+    check.names = FALSE
+  )
 }
 ```
 

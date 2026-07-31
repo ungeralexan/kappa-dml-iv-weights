@@ -1,0 +1,552 @@
+---
+title: "College Proximity and Returns to Schooling: XGBoost Tuning for Wald-AIPW"
+subtitle: "Nested nuisance tuning within the cross-fitting design"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      cache = FALSE,
+                      fig.width = 11, fig.height = 5.5)
+```
+
+```{r packages, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(haven)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+source(file.path("..", "functions_all.R"))
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+SEED            <- 42
+N_CF            <- 5
+TUNE_EVALS      <- 15
+INNER_FOLDS     <- 3
+EXTRACT_WEIGHTS <- TRUE
+RERUN_TUNING    <- FALSE
+EXPORT_PATH     <- "card_xgb_tuning_export.rds"
+```
+
+<div class="note-box">
+**Purpose.** This notebook estimates Wald-AIPW with untuned and
+fold-specifically tuned XGBoost nuisances for the four Card design cells.
+Ordinary renders read the verified export. Set `RERUN_TUNING = TRUE` only
+when deliberately re-estimating the nested tuning procedure.
+</div>
+
+<div class="warn-box">
+**Runtime.** A substantive rerun tunes the instrument, treatment, and
+arm-specific outcome nuisances separately within every outer training fold and replaces
+`card_xgb_tuning_export.rds`.
+</div>
+
+---
+
+# Setup
+
+```{r data}
+card <- read_dta("card.dta")
+card <- card[!is.na(card$wage) & !is.na(card$educ), ]
+if (nrow(card) != 3010L) stop("Expected the Card analysis sample to contain 3,010 observations.")
+
+card$lwage   <- log(card$wage / 100)
+card$somecol <- as.integer(card$educ >= 13)
+card$educ16  <- as.integer(card$educ >= 16)
+card$Z_inst  <- as.integer(card$nearc4)
+if (!"expersq" %in% names(card)) card$expersq <- card$exper^2
+
+X_card <- make_X(~ 0 + exper + expersq + black + south + smsa + smsa66 +
+                   reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
+                 data = card)
+X_kit  <- make_X(~ 0 + black + south + smsa + smsa66 + south66, data = card)
+
+data.frame(
+  Quantity = c("Analysis sample", "Card covariates",
+               "Kitagawa covariates", "Treatment definitions"),
+  Value = c(format(nrow(card), big.mark = ","), ncol(X_card), ncol(X_kit), 2)
+) %>%
+  kbl(caption = "Analysis dimensions") %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+```
+
+```{r learners-and-tuning-setup, include=FALSE}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y); df$d <- as.numeric(D); df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                    x_cols = colnames(X))
+}
+
+make_xgb_learners <- function() {
+  list(
+    g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+    m = lrn("classif.xgboost", predict_type = "prob"),
+    r = lrn("classif.xgboost", predict_type = "prob")
+  )
+}
+
+xgb_ps <- function() {
+  ps(nrounds = p_int(50, 400), max_depth = p_int(2, 5),
+     eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8))
+}
+
+tune_param_set <- function() list(ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+
+tune_settings <- function() {
+  list(
+    n_folds_tune = INNER_FOLDS,
+    rsmp_tune    = rsmp("cv", folds = INNER_FOLDS),
+    measure      = list(ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss"),
+    terminator   = trm("evals", n_evals = TUNE_EVALS),
+    algorithm    = tnr("random_search")
+  )
+}
+
+get_prediction_vector <- function(obj, learner_name) {
+  pred <- tryCatch(obj$predictions[[learner_name]], error = function(e) NULL)
+  if (is.null(pred)) return(numeric(0))
+  as.numeric(drop(pred))
+}
+
+get_branch_prediction <- function(obj, base_name, Z) {
+  pred0 <- get_prediction_vector(obj, paste0(base_name, "0"))
+  pred1 <- get_prediction_vector(obj, paste0(base_name, "1"))
+  if (length(pred0) != length(Z) || length(pred1) != length(Z)) return(numeric(0))
+  ifelse(as.numeric(Z) == 1, pred1, pred0)
+}
+
+propensity_boundary_share <- function(obj, Z, threshold = 0.02) {
+  m_hat <- get_prediction_vector(obj, "ml_m")
+  r_hat <- get_branch_prediction(obj, "ml_r", Z)
+  p_hat <- c(m_hat, r_hat)
+  p_hat <- p_hat[is.finite(p_hat)]
+  if (length(p_hat) == 0) return(NA_real_)
+  mean(p_hat < threshold | p_hat > 1 - threshold)
+}
+
+rmse_loss <- function(truth, pred) {
+  if (length(pred) != length(truth) || length(pred) == 0) return(NA_real_)
+  truth <- as.numeric(truth); pred <- as.numeric(pred)
+  keep <- is.finite(truth) & is.finite(pred)
+  if (!any(keep)) return(NA_real_)
+  sqrt(mean((truth[keep] - pred[keep])^2))
+}
+
+logloss_loss <- function(truth, pred, eps = 1e-6) {
+  if (length(pred) != length(truth) || length(pred) == 0) return(NA_real_)
+  truth <- as.numeric(truth); pred <- as.numeric(pred)
+  keep <- is.finite(truth) & is.finite(pred)
+  if (!any(keep)) return(NA_real_)
+  truth <- truth[keep]; pred <- pmin(pmax(pred[keep], eps), 1 - eps)
+  -mean(truth * log(pred) + (1 - truth) * log(1 - pred))
+}
+
+calc_nuisance_losses <- function(r, cell) {
+  if (is.null(r)) return(c(outcome_rmse = NA_real_, instrument_logloss = NA_real_, treatment_logloss = NA_real_))
+  g_hat <- get_branch_prediction(r$obj, "ml_g", cell$Z)
+  m_hat <- get_prediction_vector(r$obj, "ml_m")
+  r_hat <- get_branch_prediction(r$obj, "ml_r", cell$Z)
+  c(outcome_rmse        = rmse_loss(cell$Y, g_hat),
+    instrument_logloss   = logloss_loss(cell$Z, m_hat),
+    treatment_logloss    = logloss_loss(cell$D, r_hat))
+}
+
+fit_cell <- function(dml_data, learners, label, Z, tune = FALSE, tune_on_folds = FALSE) {
+  tryCatch({
+    set.seed(SEED)
+    obj <- DoubleMLIIVM$new(data = dml_data, ml_g = learners$g, ml_m = learners$m,
+                             ml_r = learners$r, n_folds = N_CF, score = "LATE")
+    if (tune) {
+      obj$tune(param_set = tune_param_set(), tune_settings = tune_settings(),
+               tune_on_folds = tune_on_folds)
+    }
+    obj$fit(store_models = TRUE, store_predictions = TRUE)
+
+    list(label = label, tuned = tune,
+         coef = get_dml_coef(obj), se = get_dml_se(obj),
+         boundary_share = propensity_boundary_share(obj, Z),
+         tuning_result = tryCatch(obj$tuning_result, error = function(e) NULL),
+         params        = tryCatch(obj$params,        error = function(e) NULL),
+         obj = obj)
+  }, error = function(e) {
+    message(sprintf("Fit failed for %s: %s", label, conditionMessage(e)))
+    NULL
+  })
+}
+
+cells <- list(
+  "Card / some college"            = list(Y = card$lwage, D = card$somecol, Z = card$Z_inst, X = X_card),
+  "Card / college completion"      = list(Y = card$lwage, D = card$educ16,  Z = card$Z_inst, X = X_card),
+  "Kitagawa / some college"        = list(Y = card$lwage, D = card$somecol, Z = card$Z_inst, X = X_kit),
+  "Kitagawa / college completion" = list(Y = card$lwage, D = card$educ16, Z = card$Z_inst, X = X_kit)
+)
+```
+
+---
+
+# Fit: untuned versus tuned XGBoost
+
+```{r fit-all, include=FALSE}
+if (RERUN_TUNING) {
+  results <- list()
+  for (cell_name in names(cells)) {
+    cell <- cells[[cell_name]]
+    dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+
+    results[[cell_name]] <- list(
+      untuned = fit_cell(dml_data, make_xgb_learners(),
+                         paste(cell_name, "xgb-untuned"),
+                         Z = cell$Z, tune = FALSE),
+      tuned   = fit_cell(dml_data, make_xgb_learners(),
+                         paste(cell_name, "xgb-tuned"),
+                         Z = cell$Z, tune = TRUE, tune_on_folds = TRUE)
+    )
+  }
+} else {
+  if (!file.exists(EXPORT_PATH)) {
+    stop("Verified Wald-AIPW XGBoost export not found. Set RERUN_TUNING=TRUE to rebuild it.")
+  }
+  stored_export <- readRDS(EXPORT_PATH)
+}
+```
+
+## 1. Estimate comparison
+
+```{r comparison-table}
+fmt_est <- function(r) if (is.null(r)) "\u2014" else sprintf("%.3f (%.3f)", r$coef, r$se)
+
+if (RERUN_TUNING) {
+  rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+    R <- results[[cell_name]]
+    data.frame(Cell = cell_name,
+               Learner = c("Wald-AIPW XGB untuned",
+                           "Wald-AIPW XGB tuned (tune_on_folds=TRUE)"),
+               `Estimate (SE)` = c(fmt_est(R$untuned), fmt_est(R$tuned)),
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+} else {
+  rows <- stored_export$estimate_comparison[
+    , c("Cell", "Learner", "Estimate (SE)"), drop = FALSE
+  ]
+  rows$Learner <- sub("^XGB ", "Wald-AIPW XGB ", rows$Learner)
+}
+
+rows %>%
+  kbl(align = c("l","l","c"),
+      caption = "Card Wald-AIPW: XGBoost untuned vs. fold-specifically tuned") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(rows$Learner == "Wald-AIPW XGB tuned (tune_on_folds=TRUE)"), background = "#eef6ff") %>%
+  footnote(general = "Tuned nuisances select nrounds, max_depth, eta, and min_child_weight by three-fold random-search CV inside each outer training fold.")
+```
+
+## 2. Nuisance-prediction losses
+
+```{r nuisance-loss-table}
+if (RERUN_TUNING) {
+  loss_rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+    R <- results[[cell_name]]; cell <- cells[[cell_name]]
+    ul <- calc_nuisance_losses(R$untuned, cell)
+    tl <- calc_nuisance_losses(R$tuned, cell)
+    data.frame(Cell = cell_name, Learner = c("XGB untuned", "XGB tuned"),
+               `Outcome RMSE` = c(ul["outcome_rmse"], tl["outcome_rmse"]),
+               `Instrument log-loss` = c(ul["instrument_logloss"], tl["instrument_logloss"]),
+               `Treatment log-loss` = c(ul["treatment_logloss"], tl["treatment_logloss"]),
+               check.names = FALSE, row.names = NULL)
+  }))
+} else {
+  loss_rows <- stored_export$nuisance_losses
+}
+
+loss_rows %>%
+  kbl(digits = 4,
+      caption = "Wald-AIPW nuisance losses: untuned vs. tuned (lower is better)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(loss_rows$Learner == "XGB tuned"), background = "#eef6ff")
+```
+
+## 3. Tuning protocol
+
+The tuning design, rather than a single parameter vector, is the relevant
+reproducibility information because selection occurs separately within each
+outer training fold.
+
+```{r tuning-protocol}
+data.frame(
+  Component = c(
+    "Outer cross-fitting", "Inner validation", "Search algorithm", "Budget",
+    "nrounds", "max_depth", "eta", "min_child_weight",
+    "Outcome nuisance", "Instrument nuisance", "Treatment nuisance"
+  ),
+  Specification = c(
+    paste(N_CF, "folds"), paste(INNER_FOLDS, "folds"), "Random search",
+    paste(TUNE_EVALS, "evaluations per nuisance and outer fold"),
+    "50–400", "2–5", "0.02–0.20", "1–8",
+    "RMSE", "Log-loss", "Log-loss"
+  )
+) %>%
+  kbl(caption = "Nested XGBoost tuning protocol: Wald-AIPW") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE)
+```
+
+```{r hyperparameter-summary, include=FALSE}
+extract_tuned_params <- function(r, cell_name) {
+  if (is.null(r) || !r$tuned) return(data.frame())
+  src <- if (!is.null(r$params)) r$params else r$tuning_result
+  if (is.null(src)) return(data.frame())
+
+  u <- unlist(src, recursive = TRUE)
+  u <- u[grepl("nrounds|max_depth|eta|min_child_weight", names(u))]
+  if (length(u) == 0) return(data.frame())
+
+  hp <- data.frame(Cell = cell_name, Raw_name = names(u), Value = as.numeric(u), stringsAsFactors = FALSE)
+  hp$Nuisance <- ifelse(grepl("ml_g", hp$Raw_name), "Outcome g",
+                  ifelse(grepl("ml_m", hp$Raw_name), "Instrument m",
+                  ifelse(grepl("ml_r", hp$Raw_name), "Treatment r", "Unknown")))
+  hp$Branch <- ifelse(grepl("ml_g0|ml_r0", hp$Raw_name), "Z=0",
+                ifelse(grepl("ml_g1|ml_r1", hp$Raw_name), "Z=1", ""))
+  hp$Parameter <- sub(".*(nrounds|max_depth|eta|min_child_weight).*", "\\1", hp$Raw_name)
+  hp
+}
+
+if (RERUN_TUNING) {
+  hp_parts <- lapply(names(results), function(cn) {
+    extract_tuned_params(results[[cn]]$tuned, cn)
+  })
+  hp_parts <- Filter(function(x) nrow(x) > 0, hp_parts)
+  hp_raw <- if (length(hp_parts)) do.call(rbind, hp_parts) else data.frame()
+  if (!nrow(hp_raw)) stop("Fold-specific hyperparameters could not be extracted.")
+  hp_raw <- hp_raw[hp_raw$Nuisance != "Unknown", ]
+  hp_summary <- hp_raw %>%
+    group_by(Cell, Nuisance, Branch, Parameter) %>%
+    summarise(Median_across_folds = median(Value), N_values_seen = n(), .groups = "drop") %>%
+    arrange(Cell, Nuisance, Branch, Parameter)
+} else {
+  hp_raw <- NULL
+  hp_summary <- stored_export$hyperparameters
+}
+```
+
+## 4. Outcome-weight representation audit and export
+
+```{r weight-helpers}
+omega_vec <- function(om) {
+  w <- om$omega
+  if (is.null(dim(w))) return(as.vector(w))
+  if (!is.null(rownames(w)) && "Wald-AIPW" %in% rownames(w)) return(as.vector(w["Wald-AIPW", ]))
+  as.vector(w[1, ])
+}
+
+extract_xgb_w <- function(r, cell) {
+  if (is.null(r) || is.null(r$obj)) {
+    stop("Cannot extract weights because the fitted DoubleML object is NULL.")
+  }
+  dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+  om <- get_outcome_weights(object = r$obj, dml_data = dml_data)
+  omega_vec(om)
+}
+
+safe_extract_xgb_w <- function(r, cell) {
+  tryCatch(extract_xgb_w(r, cell), error = function(e) NULL)
+}
+
+one_xgb_diag_row <- function(cell_name, learner_name, r, cell, w) {
+  if (is.null(r) || is.null(r$obj)) {
+    return(data.frame(
+      Cell = cell_name, Learner = learner_name,
+      Estimate = NA_real_,
+      `Overall sum` = NA_real_,
+      `Treated sum` = NA_real_,
+      `Control sum` = NA_real_,
+      `ω′Y reproduces τ̂` = NA,
+      check.names = FALSE
+    ))
+  }
+
+  if (is.null(w)) {
+    return(data.frame(
+      Cell = cell_name, Learner = learner_name,
+      Estimate = as.numeric(r$coef),
+      `Overall sum` = NA_real_,
+      `Treated sum` = NA_real_,
+      `Control sum` = NA_real_,
+      `ω′Y reproduces τ̂` = NA,
+      check.names = FALSE
+    ))
+  }
+
+  identity_ok <- tryCatch(
+    check_weight_identity(w, cell$Y, r$coef),
+    error = function(e) NA
+  )
+
+  data.frame(
+    Cell = cell_name, Learner = learner_name,
+    Estimate = as.numeric(r$coef),
+    `Overall sum` = sum(w),
+    `Treated sum` = sum(w[cell$D == 1]),
+    `Control sum` = -sum(w[cell$D == 0]),
+    `ω′Y reproduces τ̂` = identity_ok,
+    check.names = FALSE
+  )
+}
+```
+
+```{r weight-table}
+if (RERUN_TUNING) {
+  xgb_omega_vectors <- lapply(names(cells), function(cell_name) {
+    list(
+      untuned = if (EXTRACT_WEIGHTS) {
+        safe_extract_xgb_w(results[[cell_name]]$untuned, cells[[cell_name]])
+      } else NULL,
+      tuned = if (EXTRACT_WEIGHTS) {
+        safe_extract_xgb_w(results[[cell_name]]$tuned, cells[[cell_name]])
+      } else NULL
+    )
+  })
+  names(xgb_omega_vectors) <- names(cells)
+
+  xgb_tuned_weight_table <- do.call(rbind, lapply(names(cells), function(cell_name) {
+    cell <- cells[[cell_name]]
+    R <- results[[cell_name]]
+    W <- xgb_omega_vectors[[cell_name]]
+    rbind(
+      one_xgb_diag_row(cell_name, "XGB untuned", R$untuned, cell, W$untuned),
+      one_xgb_diag_row(cell_name, "XGB tuned", R$tuned, cell, W$tuned)
+    )
+  }))
+} else {
+  xgb_omega_vectors <- stored_export$omega_vectors
+  xgb_tuned_weight_table <- stored_export$weight_diagnostics
+}
+
+xgb_wald_audit_display <- do.call(rbind, lapply(
+  seq_len(nrow(xgb_tuned_weight_table)),
+  function(i) {
+    row <- xgb_tuned_weight_table[i, , drop = FALSE]
+    cell_name <- as.character(row$Cell)
+    variant <- if (grepl("untuned", row$Learner, fixed = TRUE)) "untuned" else "tuned"
+    w <- tryCatch(xgb_omega_vectors[[cell_name]][[variant]],
+                  error = function(e) NULL)
+    d <- cells[[cell_name]]$D
+    estimate <- as.numeric(row$Estimate)
+    data.frame(
+      Cell = cell_name,
+      Variant = if (variant == "untuned") "Untuned XGBoost" else "Tuned XGBoost",
+      Estimate = estimate,
+      `Overall sum` = if (is.null(w)) NA_real_ else sum(w),
+      `Treated sum` = if (is.null(w)) NA_real_ else sum(w[d == 1]),
+      `Control sum` = if (is.null(w)) NA_real_ else -sum(w[d == 0]),
+      `ω′Y reproduces τ̂` = if (is.null(w) || !is.finite(estimate)) NA else
+        check_weight_identity(w, cells[[cell_name]]$Y, estimate),
+      check.names = FALSE
+    )
+  }
+))
+
+xgb_wald_audit_display %>%
+  kbl(digits = 4,
+      caption = "Card Wald-AIPW — reconstructed XGBoost weight audit") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12) %>%
+  row_spec(which(xgb_wald_audit_display$Variant == "Tuned XGBoost"), background = "#eef6ff") %>%
+  footnote(general = paste(
+    "The sums describe reconstructed outcome-weight vectors; control weights are reported with reversed sign.",
+    "A normalized contrast has overall, treated, and control sums of 0, 1, and 1.",
+    "Reproduction is assessed from the unrounded vectors and estimates using all.equal() with R's default tolerance.",
+    "Failed vectors are excluded from further outcome-weight diagnostics."
+  ))
+```
+
+```{r omega-and-identities, include=FALSE}
+if (RERUN_TUNING) {
+  xgb_identity_checks <- lapply(names(cells), function(cell_name) {
+    cell <- cells[[cell_name]]
+    R <- results[[cell_name]]
+    W <- xgb_omega_vectors[[cell_name]]
+    list(
+      untuned = tryCatch(
+        if (is.null(W$untuned) || is.null(R$untuned)) NA else
+          check_weight_identity(W$untuned, cell$Y, R$untuned$coef),
+        error = function(e) NA
+      ),
+      tuned = tryCatch(
+        if (is.null(W$tuned) || is.null(R$tuned)) NA else
+          check_weight_identity(W$tuned, cell$Y, R$tuned$coef),
+        error = function(e) NA
+      )
+    )
+  })
+  names(xgb_identity_checks) <- names(cells)
+} else {
+  xgb_identity_checks <- stored_export$identity_checks
+}
+
+```
+
+```{r export, include=FALSE}
+if (RERUN_TUNING) {
+  xgb_export <- list(
+    estimate_comparison = rows,
+    fit_summaries = lapply(results, function(x) lapply(x, function(r) {
+      if (is.null(r)) NULL else {
+        list(coef = as.numeric(r$coef), se = as.numeric(r$se))
+      }
+    })),
+    nuisance_losses = loss_rows,
+    hyperparameters = hp_summary,
+    hyperparameters_raw = hp_raw,
+    weight_diagnostics = xgb_tuned_weight_table,
+    omega_vectors = xgb_omega_vectors,
+    identity_checks = xgb_identity_checks,
+    settings = list(
+      seed = SEED, n_cf = N_CF, tune_evals = TUNE_EVALS,
+      inner_folds = INNER_FOLDS, tune_on_folds = TRUE,
+      learner = "xgboost", dml_class = "DoubleMLIIVM", score = "LATE",
+      extract_weights = EXTRACT_WEIGHTS, cells = names(cells)
+    ),
+    sample_info = list(
+      n = nrow(card), mean_Z = mean(card$Z_inst),
+      somecol_mean_D = mean(card$somecol),
+      educ16_mean_D = mean(card$educ16),
+      cells = names(cells)
+    )
+  )
+  saveRDS(xgb_export, EXPORT_PATH)
+}
+```
+
+<div class="note-box">
+The main Card analysis reads `card_xgb_tuning_export.rds`. Fold-specific
+hyperparameters remain in the export for audit purposes and are not reported
+as a reusable global specification.
+</div>

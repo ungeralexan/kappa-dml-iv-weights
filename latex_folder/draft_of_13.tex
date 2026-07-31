@@ -1911,121 +1911,142 @@ untuned and tuned comparison. The following subsection
 examines whether these point-estimate patterns remain stable when the outcome
 is translated.
 
-
-
-
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:card_translation}
-In this section we follow the complete-pipeline rerun protocol defined in
-Section~\ref{subsec:full_pipeline_invariance} and previously applied in the
-Vietnam analysis. Table~\ref{tab:card_translation} reports the change after
-recoding wages from dollars to cents for the two treatment definitions and
-the Card and Kitagawa conditioning sets. The four columns are considered
-together rather than as separate empirical exercises.\\
-The kappa results reproduce the main pattern documented by
-\citet{sloczynski2025abadie}. All three normalised estimators are unchanged
-in every design cell, whereas every unnormalised estimator changes. The unnormalised changes range from
-\(-0.492\) to \(-0.445\) for schooling beyond high school under the Card
-specification and from \(1.284\) to \(1.780\) under the Kitagawa
-specification. They become still larger for the sixteen-year treatment
-margin. These results provide a replication benchmark for the subsequent
-DML comparison rather than a new finding about the kappa estimators.\\
-The parametric DML implementations provide the clearest invariance result.
-Linear PLR-IV and linear/logit Wald-AIPW return exactly the same estimate
-after recoding in all four cells. For the forest-based estimators, the
-numerical assessment instead depends on the conditioning specification.
-Both honest forest and \texttt{ranger} remain within the \(10^{-4}\)
-criterion under the parsimonious Kitagawa specification, but produce small
-detectable changes under the richer Card specification. The largest of
-these changes is \(-0.003239\), obtained for honest-forest Wald-AIPW at the
-sixteen-year margin. The common Card--Kitagawa pattern across two forest
-implementations and both scores suggests greater sensitivity of the
-data-adaptive nuisance fits to the larger conditioning set. However, the
-rerun exercise does not isolate the precise source of this difference.\\
-Tuned XGBoost produces the largest DML changes. All eight XGBoost
-comparisons exceed \(10^{-4}\), although their magnitudes remain much
-smaller than the changes of the unnormalised kappa estimators. The largest
-change is \(-0.021826\) for Card PLR-IV at the sixteen-year margin. Under
-the Kitagawa specification, the largest change is \(0.008437\) for
-Wald-AIPW at the same treatment margin. Tuning improves the
-point-estimate behaviour documented in the preceding subsection, but does
-not by itself guarantee that the complete fitted procedure is invariant to
-an outcome translation.\\
-Overall, the results reveal a clear ordering. Exact numerical invariance is
-obtained for the normalised kappa and parametric DML estimators. Forest-based
-DML is approximately stable, with its numerical classification depending on
-the conditioning set, while tuned XGBoost displays the greatest sensitivity
-among the DML implementations. The unnormalised kappa estimators remain by
-far the most sensitive to the change in outcome units. Appendix
-Tables~\ref{tab:card_translation_kappa_appendix}
-and~\ref{tab:card_translation_dml_appendix} report the original and recoded
-estimates underlying these comparisons.
 
-\begin{table}[htbp]
+Following the complete-pipeline rerun protocol defined in
+Section~\ref{subsec:full_pipeline_invariance}, log wages are translated from
+dollars to cents and each estimator is re-estimated.
+Table~\ref{tab:card_translation} reports the resulting changes for both
+conditioning sets and treatment margins. The underlying estimates are
+provided in Appendix Tables~\ref{tab:card_translation_kappa_appendix}
+and~\ref{tab:card_translation_dml_appendix}.
+The kappa estimates reproduce the expected normalisation distinction. The
+three normalised estimators are unchanged in every design cell, whereas all
+three unnormalised estimators change substantially. Among the DML estimators,
+the parametric implementations provide the clearest result. Linear PLR-IV and
+linear/logit Wald-AIPW are classified as translation invariant under both
+conditioning sets and at both treatment margins.\\
+The forest-based implementations reveal a systematic difference between the
+conditioning sets. Under the Card specification, both honest forest and
+\texttt{ranger} exceed the \(10^{-4}\) threshold for PLR-IV and Wald-AIPW at
+both treatment margins. Under the Kitagawa specification, all corresponding
+changes remain within the threshold. Since this pattern holds across both
+scores and forest implementations, it points to the conditioning set as an
+important source of numerical sensitivity. The rerun exercise does not,
+however, establish whether this difference is caused by the number of
+covariates itself or by their interaction with nuisance estimation.\\
+Tuned XGBoost is classified as non-invariant in all eight comparisons,
+including those based on the Kitagawa specification. Its sensitivity therefore
+cannot be explained solely by the richer Card conditioning set. The pattern
+also differs between the two scores. PLR-IV changes more under Card, whereas
+Wald-AIPW changes more under Kitagawa. The largest DML change is \(0.0218\),
+obtained for Card PLR-IV at the sixteen-year margin. More generally, the
+sixteen-year margin produces larger absolute changes for the nonparametric
+implementations, but it does not alter their invariance classification.\\
+Overall, parametric DML is invariant throughout, while the invariance of the
+forest-based estimators depends systematically on the conditioning set.
+Tuned XGBoost remains sensitive under both specifications. Nevertheless, the
+DML changes remain considerably smaller than those of the unnormalised kappa
+estimators.
+
+\begin{table}[H]
 \centering
-\caption{Translation invariance under complete re-estimation in the Card application}
+\caption{Translation invariance under complete re-estimation}
 \label{tab:card_translation}
 \footnotesize
 \setlength{\tabcolsep}{3pt}
 \begin{threeparttable}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-& \multicolumn{2}{c}{Schooling beyond high school}
-& \multicolumn{2}{c}{At least 16 years} \\
+& \multicolumn{2}{c}{Card specification}
+& \multicolumn{2}{c}{Kitagawa specification} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
 Estimator
-& Card & Kitagawa & Card & Kitagawa \\
+& \shortstack{Beyond high\\school}
+& \shortstack{At least\\16 years}
+& \shortstack{Beyond high\\school}
+& \shortstack{At least\\16 years} \\
 \midrule
-\multicolumn{5}{l}{\textit{Panel A: Kappa benchmark}} \\[2pt]
-\shortstack[l]{Normalised kappa,\\all three variants}
-& 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
-\shortstack[l]{Unnormalised kappa, range\\over three variants}
-& \textbf{[$-0.492$,$-0.445$]}
-& \textbf{[1.284,1.780]}
-& \textbf{[$-0.921$,$-0.767$]}
-& \textbf{[2.283,4.529]} \\
-\addlinespace[3pt]
-\multicolumn{5}{l}{\textit{Panel B: Parametric DML}} \\[2pt]
+
+\multicolumn{5}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
+
+\shortstack[l]{Normalised kappa,\\all three estimators}
+& 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+
+\shortstack[l]{Unnormalised kappa,\\range over three estimators}
+& \textbf{[$-0.4921$,$-0.4446$]}
+& \textbf{[$-0.9206$,$-0.7673$]}
+& \textbf{[1.2838,1.7801]}
+& \textbf{[2.2834,4.5290]} \\[4pt]
+
+\multicolumn{5}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
+
+PLR-IV
+& \textbf{$-0.0006$}
+& \textbf{$-0.0009$}
+& 0.0000
+& 0.0000 \\
+
+Wald-AIPW
+& \textbf{$-0.0017$}
+& \textbf{$-0.0032$}
+& 0.0000
+& 0.0001 \\[4pt]
+
+\multicolumn{5}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
+
 PLR-IV, linear
-& 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
+& 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+
 Wald-AIPW, linear/logit
-& 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
-\addlinespace[3pt]
-\multicolumn{5}{l}{\textit{Panel C: Forest-based DML}} \\[2pt]
-PLR-IV, tuned honest forest
-& \textbf{$-0.000556$} & 0.000014
-& \textbf{$-0.000931$} & 0.000025 \\
-Wald-AIPW, tuned honest forest
-& \textbf{$-0.001706$} & 0.000050
-& \textbf{$-0.003239$} & 0.000091 \\
+& 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+
 PLR-IV, \texttt{ranger}
-& \textbf{$-0.000608$} & 0.000010
-& \textbf{$-0.000987$} & 0.000017 \\
+& \textbf{$-0.0006$}
+& \textbf{$-0.0010$}
+& 0.0000
+& 0.0000 \\
+
 Wald-AIPW, \texttt{ranger}
-& \textbf{$-0.000351$} & 0.000003
-& \textbf{$-0.000659$} & 0.000005 \\
-\addlinespace[3pt]
-\multicolumn{5}{l}{\textit{Panel D: Tuned XGBoost DML}} \\[2pt]
+& \textbf{$-0.0004$}
+& \textbf{$-0.0007$}
+& 0.0000
+& 0.0000 \\
+
 PLR-IV, tuned XGBoost
-& \textbf{$-0.013188$} & \textbf{0.000319}
-& \textbf{$-0.021826$} & \textbf{0.000527} \\
+& \textbf{$-0.0132$}
+& \textbf{$-0.0218$}
+& \textbf{0.0003}
+& \textbf{0.0005} \\
+
 Wald-AIPW, tuned XGBoost
-& \textbf{$-0.000229$} & \textbf{0.004216}
-& \textbf{$-0.000438$} & \textbf{0.008437} \\
+& \textbf{$-0.0002$}
+& \textbf{$-0.0004$}
+& \textbf{0.0042}
+& \textbf{0.0084} \\
+
 \bottomrule
 \end{tabular}
+
 \begin{tablenotes}
 \footnotesize
 \item \textit{Notes:} Entries report
-\(\Delta_{\mathrm{rerun}}
-=\widehat{\tau}_{\mathrm{cents}}-\widehat{\tau}_{\mathrm{dollars}}\)
+\(\widehat{\tau}_{\mathrm{cents}}-\widehat{\tau}_{\mathrm{dollars}}\)
 after repeating the complete estimation procedure. The kappa ranges contain
 the smallest and largest signed changes among the three estimators in the
-respective normalisation class. Bold entries exceed \(10^{-4}\) in absolute
-value. Values displayed as zero are zero up to the reported precision.
+respective normalisation class. An estimate is classified as unchanged when
+the absolute rerun change does not exceed \(10^{-4}\). Bold entries exceed
+this threshold. Values displayed as zero are zero up to the reported
+precision.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
+
+
+
+
+
 
 \subsection{Outcome-Weight Normalisation and Concentration}
 \label{subsec:card_weights}

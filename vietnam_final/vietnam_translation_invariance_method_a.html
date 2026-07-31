@@ -11,7 +11,7 @@
 
 <meta name="author" content="Alexander Unger" />
 
-<meta name="date" content="2026-07-30" />
+<meta name="date" content="2026-07-31" />
 
 <title>Angrist (1990) — Translation Invariance: Complete-Pipeline Rerun</title>
 
@@ -1901,7 +1901,7 @@ Complete-Pipeline Rerun</h1>
 <h3 class="subtitle">Vietnam draft lottery: kappa, honest forest,
 DoubleML learners, and nested XGBoost</h3>
 <h4 class="author">Alexander Unger</h4>
-<h4 class="date">30 July 2026</h4>
+<h4 class="date">31 July 2026</h4>
 
 </div>
 
@@ -1971,13 +1971,22 @@ tolerance.</p>
 <span id="cb1-26"><a href="#cb1-26" tabindex="-1"></a>}</span>
 <span id="cb1-27"><a href="#cb1-27" tabindex="-1"></a></span>
 <span id="cb1-28"><a href="#cb1-28" tabindex="-1"></a>display_rerun_results <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
-<span id="cb1-29"><a href="#cb1-29" tabindex="-1"></a>  out <span class="ot">&lt;-</span> x[,<span class="fu">c</span>(<span class="st">&quot;Specification&quot;</span>,<span class="st">&quot;Estimator&quot;</span>,<span class="st">&quot;Shift_k&quot;</span>,<span class="st">&quot;tau_original&quot;</span>,</span>
-<span id="cb1-30"><a href="#cb1-30" tabindex="-1"></a>              <span class="st">&quot;tau_shifted&quot;</span>,<span class="st">&quot;rerun_difference&quot;</span>,<span class="st">&quot;invariant&quot;</span>)]</span>
-<span id="cb1-31"><a href="#cb1-31" tabindex="-1"></a>  <span class="fu">names</span>(out) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;Specification&quot;</span>,<span class="st">&quot;Estimator&quot;</span>,<span class="st">&quot;Shift&quot;</span>,</span>
-<span id="cb1-32"><a href="#cb1-32" tabindex="-1"></a>                  <span class="st">&quot;Original estimate&quot;</span>,<span class="st">&quot;Shifted estimate&quot;</span>,<span class="st">&quot;Rerun change&quot;</span>,</span>
-<span id="cb1-33"><a href="#cb1-33" tabindex="-1"></a>                  <span class="st">&quot;Unchanged within 10^-4&quot;</span>)</span>
-<span id="cb1-34"><a href="#cb1-34" tabindex="-1"></a>  out</span>
-<span id="cb1-35"><a href="#cb1-35" tabindex="-1"></a>}</span></code></pre></div>
+<span id="cb1-29"><a href="#cb1-29" tabindex="-1"></a>  fixed_four <span class="ot">&lt;-</span> <span class="cf">function</span>(value) {</span>
+<span id="cb1-30"><a href="#cb1-30" tabindex="-1"></a>    value <span class="ot">&lt;-</span> <span class="fu">round</span>(<span class="fu">as.numeric</span>(value), <span class="dv">4</span>)</span>
+<span id="cb1-31"><a href="#cb1-31" tabindex="-1"></a>    value[<span class="fu">abs</span>(value) <span class="sc">&lt;</span> <span class="fl">0.00005</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb1-32"><a href="#cb1-32" tabindex="-1"></a>    <span class="fu">formatC</span>(value, <span class="at">format =</span> <span class="st">&quot;f&quot;</span>, <span class="at">digits =</span> <span class="dv">4</span>)</span>
+<span id="cb1-33"><a href="#cb1-33" tabindex="-1"></a>  }</span>
+<span id="cb1-34"><a href="#cb1-34" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
+<span id="cb1-35"><a href="#cb1-35" tabindex="-1"></a>    <span class="at">Specification =</span> x<span class="sc">$</span>Specification,</span>
+<span id="cb1-36"><a href="#cb1-36" tabindex="-1"></a>    <span class="at">Estimator =</span> x<span class="sc">$</span>Estimator,</span>
+<span id="cb1-37"><a href="#cb1-37" tabindex="-1"></a>    <span class="at">Shift =</span> <span class="fu">fixed_four</span>(x<span class="sc">$</span>Shift_k),</span>
+<span id="cb1-38"><a href="#cb1-38" tabindex="-1"></a>    <span class="st">`</span><span class="at">Original estimate</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">fixed_four</span>(x<span class="sc">$</span>tau_original),</span>
+<span id="cb1-39"><a href="#cb1-39" tabindex="-1"></a>    <span class="st">`</span><span class="at">Shifted estimate</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">fixed_four</span>(x<span class="sc">$</span>tau_shifted),</span>
+<span id="cb1-40"><a href="#cb1-40" tabindex="-1"></a>    <span class="st">`</span><span class="at">Rerun change</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">fixed_four</span>(x<span class="sc">$</span>rerun_difference),</span>
+<span id="cb1-41"><a href="#cb1-41" tabindex="-1"></a>    <span class="at">Invariant =</span> x<span class="sc">$</span>invariant,</span>
+<span id="cb1-42"><a href="#cb1-42" tabindex="-1"></a>    <span class="at">check.names =</span> <span class="cn">FALSE</span></span>
+<span id="cb1-43"><a href="#cb1-43" tabindex="-1"></a>  )</span>
+<span id="cb1-44"><a href="#cb1-44" tabindex="-1"></a>}</span></code></pre></div>
 <div id="runtime-switches" class="section level2">
 <h2>Runtime switches</h2>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>RUN_KAPPA <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
@@ -2112,20 +2121,20 @@ Specification
 <th style="text-align:left;">
 Estimator
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shift
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Original estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shifted estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Rerun change
 </th>
 <th style="text-align:left;">
-Unchanged within 10^-4
+Invariant
 </th>
 </tr>
 </thead>
@@ -2137,16 +2146,16 @@ Cubic age
 <td style="text-align:left;">
 tau_cb_u
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2100
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2100
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2160,16 +2169,16 @@ Cubic age
 <td style="text-align:left;">
 tau_ml_u
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2025
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2025
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2183,16 +2192,16 @@ Cubic age
 <td style="text-align:left;">
 tau_ml_a10
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2044
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2044
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2206,16 +2215,16 @@ Cubic age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 tau_ml_a
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.3144
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.5366
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2222
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -2229,16 +2238,16 @@ Cubic age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 tau_ml_t
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.3020
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.5154
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2134
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -2252,16 +2261,16 @@ Cubic age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 tau_ml_a0
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.3167
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.5405
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2238
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -2275,16 +2284,16 @@ Saturated age
 <td style="text-align:left;">
 tau_cb_u
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2298,16 +2307,16 @@ Saturated age
 <td style="text-align:left;">
 tau_ml_u
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2321,16 +2330,16 @@ Saturated age
 <td style="text-align:left;">
 tau_ml_a10
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2344,16 +2353,16 @@ Saturated age
 <td style="text-align:left;">
 tau_ml_a
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2367,16 +2376,16 @@ Saturated age
 <td style="text-align:left;">
 tau_ml_t
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2390,16 +2399,16 @@ Saturated age
 <td style="text-align:left;">
 tau_ml_a0
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2408
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.0000
 </td>
 <td style="text-align:left;">
@@ -2464,20 +2473,20 @@ Specification
 <th style="text-align:left;">
 Estimator
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shift
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Original estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shifted estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Rerun change
 </th>
 <th style="text-align:left;">
-Unchanged within 10^-4
+Invariant
 </th>
 </tr>
 </thead>
@@ -2489,17 +2498,17 @@ Cubic age
 <td style="text-align:left;">
 PLR-IV
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2429
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2429
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2512,17 +2521,17 @@ Cubic age
 <td style="text-align:left;">
 Wald-AIPW
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2291
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2291
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2535,17 +2544,17 @@ Saturated age
 <td style="text-align:left;">
 PLR-IV
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2416
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2416
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2558,17 +2567,17 @@ Saturated age
 <td style="text-align:left;">
 Wald-AIPW
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2443
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2443
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2632,20 +2641,20 @@ Specification
 <th style="text-align:left;">
 Estimator
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shift
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Original estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shifted estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Rerun change
 </th>
 <th style="text-align:left;">
-Unchanged within 10^-4
+Invariant
 </th>
 </tr>
 </thead>
@@ -2657,17 +2666,17 @@ Cubic age
 <td style="text-align:left;">
 PLR-IV (OLS nuisances)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2388
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2388
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2680,17 +2689,17 @@ Cubic age
 <td style="text-align:left;">
 Wald-AIPW (OLS/logit nuisances)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2178
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2178
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2703,17 +2712,17 @@ Cubic age
 <td style="text-align:left;">
 PLR-IV (Ranger)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2697
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2697
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2726,17 +2735,17 @@ Cubic age
 <td style="text-align:left;">
 Wald-AIPW (Ranger)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2461
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2461
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2749,17 +2758,17 @@ Saturated age
 <td style="text-align:left;">
 PLR-IV (OLS nuisances)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2701
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2701
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2772,17 +2781,17 @@ Saturated age
 <td style="text-align:left;">
 Wald-AIPW (OLS/logit nuisances)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2468
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2468
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2795,17 +2804,17 @@ Saturated age
 <td style="text-align:left;">
 PLR-IV (Ranger)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2834
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2834
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2818,17 +2827,17 @@ Saturated age
 <td style="text-align:left;">
 Wald-AIPW (Ranger)
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 4.6052
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2610
 </td>
-<td style="text-align:right;">
+<td style="text-align:left;">
 0.2610
 </td>
-<td style="text-align:right;">
-0
+<td style="text-align:left;">
+0.0000
 </td>
 <td style="text-align:left;">
 TRUE
@@ -2928,20 +2937,20 @@ Specification
 <th style="text-align:left;">
 Estimator
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shift
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Original estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Shifted estimate
 </th>
-<th style="text-align:right;">
+<th style="text-align:left;">
 Rerun change
 </th>
 <th style="text-align:left;">
-Unchanged within 10^-4
+Invariant
 </th>
 </tr>
 </thead>
@@ -2953,16 +2962,16 @@ Cubic age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 Wald-AIPW (XGBoost tuned)
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2383
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2380
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 -0.0003
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -2976,16 +2985,16 @@ Cubic age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 PLR-IV (XGBoost tuned)
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2648
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2677
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.0029
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -2999,16 +3008,16 @@ Saturated age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 Wald-AIPW (XGBoost tuned)
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2533
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2517
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 -0.0015
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
@@ -3022,16 +3031,16 @@ Saturated age
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 PLR-IV (XGBoost tuned)
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2809
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 0.2804
 </td>
-<td style="text-align:right;background-color: rgba(255, 251, 240, 255) !important;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 -0.0005
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">

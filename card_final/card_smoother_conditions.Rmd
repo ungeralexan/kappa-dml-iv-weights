@@ -1,0 +1,679 @@
+---
+title: "Card (1995) — Smoother Conditions for DML Outcome Weights"
+subtitle: "Conditions 3, 5a, and 5b across conditioning sets and treatment margins"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size:15px; color:#2c2c2c; }
+h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
+h2 { color:#2c7bb6; margin-top:28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size:13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo=TRUE,
+  message=FALSE,
+  warning=FALSE,
+  cache=TRUE,
+  autodep=TRUE,
+  cache.extra="card-smoother-condition-audit-v1"
+)
+options(knitr.kable.NA="—")
+```
+
+# Purpose
+
+This notebook checks the smoother conditions in Knaus (2024) for the Card
+DML implementations whose outcome-weight representations are eligible for
+the main diagnostics. It covers PLR-IV and Wald-AIPW with tuned honest
+forests, linear or linear/logit nuisance models, and `ranger`. The checks are
+repeated for the Card and Kitagawa conditioning sets and for both treatment
+margins.
+
+For an outcome smoother \(\widehat m=S Y\), Condition 3 requires
+
+\[
+S\mathbf 1_N=\mathbf 1_N.
+\]
+
+Full normalization additionally requires
+
+\[
+S D=\widehat D
+\]
+
+for PLR-IV (Condition 5a), or
+
+\[
+S_0^zD=\widehat D_0^z,\qquad
+S_1^zD=\widehat D_1^z
+\]
+
+for Wald-AIPW (Condition 5b). The two Wald-AIPW branches are reported
+separately.
+
+<div class="note-box">
+The estimator and learner definitions match `card_test.Rmd`: five-fold
+cross-fitting, seed 42, fold-specific honest-forest tuning, linear nuisances
+for PLR-IV, linear outcome plus logistic binary nuisances for parametric
+Wald-AIPW, and `ranger` for the alternative forest implementation.
+</div>
+
+<div class="warn-box">
+The smoother matrices contain \(N^2\) elements. Each model is therefore
+fitted, audited, and released before the next model is processed. The four
+design cells make this notebook memory- and computation-intensive. XGBoost
+is not included because its reconstructed CARD weight vectors do not pass the
+estimator-reproduction gate.
+</div>
+
+# Setup
+
+```{r packages, cache=FALSE}
+library(haven)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+source(file.path("..","functions_all.R"))
+
+if (!exists(
+  "get_DoubleML_smoother",
+  envir=asNamespace("OutcomeWeights"),
+  inherits=FALSE
+)) {
+  stop("The installed OutcomeWeights version does not provide get_DoubleML_smoother().")
+}
+```
+
+```{r data}
+card<-read_dta("card.dta")
+card<-card[!is.na(card$wage)&!is.na(card$educ),]
+
+if (!"expersq"%in%names(card)) {
+  card$expersq<-card$exper^2
+}
+
+Y<-as.numeric(log(card$wage/100))
+Z<-as.integer(card$nearc4)
+D_somecol<-as.integer(card$educ>12)
+D_educ16<-as.integer(card$educ>=16)
+
+X_card<-make_X(
+  ~0+exper+expersq+black+south+smsa+smsa66+
+    reg661+reg662+reg663+reg664+reg665+reg666+reg667+reg668,
+  data=card
+)
+X_kitagawa<-make_X(
+  ~0+black+south+smsa+smsa66+south66,
+  data=card
+)
+
+design_cells<-list(
+  "Card / some college"=list(X=X_card,D=D_somecol),
+  "Card / college completion"=list(X=X_card,D=D_educ16),
+  "Kitagawa / some college"=list(X=X_kitagawa,D=D_somecol),
+  "Kitagawa / college completion"=list(X=X_kitagawa,D=D_educ16)
+)
+
+stopifnot(
+  length(Y)==3010L,
+  all(vapply(design_cells,function(x)nrow(x$X),integer(1))==length(Y)),
+  all(vapply(design_cells,function(x)length(x$D),integer(1))==length(Y))
+)
+```
+
+# Diagnostic functions
+
+```{r helpers}
+make_dml_data<-function(X,D){
+  dat<-as.data.frame(X)
+  dat$y<-Y
+  dat$d<-D
+  dat$z<-Z
+  DoubleMLData$new(
+    data=dat,
+    y_col="y",
+    d_cols="d",
+    z_cols="z",
+    x_cols=colnames(X)
+  )
+}
+
+fit_pliv<-function(dml_data,learner){
+  set.seed(42)
+  object<-DoubleMLPLIV$new(
+    data=dml_data,
+    ml_l=learner(),
+    ml_m=learner(),
+    ml_r=learner(),
+    n_folds=5
+  )
+  invisible(capture.output(
+    object$fit(store_models=TRUE,store_predictions=TRUE)
+  ))
+  object
+}
+
+fit_wald<-function(dml_data,outcome_learner,
+                     instrument_learner,treatment_learner){
+  set.seed(42)
+  object<-DoubleMLIIVM$new(
+    data=dml_data,
+    ml_g=outcome_learner(),
+    ml_m=instrument_learner(),
+    ml_r=treatment_learner(),
+    n_folds=5,
+    score="LATE"
+  )
+  invisible(capture.output(
+    object$fit(store_models=TRUE,store_predictions=TRUE)
+  ))
+  object
+}
+
+fit_honest_forest<-function(X,D){
+  set.seed(42)
+  dml_with_smoother(
+    Y,D,X,Z,
+    n_cf_folds=5,
+    tune.parameters="all"
+  )
+}
+
+prediction_vector<-function(x){
+  as.numeric(drop(x))
+}
+
+first_rep_smoother<-function(x){
+  if (length(dim(x))==3L) return(as.matrix(x[1,,]))
+  as.matrix(x)
+}
+
+extract_doubleml_smoothers<-function(object,dml_data){
+  smoother<-getFromNamespace("get_DoubleML_smoother","OutcomeWeights")
+  dat<-as.matrix(dml_data$data)
+  test_ids<-object$smpls[[1]]$test_ids
+  train_ids<-object$smpls[[1]]$train_ids
+  x_cols<-dml_data$x_cols
+  y_col<-dml_data$y_col
+
+  if (inherits(object,"DoubleMLPLIV")) {
+    return(list(
+      S=smoother(
+        object$models$ml_l$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,NULL
+      )
+    ))
+  }
+
+  if (inherits(object,"DoubleMLIIVM")) {
+    z<-dat[,dml_data$z_cols]
+    return(list(
+      S.z0=smoother(
+        object$models$ml_g0$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,z==0
+      ),
+      S.z1=smoother(
+        object$models$ml_g1$d[[1]],
+        test_ids,train_ids,dat,x_cols,y_col,z==1
+      )
+    ))
+  }
+
+  stop("Unsupported DoubleML class.")
+}
+
+extract_weight_vector<-function(object,dml_data=NULL,estimator){
+  omega<-if (inherits(object,"dml_with_smoother")) {
+    get_outcome_weights(object)$omega
+  } else {
+    get_outcome_weights(object=object,dml_data=dml_data)$omega
+  }
+  if (is.null(dim(omega))) return(as.numeric(omega))
+  if (!is.null(rownames(omega))&&estimator%in%rownames(omega)) {
+    return(as.numeric(omega[estimator,]))
+  }
+  as.numeric(omega[1,])
+}
+
+honest_estimate<-function(object,estimator){
+  result<-summary(object)
+  get_estimate(result,estimator)
+}
+
+condition3_row<-function(S,cell,estimator,learner,smoother,reproduces){
+  row_sums<-rowSums(S)
+  target<-rep(1,nrow(S))
+  data.frame(
+    Cell=cell,
+    Estimator=estimator,
+    Learner=learner,
+    Smoother=smoother,
+    `Minimum row sum`=min(row_sums),
+    `Maximum row sum`=max(row_sums),
+    `Maximum |row sum - 1|`=max(abs(row_sums-1)),
+    `Condition 3`=isTRUE(all.equal(row_sums,target)),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+
+condition5_row<-function(S,D,D_hat,cell,estimator,learner,
+                           condition,reproduces){
+  reconstructed<-as.numeric(S%*%D)
+  difference<-reconstructed-as.numeric(D_hat)
+  data.frame(
+    Cell=cell,
+    Estimator=estimator,
+    Learner=learner,
+    Condition=condition,
+    RMSE=sqrt(mean(difference^2)),
+    `Maximum absolute difference`=max(abs(difference)),
+    Satisfied=isTRUE(all.equal(reconstructed,as.numeric(D_hat))),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+
+classify_weights<-function(total,treated,control,reproduces){
+  if (!isTRUE(reproduces)) {
+    return("Not interpreted: reproduction failed")
+  }
+  total_zero<-isTRUE(all.equal(as.numeric(total),0))
+  treated_one<-isTRUE(all.equal(as.numeric(treated),1))
+  control_one<-isTRUE(all.equal(as.numeric(control),1))
+
+  if (total_zero&&treated_one&&control_one) return("Fully normalized")
+  if (total_zero) return("Scale-normalized")
+  if (treated_one&&!control_one) return("Untreated-unnormalized")
+  if (!treated_one&&control_one) return("Treated-unnormalized")
+  "Fully unnormalized"
+}
+
+weight_row<-function(w,D,cell,estimator,learner,reproduces){
+  total<-sum(w)
+  treated<-sum(w[D==1])
+  control<--sum(w[D==0])
+  data.frame(
+    Cell=cell,
+    Estimator=estimator,
+    Learner=learner,
+    `Overall sum`=total,
+    `Treated sum`=treated,
+    `Control sum`=control,
+    `Realized class`=classify_weights(
+      total,treated,control,reproduces
+    ),
+    `Reproduces estimate`=reproduces,
+    check.names=FALSE
+  )
+}
+```
+
+# Sequential audit
+
+```{r audit-functions}
+audit_honest_forest<-function(cell,X,D){
+  object<-fit_honest_forest(X,D)
+  smoothers<-list(
+    S=first_rep_smoother(object$NuPa.hat$smoothers$S),
+    S.z0=first_rep_smoother(object$NuPa.hat$smoothers$S.z0),
+    S.z1=first_rep_smoother(object$NuPa.hat$smoothers$S.z1)
+  )
+
+  w_pliv<-extract_weight_vector(object,estimator="PLR-IV")
+  w_wald<-extract_weight_vector(object,estimator="Wald-AIPW")
+  est_pliv<-honest_estimate(object,"PLR-IV")
+  est_wald<-honest_estimate(object,"Wald-AIPW")
+  rep_pliv<-check_weight_identity(w_pliv,Y,est_pliv)
+  rep_wald<-check_weight_identity(w_wald,Y,est_wald)
+
+  condition3<-rbind(
+    condition3_row(
+      smoothers$S,cell,"PLR-IV","Tuned honest forest","S",rep_pliv
+    ),
+    condition3_row(
+      smoothers$S.z0,cell,"Wald-AIPW","Tuned honest forest","S.z0",rep_wald
+    ),
+    condition3_row(
+      smoothers$S.z1,cell,"Wald-AIPW","Tuned honest forest","S.z1",rep_wald
+    )
+  )
+
+  condition5<-rbind(
+    condition5_row(
+      smoothers$S,D,
+      prediction_vector(object$NuPa.hat$predictions$D.hat),
+      cell,"PLR-IV","Tuned honest forest",
+      "5a: S D = D.hat",rep_pliv
+    ),
+    condition5_row(
+      smoothers$S.z0,D,
+      prediction_vector(object$NuPa.hat$predictions$D.hat.z0),
+      cell,"Wald-AIPW","Tuned honest forest",
+      "5b: S.z0 D = D.hat.z0",rep_wald
+    ),
+    condition5_row(
+      smoothers$S.z1,D,
+      prediction_vector(object$NuPa.hat$predictions$D.hat.z1),
+      cell,"Wald-AIPW","Tuned honest forest",
+      "5b: S.z1 D = D.hat.z1",rep_wald
+    )
+  )
+
+  weights<-rbind(
+    weight_row(
+      w_pliv,D,cell,"PLR-IV","Tuned honest forest",rep_pliv
+    ),
+    weight_row(
+      w_wald,D,cell,"Wald-AIPW","Tuned honest forest",rep_wald
+    )
+  )
+
+  list(condition3=condition3,condition5=condition5,weights=weights)
+}
+
+audit_alternative<-function(cell,X,D,estimator,learner){
+  dml_data<-make_dml_data(X,D)
+
+  if (estimator=="PLR-IV"&&learner=="Linear") {
+    object<-fit_pliv(dml_data,function()lrn("regr.lm"))
+  } else if (estimator=="PLR-IV"&&learner=="ranger") {
+    object<-fit_pliv(
+      dml_data,
+      function()lrn("regr.ranger",keep.inbag=TRUE)
+    )
+  } else if (estimator=="Wald-AIPW"&&learner=="Linear/logit") {
+    object<-fit_wald(
+      dml_data,
+      function()lrn("regr.lm"),
+      function()lrn("classif.log_reg"),
+      function()lrn("classif.log_reg")
+    )
+  } else if (estimator=="Wald-AIPW"&&learner=="ranger") {
+    object<-fit_wald(
+      dml_data,
+      function()lrn("regr.ranger",keep.inbag=TRUE),
+      function()lrn("classif.ranger",keep.inbag=TRUE),
+      function()lrn("classif.ranger",keep.inbag=TRUE)
+    )
+  } else {
+    stop("Unsupported estimator and learner combination.")
+  }
+
+  smoothers<-extract_doubleml_smoothers(object,dml_data)
+  w<-extract_weight_vector(object,dml_data,estimator)
+  estimate<-get_dml_coef(object)
+  reproduces<-check_weight_identity(w,Y,estimate)
+
+  if (estimator=="PLR-IV") {
+    condition3<-condition3_row(
+      smoothers$S,cell,estimator,learner,"S",reproduces
+    )
+    condition5<-condition5_row(
+      smoothers$S,D,prediction_vector(object$predictions$ml_r),
+      cell,estimator,learner,"5a: S D = D.hat",reproduces
+    )
+  } else {
+    condition3<-rbind(
+      condition3_row(
+        smoothers$S.z0,cell,estimator,learner,"S.z0",reproduces
+      ),
+      condition3_row(
+        smoothers$S.z1,cell,estimator,learner,"S.z1",reproduces
+      )
+    )
+    condition5<-rbind(
+      condition5_row(
+        smoothers$S.z0,D,
+        prediction_vector(object$predictions$ml_r0),
+        cell,estimator,learner,
+        "5b: S.z0 D = D.hat.z0",reproduces
+      ),
+      condition5_row(
+        smoothers$S.z1,D,
+        prediction_vector(object$predictions$ml_r1),
+        cell,estimator,learner,
+        "5b: S.z1 D = D.hat.z1",reproduces
+      )
+    )
+  }
+
+  weights<-weight_row(
+    w,D,cell,estimator,learner,reproduces
+  )
+
+  list(condition3=condition3,condition5=condition5,weights=weights)
+}
+```
+
+```{r run-audit, cache=TRUE}
+alternative_grid<-rbind(
+  data.frame(Estimator="PLR-IV",Learner="Linear"),
+  data.frame(Estimator="PLR-IV",Learner="ranger"),
+  data.frame(Estimator="Wald-AIPW",Learner="Linear/logit"),
+  data.frame(Estimator="Wald-AIPW",Learner="ranger")
+)
+
+condition3_parts<-list()
+condition5_parts<-list()
+weight_parts<-list()
+result_index<-1L
+
+for (cell in names(design_cells)) {
+  X<-design_cells[[cell]]$X
+  D<-design_cells[[cell]]$D
+
+  result<-audit_honest_forest(cell,X,D)
+  condition3_parts[[result_index]]<-result$condition3
+  condition5_parts[[result_index]]<-result$condition5
+  weight_parts[[result_index]]<-result$weights
+  rm(result)
+  invisible(gc())
+  result_index<-result_index+1L
+
+  for (i in seq_len(nrow(alternative_grid))) {
+    result<-audit_alternative(
+      cell,X,D,
+      alternative_grid$Estimator[i],
+      alternative_grid$Learner[i]
+    )
+    condition3_parts[[result_index]]<-result$condition3
+    condition5_parts[[result_index]]<-result$condition5
+    weight_parts[[result_index]]<-result$weights
+    rm(result)
+    invisible(gc())
+    result_index<-result_index+1L
+  }
+}
+
+condition3_results<-do.call(rbind,condition3_parts)
+condition5_results<-do.call(rbind,condition5_parts)
+weight_results<-do.call(rbind,weight_parts)
+
+saveRDS(
+  list(
+    condition3=condition3_results,
+    condition5=condition5_results,
+    weights=weight_results,
+    settings=list(
+      seed=42L,
+      n_folds=5L,
+      honest_forest_tuning="all",
+      reproduction="all.equal default tolerance"
+    )
+  ),
+  "card_smoother_condition_results.rds"
+)
+```
+
+# Results
+
+```{r table-helper, echo=FALSE}
+cell_table<-function(results,cell,caption,digits,collapse_columns){
+  results%>%
+    filter(.data$Cell==cell)%>%
+    select(-Cell)%>%
+    kbl(
+      caption=caption,
+      digits=digits,
+      row.names=FALSE
+    )%>%
+    kable_styling(
+      bootstrap_options=c("striped","hover","condensed"),
+      full_width=TRUE
+    )%>%
+    collapse_rows(columns=collapse_columns,valign="middle")
+}
+```
+
+## Condition 3: affine outcome smoothers {.tabset}
+
+### Card — some college
+
+```{r condition3-card-somecol}
+cell_table(
+  condition3_results,"Card / some college",
+  "Condition 3 — Card, some college",12,c(1,2)
+)
+```
+
+### Card — college completion
+
+```{r condition3-card-educ16}
+cell_table(
+  condition3_results,"Card / college completion",
+  "Condition 3 — Card, college completion",12,c(1,2)
+)
+```
+
+### Kitagawa — some college
+
+```{r condition3-kitagawa-somecol}
+cell_table(
+  condition3_results,"Kitagawa / some college",
+  "Condition 3 — Kitagawa, some college",12,c(1,2)
+)
+```
+
+### Kitagawa — college completion
+
+```{r condition3-kitagawa-educ16}
+cell_table(
+  condition3_results,"Kitagawa / college completion",
+  "Condition 3 — Kitagawa, college completion",12,c(1,2)
+)
+```
+
+## Conditions 5a and 5b: treatment-prediction alignment {.tabset}
+
+For Wald-AIPW, Condition 5b is satisfied only if both instrument-specific
+rows are marked `TRUE`.
+
+### Card — some college
+
+```{r condition5-card-somecol}
+cell_table(
+  condition5_results,"Card / some college",
+  "Conditions 5a and 5b — Card, some college",10,c(1,2)
+)
+```
+
+### Card — college completion
+
+```{r condition5-card-educ16}
+cell_table(
+  condition5_results,"Card / college completion",
+  "Conditions 5a and 5b — Card, college completion",10,c(1,2)
+)
+```
+
+### Kitagawa — some college
+
+```{r condition5-kitagawa-somecol}
+cell_table(
+  condition5_results,"Kitagawa / some college",
+  "Conditions 5a and 5b — Kitagawa, some college",10,c(1,2)
+)
+```
+
+### Kitagawa — college completion
+
+```{r condition5-kitagawa-educ16}
+cell_table(
+  condition5_results,"Kitagawa / college completion",
+  "Conditions 5a and 5b — Kitagawa, college completion",10,c(1,2)
+)
+```
+
+## Realized outcome-weight classification {.tabset}
+
+### Card — some college
+
+```{r weights-card-somecol}
+cell_table(
+  weight_results,"Card / some college",
+  "Realized normalization class — Card, some college",8,c(1)
+)
+```
+
+### Card — college completion
+
+```{r weights-card-educ16}
+cell_table(
+  weight_results,"Card / college completion",
+  "Realized normalization class — Card, college completion",8,c(1)
+)
+```
+
+### Kitagawa — some college
+
+```{r weights-kitagawa-somecol}
+cell_table(
+  weight_results,"Kitagawa / some college",
+  "Realized normalization class — Kitagawa, some college",8,c(1)
+)
+```
+
+### Kitagawa — college completion
+
+```{r weights-kitagawa-educ16}
+cell_table(
+  weight_results,"Kitagawa / college completion",
+  "Realized normalization class — Kitagawa, college completion",8,c(1)
+)
+```
+
+<div class="note-box">
+The smoother conditions and realized weight masses answer different
+questions. Condition 3 and Conditions 5a/5b explain why normalization arises
+from the fitted nuisance implementation. The final table classifies only
+vectors that reproduce their estimator. A passing smoother condition does not
+override a failed outcome-weight reproduction check.
+</div>
+
+# Session information
+
+```{r session-info, cache=FALSE}
+sessionInfo()
+```
