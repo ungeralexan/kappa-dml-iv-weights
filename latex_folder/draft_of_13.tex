@@ -1839,14 +1839,13 @@ Before turning to the estimates, the descriptive diagnostics provide an
 initial assessment of the two treatment margins and the available empirical
 support. College proximity is common in the sample. \(68.2\%\) of the men grew
 up near a four-year college. Overall, \(50.5\%\) completed more than twelve
-years of schooling and \(27.1\%\) completed at least sixteen years. The
+years of schooling and less \(27.1\%\) completed at least sixteen years. The
 corresponding unconditional treatment rates are \(12.2\) and \(6.9\)
 percentage points higher among individuals who grew up near a college.\\
 Covariate adjustment reduces both first-stage coefficients. For schooling
 beyond high school, the adjusted first stage is \(6.4\) percentage points
 under the Card specification and \(6.5\) percentage points under the Kitagawa
-specification. The corresponding squared HC1-robust \(t\)-statistics are
-\(12.5\) and \(9.0\). At the sixteen-year margin, the adjusted first stages
+specification. At the sixteen-year margin, the adjusted first stages
 are lower, at \(3.0\) and \(3.8\) percentage points, with squared robust
 \(t\)-statistics of \(3.5\) and \(3.9\). This shows 
 that the instrument contains considerably less first-stage information for
@@ -1873,12 +1872,12 @@ The 2SLS and kappa estimates reproduce the main patterns in
 \citet[Table~3]{sloczynski2025abadie}. Appendix
 Figure~\ref{fig:card_point_estimates_appendix} and
 Table~\ref{tab:card_selected_estimates_appendix} report the selected results.
-Estimates for the sixteen-year treatment are generally larger and less
+It can be seen that estimates for the sixteen-year treatment are generally larger and less
 precise than those for schooling beyond high school. This is also the margin
 for which the preceding diagnostics showed considerably less first-stage
-information. However, the two treatment definitions describe different
-schooling margins and therefore different causal parameters. The larger
-sixteen-year coefficients should consequently not be interpreted as evidence
+information. As the two treatment definitions describe different
+schooling margins, the larger
+sixteen-year coefficients should  not be interpreted as evidence
 of a larger return to that education level. Moreover,
 \citet{sloczynski2025abadie} caution that exclusion or monotonicity may fail
 in this application. The results are therefore interpreted primarily as
@@ -1907,10 +1906,7 @@ Its untuned estimates are negative in all four cells. After fold-specific
 tuning, the Wald-AIPW estimates range from \(0.238\) to \(0.730\), placing
 them within the broader range of the other DML and normalised kappa results.
 Appendix Table~\ref{tab:card_xgb_tuning_appendix} reports the complete
-untuned and tuned comparison. The following subsection
-examines whether these point-estimate patterns remain stable when the outcome
-is translated.
-
+untuned and tuned comparison. 
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:card_translation}
 
@@ -1933,12 +1929,9 @@ conditioning sets. Under the Card specification, both honest forest and
 both treatment margins. Under the Kitagawa specification, all corresponding
 changes remain within the threshold. Since this pattern holds across both
 scores and forest implementations, it points to the conditioning set as an
-important source of numerical sensitivity. The rerun exercise does not,
-however, establish whether this difference is caused by the number of
-covariates itself or by their interaction with nuisance estimation.\\
+important source of numerical sensitivity. \\
 Tuned XGBoost is classified as non-invariant in all eight comparisons,
-including those based on the Kitagawa specification. Its sensitivity therefore
-cannot be explained solely by the richer Card conditioning set. The pattern
+including those based on the Kitagawa specification. The pattern
 also differs between the two scores. PLR-IV changes more under Card, whereas
 Wald-AIPW changes more under Kitagawa. The largest DML change is \(0.0218\),
 obtained for Card PLR-IV at the sixteen-year margin. More generally, the
@@ -2033,12 +2026,9 @@ Wald-AIPW, tuned XGBoost
 \footnotesize
 \item \textit{Notes:} Entries report
 \(\widehat{\tau}_{\mathrm{cents}}-\widehat{\tau}_{\mathrm{dollars}}\)
-after repeating the complete estimation procedure. The kappa ranges contain
-the smallest and largest signed changes among the three estimators in the
-respective normalisation class. An estimate is classified as unchanged when
+after repeating the complete estimation procedure.  An estimate is classified as unchanged when
 the absolute rerun change does not exceed \(10^{-4}\). Bold entries exceed
-this threshold. Values displayed as zero are zero up to the reported
-precision.
+this threshold.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
@@ -2047,142 +2037,66 @@ precision.
 
 
 
+\subsection{Outcome-Weight Normalization and Concentration}
+\label{subsec:card_weight_diagnostics}
 
-\subsection{Outcome-Weight Normalisation and Concentration}
-\label{subsec:card_weights}
+Next, it is examined whether the extracted weight vectors reproduce the corresponding point estimates and satisfy the normalization conditions introduced in Section~\ref{subsec:knaus_normalization}. All eligible DML weight vectors pass the reproduction check, whereas XGBoost remains excluded because its reconstructed weights do not reproduce the respective estimates.  All eligible outcome smoothers reproduce a constant, which is Condition~3 of \citet{knaus2024treatment} and yields zero total weight together with equal treated and sign-oriented control masses. Full normalization additionally requires the outcome smoother applied to treatment to reproduce the separately fitted treatment nuisance.
+In all four specifications these additional alignment conditions hold only for PLR-IV with linear nuisances. Its weights are therefore fully normalized, while all other eligible DML weights are scale-normalized.\\
+As Table~\ref{tab:card_dml_normalization} shows, this classification is identical across both treatment definitions and both covariate specifications. This stability suggests that the normalization class is primarily associated with the estimator and nuisance-learning strategy rather than with a particular design cell. The numerical size of the common mass nevertheless varies across specifications and is generally closer to one under the Kitagawa covariates. For example, for the tuned-forest Wald-AIPW estimator at the sixteen-year treatment margin, the treated and sign-oriented control masses are both \(0.9442\) under the Card covariates and \(1.0072\) under the Kitagawa covariates. Nevertheless, both representations remain scale-normalized because their common masses differ from one.\\
+The concentration diagnostics reveal a more systematic difference between the PLR-IV and Wald-AIPW representations. Within every design cell and nuisance specification, Wald-AIPW has a lower modified effective sample size and a larger maximum absolute weight than the corresponding PLR-IV estimator. Under the Card covariates at the sixteen-year treatment margin, for instance, the tuned-forest Wald-AIPW weights produce treated and control ESS ratios of \(0.398\) and \(0.466\), compared with \(0.578\) and \(0.615\) for PLR-IV. At the same time, the maximum absolute weight increases from \(0.055\) for PLR-IV to \(0.277\) for Wald-AIPW. The Wald-AIPW estimate therefore depends more strongly on a comparatively small set of influential observations in this design cell.  Opposite-sign weight mass remains comparatively stable across the estimators, indicating that the main difference concerns the concentration and magnitude of the weights rather than a substantially different degree of sign cancellation. Full results for all four design cells are provided in Tables~\ref{tab:card_weights_card_somecol}--\ref{tab:card_weights_kit_educ16}.
 
-Using the diagnostics defined in
-Section~\ref{sec:outcome_weight_diagnostics}, Table~\ref{tab:card_weights}
-compares the realised outcome weights across the two treatment margins and
-conditioning sets. The main table focuses on the tuned honest-forest
-estimators.
-The complete eligible results are reported in Appendix
-Tables~\ref{tab:card_kappa_weights_appendix}
-and~\ref{tab:card_dml_weights_appendix}.\\
-The realised weight masses confirm the implementation pattern described by
-\citet[Tables~4 and~5]{knaus2024treatment}. The normalised kappa estimators
-have mass \(1/1\) in every cell. For \(\hat{\tau}^{ml}_{t}\), treated mass
-remains one, while control mass equals \(1.107\) and \(1.200\) under Card
-but only \(0.721\) and \(0.504\) under Kitagawa. These departures explain
-the signs and relative magnitudes of its translation changes. The forest
-weights instead sum to zero and have equal treated and control masses, but
-their common mass is not always one. This scale-normalised pattern is
-consistent with Knaus's result that affine outcome smoothers ensure
-normalisation, while full normalisation of PLR-IV and Wald-AIPW requires
-additional links between the outcome and treatment nuisance fits.\\
-The more informative Card-specific difference concerns concentration.
-Within every design cell, Wald-AIPW has lower modified ESS ratios and a
-larger maximum absolute weight than PLR-IV\@. The contrast is strongest for
-the sixteen-year treatment under the Card conditioning set. In this cell,
-the Wald-AIPW ESS ratios are \(0.398\) and \(0.466\), and its largest
-absolute weight is \(0.277\). The corresponding Kitagawa values are
-\(0.558\), \(0.538\), and \(0.119\). Because both specifications use the
-same observations and treatment definitions, this is a paired comparison
-of how the weighting structure changes with the included covariates. The
-richer Card specification is associated with more concentrated
-forest-based Wald-AIPW weights. This is consistent with the less comfortable
-propensity support and weaker first stage documented earlier, but neither
-mechanism can be isolated by these diagnostics.\\
-Opposite-sign mass lies between approximately \(45\%\) and \(49\%\) across
-the eligible estimators. It is slightly higher in the control component for
-the sixteen-year treatment, but otherwise changes little across learners
-and conditioning sets. Substantial cancellation is therefore a common
-feature of the signed Card outcome weights, not evidence against the
-instrument or a problem specific to one estimator. The next subsection
-examines whether these weighted contrasts also reduce differences in the
-observed covariates.
 
-\begin{table}[htbp]
-\centering
-\caption{Selected outcome-weight diagnostics in the Card application}
-\label{tab:card_weights}
-\footnotesize
-\setlength{\tabcolsep}{4.5pt}
-\begin{threeparttable}
-\begin{tabular}{@{}llrrr@{}}
-\toprule
-Design cell & Estimator
-& Mass T/C
-& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
-& \(\max_i|\omega_i|\) \\
-\midrule
-Card, \(>12\) years
-& PLR-IV       & 1.003 / 1.003 & 0.583 / 0.627 & 0.033 \\
-& Wald-AIPW    & 0.968 / 0.968 & 0.448 / 0.449 & 0.146 \\
-\addlinespace
-Card, \(\geq16\) years
-& PLR-IV       & 0.963 / 0.963 & 0.578 / 0.615 & 0.055 \\
-& Wald-AIPW    & 0.944 / 0.944 & 0.398 / 0.466 & 0.277 \\
-\addlinespace
-Kitagawa, \(>12\) years
-& PLR-IV       & 0.998 / 0.998 & 0.632 / 0.667 & 0.033 \\
-& Wald-AIPW    & 0.994 / 0.994 & 0.559 / 0.531 & 0.065 \\
-\addlinespace
-Kitagawa, \(\geq16\) years
-& PLR-IV       & 1.011 / 1.011 & 0.638 / 0.654 & 0.057 \\
-& Wald-AIPW    & 1.007 / 1.007 & 0.558 / 0.538 & 0.119 \\
-\bottomrule
-\end{tabular}
-\begin{tablenotes}
-\footnotesize
-\item \textit{Notes:} The table reports diagnostics for the tuned
-honest-forest implementations. T/C denotes the observed treated and control
-groups. Control mass is displayed with the sign reversed, so equal entries
-indicate scale normalisation. Modified ESS is divided by the observed size
-of the corresponding treatment group. Only numerically verified
-outcome-weight representations are interpreted. XGBoost is excluded because
-its reconstructed vectors do not reproduce the fitted estimates.
-\end{tablenotes}
-\end{threeparttable}
+
+\begin{table}[H]
+    \centering
+    \caption{Normalization classes of the eligible DML outcome weights}
+    \label{tab:card_dml_normalization}
+    \begin{threeparttable}
+        \begin{tabular}{@{}ll@{}}
+            \toprule
+            Implementation & Class in all four design cells \\
+            \midrule
+            PLR-IV, linear              & Fully normalized \\
+            PLR-IV, tuned honest forest & Scale-normalized \\
+            PLR-IV, ranger              & Scale-normalized \\
+            Wald-AIPW, linear/logit      & Scale-normalized \\
+            Wald-AIPW, tuned honest forest
+                                             & Scale-normalized \\
+            Wald-AIPW, ranger            & Scale-normalized \\
+            \bottomrule
+        \end{tabular}
+    \end{threeparttable}
 \end{table}
 
-\subsection{Covariate Balance}
-\label{subsec:card_balance}
 
-The outcome-weight diagnostics above describe mass and concentration, but not
-which observed comparison an estimator creates. Following
-\citet[Section~5.1]{knaus2024treatment}, I therefore examine covariate balance
-between the treatment groups after applying the outcome weights. Appendix
-Figures~\ref{fig:card_balance_card} and~\ref{fig:card_balance_kitagawa} cover
-the four design cells. They diagnose
-the weighted treatment contrast, not balance across instrument values or
-instrument validity.\\
-The CBPS-based kappa estimator removes the included covariate differences to
-numerical precision for both treatments and conditioning sets. This agrees
-with the balancing conditions built into CBPS and with Knaus's use of outcome
-weights to make such balance properties visible. Linear PLR-IV and
-linear/logit Wald-AIPW also attain numerical balance in the complete results.
-Exact balance is therefore feasible here, but is not implied by weight
-normalisation alone.\\
-The flexible learners produce a less uniform pattern. Tuned forests strongly
-reduce the large raw experience differences under Card, but leave some
-regional imbalance. Departures are generally larger for the sixteen-year
-margin. MLE kappa produces the largest differences in several cells, and can
-increase imbalance for an individual covariate relative to the unadjusted
-comparison. Unlike CBPS, likelihood-based
-propensity estimation and prediction-oriented forests do not directly
-minimise this balance criterion. The weaker first stage and more concentrated
-weights at the sixteen-year margin provide context, but the plots cannot
-identify either feature as the cause.\\
-Since the conditioning sets differ, the figures do not support a general
-Card--Kitagawa ranking. Among their shared variables, neither specification
-dominates. Kitagawa forest weights perform well for schooling beyond high
-school, while both specifications retain larger differences for selected
-variables at the sixteen-year margin. Variation across treatments and
-estimators is thus the more robust pattern.\\
-Finally, normalised and unnormalised MLE-kappa variants have essentially the
-same balance profiles within each cell. Because the statistic normalises
-weights separately within each treatment group, group-specific rescaling
-changes total mass and translation behaviour without changing the weighted
-covariate means. Overall, the Card application shows why the diagnostics must
-be read jointly. Similar point estimates or translation behaviour need not
-imply equally concentrated weights or the same observed comparison.
-
-
-
-
-
-
+ Appendix
+Figures~\ref{fig:card_balance_card} and~\ref{fig:card_balance_kitagawa} examen covariate balance and cover
+the four design cells. The CBPS-based kappa estimator removes the included covariate differences in all four cells, consistent with the balancing
+conditions imposed during propensity-score estimation. The remaining
+estimators produce a less uniform pattern. Under the Card conditioning set,
+the forest and MLE-kappa weights substantially reduce the large unadjusted
+differences in experience and experience squared. However, the remaining
+differences are generally larger at the sixteen-year treatment margin than
+for schooling beyond high school. A similar deterioration at the
+sixteen-year margin is visible for several binary variables under the
+Kitagawa specification.
+Adjustment also does not improve every covariate separately. Several binary
+variables are already closely balanced in the unadjusted sample, particularly
+the regional indicators under the Card specification. The MLE-kappa and
+forest weights can move these differences away from zero even while improving
+the more pronounced initial imbalances. Under the Kitagawa specification,
+MLE kappa increases the difference in South, most clearly at the sixteen-year
+margin, while Wald-AIPW produces a comparatively large difference in SMSA in
+1966. 
+MLE kappa also leaves the largest remaining experience differences
+under the Card specification. 
+The normalized and unnormalized MLE-kappa variants have essentially identical
+balance profiles within each cell. The statistic normalizes weights
+separately within the treatment groups, so group-specific rescaling changes
+their aggregate masses without changing the resulting weighted covariate
+means. Overall, balance is most systematic for CBPS, while the flexible
+estimators trade improvements in some covariates against larger differences
+in others.
 
 
 
@@ -2209,6 +2123,8 @@ children as an instrument for further childbearing. Parents whose first two
 children have the same sex are, on average, more likely to have another child
 than parents with one boy and one girl.
 
+
+\section{Child and Labour}
 \subsection{Data and Design}
 \label{subsec:child_data}
 
@@ -4180,187 +4096,259 @@ outcome codings. Bold changes exceed \(10^{-4}\) in absolute value.
 \end{table}
 
 
-\subsection{Outcome-Weight Normalisation and Concentration}
-\label{app:card_weights}
-
-\begin{table}[H]
-\centering
-\caption{Selected outcome-weight diagnostics in the Card application}
-\label{tab:card_weight_diagnostics_appendix}
-\scriptsize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llrrr}
-\toprule
-Cell & Estimator & \shortstack{Treated/control\\mass} &
-\(ESS_{\mathrm{mod}}\) & \(\max_i|\omega_i|\) \\
-\midrule
-Card, \(D_1\) & PLR-IV, tuned forest & 1.00/1.00 & 1819 & 0.033 \\
- & Wald-AIPW, tuned forest & 0.97/0.97 & 1345 & 0.146 \\
- & $\hat{\tau}^{ml}_{u}$ & 1.00/1.00 & 1569 & 0.052 \\
- & $\hat{\tau}^{ml}_{t}$ & 1.00/1.11 & 1561 & 0.055 \\
-\addlinespace
-Card, \(D_2\) & PLR-IV, tuned forest & 0.96/0.96 & 1819 & 0.055 \\
- & Wald-AIPW, tuned forest & 0.94/0.94 & 1345 & 0.277 \\
- & $\hat{\tau}^{ml}_{u}$ & 1.00/1.00 & 1569 & 0.097 \\
- & $\hat{\tau}^{ml}_{t}$ & 1.00/1.20 & 1561 & 0.103 \\
-\addlinespace
-Kitagawa, \(D_1\) & PLR-IV, tuned forest & 1.00/1.00 & 1954 & 0.033 \\
- & Wald-AIPW, tuned forest & 0.99/0.99 & 1631 & 0.065 \\
- & $\hat{\tau}^{ml}_{u}$ & 1.00/1.00 & 1764 & 0.038 \\
- & $\hat{\tau}^{ml}_{t}$ & 1.00/0.72 & 1786 & 0.038 \\
-\addlinespace
-Kitagawa, \(D_2\) & PLR-IV, tuned forest & 1.01/1.01 & 1954 & 0.057 \\
- & Wald-AIPW, tuned forest & 1.01/1.01 & 1631 & 0.119 \\
- & $\hat{\tau}^{ml}_{u}$ & 1.00/1.00 & 1764 & 0.078 \\
- & $\hat{\tau}^{ml}_{t}$ & 1.00/0.50 & 1786 & 0.067 \\
-\bottomrule
-\end{tabular}
-\begin{minipage}{0.96\textwidth}
-\footnotesize
-\textit{Notes:} Control mass is the negative of the sum of control-group
-weights, so a fully normalised treated-minus-control comparison has mass
-\(1/1\). Modified effective sample size is used because the outcome weights
-are signed. The table reports selected estimators needed to interpret the
-translation result.
-\end{minipage}
-\end{table}
 
 
 
-\clearpage
+
+
+
 \subsection{Complete Outcome-Weight Diagnostics}
-\label{app:card_weights_complete}
+\label{app:card_weight_diagnostics}
 
-Tables~\ref{tab:card_kappa_weights_appendix}
-and~\ref{tab:card_dml_weights_appendix} report all eligible outcome-weight
-diagnostics. The tables retain the four design cells as separate panels to
-avoid mixing the two treatment definitions or conditioning sets.
-
-\begin{table}[H]
-\centering
-\caption{Complete kappa outcome-weight diagnostics in the Card application}
-\label{tab:card_kappa_weights_appendix}
-\scriptsize
-\setlength{\tabcolsep}{3.6pt}
-\begin{threeparttable}
-\begin{tabular}{@{}lrrrrr@{}}
-\toprule
-Estimator
-& \(\sum_i\omega_i\)
-& Mass T/C
-& \shortstack{Opposite-sign\\mass T/C (\%)}
-& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
-& \(\max_i|\omega_i|\) \\
-\midrule
-\multicolumn{6}{l}{\textit{Panel A: Card, schooling beyond high school}} \\[2pt]
-$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.5 / 46.0 & 0.575 / 0.510 & 0.086905 \\
-$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 44.8 / 45.3 & 0.561 / 0.497 & 0.051920 \\
-$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054816 \\
-$\hat{\tau}^{ml}_{a}$    & $-0.106150$ & 0.993 / 1.100 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054452 \\
-$\hat{\tau}^{ml}_{t}$    & $-0.106860$ & 1.000 / 1.107 & 45.0 / 45.1 & 0.558 / 0.495 & 0.054816 \\
-$\hat{\tau}^{ml}_{a,0}$  & $-0.096543$ & 0.903 / 1.000 & 45.0 / 45.1 & 0.558 / 0.495 & 0.049524 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel B: Card, at least 16 years}} \\[2pt]
-$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 46.3 / 48.7 & 0.571 / 0.525 & 0.197058 \\
-$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 44.7 / 48.2 & 0.577 / 0.508 & 0.097168 \\
-$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.0 / 48.0 & 0.574 / 0.505 & 0.102551 \\
-$\hat{\tau}^{ml}_{a}$    & $-0.197446$ & 0.988 / 1.185 & 45.0 / 48.0 & 0.574 / 0.505 & 0.101285 \\
-$\hat{\tau}^{ml}_{t}$    & $-0.199915$ & 1.000 / 1.200 & 45.0 / 48.0 & 0.574 / 0.505 & 0.102551 \\
-$\hat{\tau}^{ml}_{a,0}$  & $-0.166608$ & 0.833 / 1.000 & 45.0 / 48.0 & 0.574 / 0.505 & 0.085466 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel C: Kitagawa, schooling beyond high school}} \\[2pt]
-$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.6 / 46.0 & 0.593 / 0.570 & 0.045670 \\
-$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.7 / 46.1 & 0.598 / 0.579 & 0.044385 \\
-$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 45.1 / 46.7 & 0.606 / 0.586 & 0.052601 \\
-$\hat{\tau}^{ml}_{a}$    & 0.305266 & 1.095 / 0.790 & 45.1 / 46.7 & 0.606 / 0.586 & 0.041541 \\
-$\hat{\tau}^{ml}_{t}$    & 0.278778 & 1.000 / 0.721 & 45.1 / 46.7 & 0.606 / 0.586 & 0.037937 \\
-$\hat{\tau}^{ml}_{a,0}$  & 0.386535 & 1.387 / 1.000 & 45.1 / 46.7 & 0.606 / 0.586 & 0.052601 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel D: Kitagawa, at least 16 years}} \\[2pt]
-$\hat{\tau}^{cb}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.4 / 48.4 & 0.604 / 0.572 & 0.081202 \\
-$\hat{\tau}^{ml}_{u}$    & 0.000000 & 1.000 / 1.000 & 45.5 / 48.4 & 0.609 / 0.580 & 0.078334 \\
-$\hat{\tau}^{ml}_{a,10}$ & 0.000000 & 1.000 / 1.000 & 44.8 / 49.1 & 0.618 / 0.587 & 0.133832 \\
-$\hat{\tau}^{ml}_{a}$    & 0.586318 & 1.182 / 0.596 & 44.8 / 49.1 & 0.618 / 0.587 & 0.079788 \\
-$\hat{\tau}^{ml}_{t}$    & 0.495831 & 1.000 / 0.504 & 44.8 / 49.1 & 0.618 / 0.587 & 0.067474 \\
-$\hat{\tau}^{ml}_{a,0}$  & 0.983462 & 1.983 / 1.000 & 44.8 / 49.1 & 0.618 / 0.587 & 0.133832 \\
-\bottomrule
-\end{tabular}
-\begin{tablenotes}
-\scriptsize
-\item \textit{Notes:} Mass T/C reports treated mass and sign-oriented
-control mass. Opposite-sign mass is the percentage of absolute weight mass
-that does not follow the conventional treated-minus-control orientation.
-Modified ESS is divided by the observed number of treated or control
-observations.
-\end{tablenotes}
-\end{threeparttable}
-\end{table}
-
+Tables~\ref{tab:card_weights_card_somecol}--\ref{tab:card_weights_kit_educ16}
+report the complete outcome-weight diagnostics for the four design cells.
+Mass T/C denotes the treated signed mass and the sign-oriented control mass.
+The modified ESS is reported relative to the corresponding group size.
+Opposite-sign mass is expressed as a percentage of total absolute weight mass.
+The class abbreviations denote fully normalized, scale-normalized, fully
+unnormalized, untreated-unnormalized, and treated-unnormalized representations,
+respectively. Classes are assigned using the unrounded values.
 
 \begin{table}[H]
-\centering
-\caption{Complete eligible DML outcome-weight diagnostics in the Card application}
-\label{tab:card_dml_weights_appendix}
-\scriptsize
-\setlength{\tabcolsep}{3.6pt}
-\begin{threeparttable}
-\begin{tabular}{@{}lrrrrr@{}}
-\toprule
-Estimator
-& \(\sum_i\omega_i\)
-& Mass T/C
-& \shortstack{Opposite-sign\\mass T/C (\%)}
-& \shortstack{$\mathrm{ESS}_{\mathrm{mod}}/N$\\T/C}
-& \(\max_i|\omega_i|\) \\
-\midrule
-\multicolumn{6}{l}{\textit{Panel A: Card, schooling beyond high school}} \\[2pt]
-PLR-IV, tuned forest       & 0.000000 & 1.003 / 1.003 & 46.5 / 46.8 & 0.583 / 0.627 & 0.032653 \\
-Wald-AIPW, tuned forest    & 0.000000 & 0.968 / 0.968 & 45.1 / 45.6 & 0.448 / 0.449 & 0.145639 \\
-PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.6 / 47.0 & 0.623 / 0.669 & 0.032201 \\
-Wald-AIPW, linear/logit    & 0.000000 & 0.997 / 0.997 & 45.7 / 46.1 & 0.557 / 0.489 & 0.080896 \\
-PLR-IV, \texttt{ranger}    & 0.000000 & 0.992 / 0.992 & 46.5 / 46.8 & 0.573 / 0.617 & 0.033168 \\
-Wald-AIPW, \texttt{ranger} & 0.000000 & 0.985 / 0.985 & 44.8 / 45.3 & 0.435 / 0.437 & 0.135400 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel B: Card, at least 16 years}} \\[2pt]
-PLR-IV, tuned forest       & 0.000000 & 0.963 / 0.963 & 46.2 / 48.7 & 0.578 / 0.615 & 0.054681 \\
-Wald-AIPW, tuned forest    & 0.000000 & 0.944 / 0.944 & 45.4 / 48.4 & 0.398 / 0.466 & 0.276531 \\
-PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 47.0 / 49.0 & 0.619 / 0.655 & 0.067405 \\
-Wald-AIPW, linear/logit    & 0.000000 & 0.922 / 0.922 & 46.7 / 48.8 & 0.561 / 0.504 & 0.179228 \\
-PLR-IV, \texttt{ranger}    & 0.000000 & 0.942 / 0.942 & 46.2 / 48.7 & 0.566 / 0.605 & 0.053839 \\
-Wald-AIPW, \texttt{ranger} & 0.000000 & 0.950 / 0.950 & 45.1 / 48.3 & 0.406 / 0.446 & 0.254498 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel C: Kitagawa, schooling beyond high school}} \\[2pt]
-PLR-IV, tuned forest       & 0.000000 & 0.998 / 0.998 & 46.9 / 47.1 & 0.632 / 0.667 & 0.032775 \\
-Wald-AIPW, tuned forest    & 0.000000 & 0.994 / 0.994 & 45.8 / 46.1 & 0.559 / 0.531 & 0.065150 \\
-PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.6 / 46.9 & 0.639 / 0.679 & 0.030107 \\
-Wald-AIPW, linear/logit    & 0.000000 & 0.995 / 0.995 & 45.7 / 46.0 & 0.585 / 0.566 & 0.048008 \\
-PLR-IV, \texttt{ranger}    & 0.000000 & 1.005 / 1.005 & 46.9 / 47.2 & 0.638 / 0.675 & 0.038382 \\
-Wald-AIPW, \texttt{ranger} & 0.000000 & 1.001 / 1.001 & 45.6 / 46.0 & 0.578 / 0.547 & 0.056832 \\
-\addlinespace[4pt]
-\multicolumn{6}{l}{\textit{Panel D: Kitagawa, at least 16 years}} \\[2pt]
-PLR-IV, tuned forest       & 0.000000 & 1.011 / 1.011 & 46.6 / 48.8 & 0.638 / 0.654 & 0.056988 \\
-Wald-AIPW, tuned forest    & 0.000000 & 1.007 / 1.007 & 45.6 / 48.5 & 0.558 / 0.538 & 0.119277 \\
-PLR-IV, linear             & 0.000000 & 1.000 / 1.000 & 46.2 / 48.7 & 0.645 / 0.664 & 0.049977 \\
-Wald-AIPW, linear/logit    & 0.000000 & 0.989 / 0.989 & 45.3 / 48.4 & 0.597 / 0.567 & 0.082312 \\
-PLR-IV, \texttt{ranger}    & 0.000000 & 1.008 / 1.008 & 46.6 / 48.8 & 0.643 / 0.660 & 0.064407 \\
-Wald-AIPW, \texttt{ranger} & 0.000000 & 1.000 / 1.000 & 45.3 / 48.4 & 0.582 / 0.552 & 0.099308 \\
-\bottomrule
-\end{tabular}
-\begin{tablenotes}
-\scriptsize
-\item \textit{Notes:} Only algebraic or numerically verified
-outcome-weight representations are included. XGBoost is excluded because
-its reconstructed vectors do not reproduce the fitted estimates. T/C,
-opposite-sign mass, and modified ESS are defined as in
-Table~\ref{tab:card_kappa_weights_appendix}.
-\end{tablenotes}
-\end{threeparttable}
+    \centering
+    \caption{Outcome-weight diagnostics: Card covariates and some-college treatment}
+    \label{tab:card_weights_card_somecol}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{0.93}
+    \begin{tabular}{@{}lclccr@{}}
+        \toprule
+        Estimator &
+        \shortstack{Mass\\T/C} &
+        Class &
+        \shortstack{$ESS_{\mathrm{mod}}/N$\\T/C} &
+        \shortstack{Opp.-sign mass\\T/C (\%)} &
+        $\max_i|\omega_i|$ \\
+        \midrule
+        \multicolumn{6}{l}{\textit{DML outcome weights}} \\
+        PLR-IV, tuned forest
+            & 1.0033/1.0033 & Scale norm.
+            & 0.583/0.627 & 46.5/46.8 & 0.032653 \\
+        Wald-AIPW, tuned forest
+            & 0.9681/0.9681 & Scale norm.
+            & 0.448/0.449 & 45.1/45.6 & 0.145639 \\
+        PLR-IV, linear
+            & 1.0000/1.0000 & Fully norm.
+            & 0.623/0.669 & 46.6/47.0 & 0.032201 \\
+        Wald-AIPW, linear/logit
+            & 0.9968/0.9968 & Scale norm.
+            & 0.557/0.489 & 45.7/46.1 & 0.080896 \\
+        PLR-IV, ranger
+            & 0.9919/0.9919 & Scale norm.
+            & 0.573/0.617 & 46.5/46.8 & 0.033168 \\
+        Wald-AIPW, ranger
+            & 0.9846/0.9846 & Scale norm.
+            & 0.435/0.437 & 44.8/45.3 & 0.135400 \\
+        \addlinespace
+        \multicolumn{6}{l}{\textit{Kappa outcome weights}} \\
+        $\widehat{\tau}^{cb}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.575/0.510 & 45.5/46.0 & 0.086905 \\
+        $\widehat{\tau}^{ml}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.561/0.497 & 44.8/45.3 & 0.051920 \\
+        $\widehat{\tau}_{a,10}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.558/0.495 & 45.0/45.1 & 0.054816 \\
+        $\widehat{\tau}_{a}$
+            & 0.9934/1.0995 & Fully unnorm.
+            & 0.558/0.495 & 45.0/45.1 & 0.054452 \\
+        $\widehat{\tau}_{t}$
+            & 1.0000/1.1069 & Untreated unnorm.
+            & 0.558/0.495 & 45.0/45.1 & 0.054816 \\
+        $\widehat{\tau}_{a,0}$
+            & 0.9035/1.0000 & Treated unnorm.
+            & 0.558/0.495 & 45.0/45.1 & 0.049524 \\
+        \bottomrule
+    \end{tabular}
 \end{table}
 
+\begin{table}[H]
+    \centering
+    \caption{Outcome-weight diagnostics: Card covariates and college-completion treatment}
+    \label{tab:card_weights_card_educ16}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{0.93}
+    \begin{tabular}{@{}lclccr@{}}
+        \toprule
+        Estimator &
+        \shortstack{Mass\\T/C} &
+        Class &
+        \shortstack{$ESS_{\mathrm{mod}}/N$\\T/C} &
+        \shortstack{Opp.-sign mass\\T/C (\%)} &
+        $\max_i|\omega_i|$ \\
+        \midrule
+        \multicolumn{6}{l}{\textit{DML outcome weights}} \\
+        PLR-IV, tuned forest
+            & 0.9634/0.9634 & Scale norm.
+            & 0.578/0.615 & 46.2/48.7 & 0.054681 \\
+        Wald-AIPW, tuned forest
+            & 0.9442/0.9442 & Scale norm.
+            & 0.398/0.466 & 45.4/48.4 & 0.276531 \\
+        PLR-IV, linear
+            & 1.0000/1.0000 & Fully norm.
+            & 0.619/0.655 & 47.0/49.0 & 0.067405 \\
+        Wald-AIPW, linear/logit
+            & 0.9222/0.9222 & Scale norm.
+            & 0.561/0.504 & 46.7/48.8 & 0.179228 \\
+        PLR-IV, ranger
+            & 0.9417/0.9417 & Scale norm.
+            & 0.566/0.605 & 46.2/48.7 & 0.053839 \\
+        Wald-AIPW, ranger
+            & 0.9495/0.9495 & Scale norm.
+            & 0.406/0.446 & 45.1/48.3 & 0.254498 \\
+        \addlinespace
+        \multicolumn{6}{l}{\textit{Kappa outcome weights}} \\
+        $\widehat{\tau}^{cb}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.571/0.525 & 46.3/48.7 & 0.197058 \\
+        $\widehat{\tau}^{ml}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.577/0.508 & 44.7/48.2 & 0.097168 \\
+        $\widehat{\tau}_{a,10}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.574/0.505 & 45.0/48.0 & 0.102551 \\
+        $\widehat{\tau}_{a}$
+            & 0.9877/1.1851 & Fully unnorm.
+            & 0.574/0.505 & 45.0/48.0 & 0.101285 \\
+        $\widehat{\tau}_{t}$
+            & 1.0000/1.1999 & Untreated unnorm.
+            & 0.574/0.505 & 45.0/48.0 & 0.102551 \\
+        $\widehat{\tau}_{a,0}$
+            & 0.8334/1.0000 & Treated unnorm.
+            & 0.574/0.505 & 45.0/48.0 & 0.085466 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
+\begin{table}[H]
+    \centering
+    \caption{Outcome-weight diagnostics: Kitagawa covariates and some-college treatment}
+    \label{tab:card_weights_kit_somecol}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{0.93}
+    \begin{tabular}{@{}lclccr@{}}
+        \toprule
+        Estimator &
+        \shortstack{Mass\\T/C} &
+        Class &
+        \shortstack{$ESS_{\mathrm{mod}}/N$\\T/C} &
+        \shortstack{Opp.-sign mass\\T/C (\%)} &
+        $\max_i|\omega_i|$ \\
+        \midrule
+        \multicolumn{6}{l}{\textit{DML outcome weights}} \\
+        PLR-IV, tuned forest
+            & 0.9980/0.9980 & Scale norm.
+            & 0.632/0.667 & 46.9/47.1 & 0.032775 \\
+        Wald-AIPW, tuned forest
+            & 0.9936/0.9936 & Scale norm.
+            & 0.559/0.531 & 45.8/46.1 & 0.065150 \\
+        PLR-IV, linear
+            & 1.0000/1.0000 & Fully norm.
+            & 0.639/0.679 & 46.6/46.9 & 0.030107 \\
+        Wald-AIPW, linear/logit
+            & 0.9955/0.9955 & Scale norm.
+            & 0.585/0.566 & 45.7/46.0 & 0.048008 \\
+        PLR-IV, ranger
+            & 1.0047/1.0047 & Scale norm.
+            & 0.638/0.675 & 46.9/47.2 & 0.038382 \\
+        Wald-AIPW, ranger
+            & 1.0011/1.0011 & Scale norm.
+            & 0.578/0.547 & 45.6/46.0 & 0.056832 \\
+        \addlinespace
+        \multicolumn{6}{l}{\textit{Kappa outcome weights}} \\
+        $\widehat{\tau}^{cb}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.593/0.570 & 45.6/46.0 & 0.045670 \\
+        $\widehat{\tau}^{ml}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.598/0.579 & 45.7/46.1 & 0.044385 \\
+        $\widehat{\tau}_{a,10}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.606/0.586 & 45.1/46.7 & 0.052601 \\
+        $\widehat{\tau}_{a}$
+            & 1.0950/0.7898 & Fully unnorm.
+            & 0.606/0.586 & 45.1/46.7 & 0.041541 \\
+        $\widehat{\tau}_{t}$
+            & 1.0000/0.7212 & Untreated unnorm.
+            & 0.606/0.586 & 45.1/46.7 & 0.037937 \\
+        $\widehat{\tau}_{a,0}$
+            & 1.3865/1.0000 & Treated unnorm.
+            & 0.606/0.586 & 45.1/46.7 & 0.052601 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-
-
+\begin{table}[H]
+    \centering
+    \caption{Outcome-weight diagnostics: Kitagawa covariates and college-completion treatment}
+    \label{tab:card_weights_kit_educ16}
+    \scriptsize
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{0.93}
+    \begin{tabular}{@{}lclccr@{}}
+        \toprule
+        Estimator &
+        \shortstack{Mass\\T/C} &
+        Class &
+        \shortstack{$ESS_{\mathrm{mod}}/N$\\T/C} &
+        \shortstack{Opp.-sign mass\\T/C (\%)} &
+        $\max_i|\omega_i|$ \\
+        \midrule
+        \multicolumn{6}{l}{\textit{DML outcome weights}} \\
+        PLR-IV, tuned forest
+            & 1.0114/1.0114 & Scale norm.
+            & 0.638/0.654 & 46.6/48.8 & 0.056988 \\
+        Wald-AIPW, tuned forest
+            & 1.0072/1.0072 & Scale norm.
+            & 0.558/0.538 & 45.6/48.5 & 0.119277 \\
+        PLR-IV, linear
+            & 1.0000/1.0000 & Fully norm.
+            & 0.645/0.664 & 46.2/48.7 & 0.049977 \\
+        Wald-AIPW, linear/logit
+            & 0.9894/0.9894 & Scale norm.
+            & 0.597/0.567 & 45.3/48.4 & 0.082312 \\
+        PLR-IV, ranger
+            & 1.0085/1.0085 & Scale norm.
+            & 0.643/0.660 & 46.6/48.8 & 0.064407 \\
+        Wald-AIPW, ranger
+            & 1.0004/1.0004 & Scale norm.
+            & 0.582/0.552 & 45.3/48.4 & 0.099308 \\
+        \addlinespace
+        \multicolumn{6}{l}{\textit{Kappa outcome weights}} \\
+        $\widehat{\tau}^{cb}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.604/0.572 & 45.4/48.4 & 0.081202 \\
+        $\widehat{\tau}^{ml}_{u}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.609/0.580 & 45.5/48.4 & 0.078334 \\
+        $\widehat{\tau}_{a,10}$
+            & 1.0000/1.0000 & Fully norm.
+            & 0.618/0.587 & 44.8/49.1 & 0.133832 \\
+        $\widehat{\tau}_{a}$
+            & 1.1825/0.5962 & Fully unnorm.
+            & 0.618/0.587 & 44.8/49.1 & 0.079788 \\
+        $\widehat{\tau}_{t}$
+            & 1.0000/0.5042 & Untreated unnorm.
+            & 0.618/0.587 & 44.8/49.1 & 0.067474 \\
+        $\widehat{\tau}_{a,0}$
+            & 1.9835/1.0000 & Treated unnorm.
+            & 0.618/0.587 & 44.8/49.1 & 0.133832 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
 
 
