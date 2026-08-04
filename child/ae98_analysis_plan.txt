@@ -1,0 +1,263 @@
+AE98 (ANGRIST & EVANS 1998) CHILDBEARING APPLICATION — CURRENT STATUS
+=======================================================================
+
+Last reconciled with the notebooks and saved exports: 22 July 2026
+
+
+PURPOSE
+-------
+This application studies translation and scale behavior of 2SLS,
+kappa-weighting, and DML estimators in the Angrist and Evans (1998)
+childbearing design. The instrument is Z = samesex, the treatment is
+D = morekids, and the outcomes are labor-force participation (workedm) and
+log income (lincomem). The application mirrors the Card analysis while
+respecting two AE98-specific features:
+
+1. Labor and income require different analysis samples.
+2. Smoother-matrix and outcome-weight diagnostics are run on two fixed,
+   proportionally stratified 3,000-row diagnostic subsamples rather than on
+   the 394,840-row labor and 220,502-row positive-income parent samples.
+
+The design also contains an identification issue that must be kept distinct
+from ordinary matrix collinearity. By construction,
+
+    samesex = 1{sexk == sex2nd}.
+
+Consequently, Z is deterministic conditional on a covariate vector containing
+both sexk and sex2nd. Flexible nuisance learners can recover this relation, so
+the true conditional instrument propensity is at the boundary. The notebooks
+therefore compare a seven-covariate SUW-style working specification with a
+documented six-covariate linear/logistic benchmark. The seven-covariate tree
+learners are retained as specification stress tests; they do not establish
+conditional overlap.
+
+
+FILES AND HOW THEY FIT TOGETHER
+-------------------------------
+
+- ae98_make_balanced_subsample_submission.Rmd
+  Builds and saves the two fixed 3,000-row diagnostic samples in ae98_sub.rds:
+
+    ae98_labor_sub
+      Stratified proportionally on samesex, morekids, workedm, incomepos,
+      race, and age_bin.
+
+    ae98_income_sub
+      Drawn from the positive-income parent population and stratified
+      proportionally on samesex, morekids, income decile, race, and age_bin.
+
+  The RDS also contains an obsolete ae98_sub alias for ae98_labor_sub. Do not
+  use that alias.
+
+- ae98_descriptives.Rmd
+  Documents the two samples, instrument/treatment shares, conventional IV
+  building blocks, covariate balance, the additive-logit propensity diagnostic,
+  and the deterministic relation between sexk, sex2nd, and samesex. The
+  additive-logit propensity plot is a working-model diagnostic only. Because
+  the additive logit omits the equality/XOR relation, probabilities near 0.5
+  must not be described as proof of full-X conditional overlap.
+
+- child_test.Rmd
+  Main analysis notebook:
+
+    Section 1: SUW Table 4 structure on the diagnostic samples. Conventional
+      2SLS and six kappa estimators use all seven controls: agem, agefstm,
+      sexk, sex2nd, blackm, hispm, and othracem.
+
+    Section 2: dml_with_smoother() with the full seven-covariate design.
+      PLR-IV and Wald-AIPW are estimated with untuned and tuned honest forests,
+      five-fold cross-fitting, extracted outcome weights, and identity checks.
+
+    Section 3: learner comparison. Linear/logistic PLR-IV and Wald-AIPW use
+      the six-covariate design that drops sex2nd. Ranger and XGBoost use all
+      seven covariates. Ranger is fitted in the notebook; fitted XGBoost
+      estimates are imported from the separate tuning exports.
+
+    Sections 4–5: exact weight diagnostics and Love plots. XGBoost point
+      estimates remain visible as learner-sensitivity results, but XGBoost
+      weights enter exact diagnostics only when sum(omega_i Y_i) reproduces
+      the reported coefficient. All current child XGBoost identity flags are
+      FALSE, so those weights are excluded from the exact diagnostic blocks.
+
+- child_xgb_tuning.Rmd
+  Fits DoubleMLIIVM/Wald-AIPW with XGBoost for workedm and lincomem, using the
+  full seven-covariate design. It compares untuned and tuned fits. Tuning is
+  nested inside the five outer cross-fitting folds: three-fold inner CV,
+  15 random-search evaluations, and nuisance-prediction loss only. The fitted
+  results, fold-specific tuning information, nuisance losses, outcome weights,
+  identity flags, settings, and sample metadata are saved to
+  ae98_xgb_tuning_export.rds. child_test.Rmd imports these fitted outputs and
+  does not create a new fit from median hyperparameters.
+
+- child_xgb_pliv_tuning.Rmd
+  Parallel DoubleMLPLIV/XGBoost analysis with the same seven covariates,
+  five outer folds, tune_on_folds = TRUE, three inner folds, and 15 random
+  evaluations. The current notebook has EXTRACT_WEIGHTS = TRUE. Estimates,
+  nuisance losses, fold-specific tuning information, extracted weights,
+  identity flags, settings, and sample metadata are saved to
+  ae98_xgb_pliv_tuning_export.rds.
+
+- child_translation_invariance_method_a.Rmd
+  Complete-pipeline rerun test on fixed rows. It compares workedm with
+  workedm + 1 and lincomem with lincomem + log(100). It covers normalized and
+  unnormalized kappa estimators, tuned honest forests, the six-covariate
+  linear/logistic benchmark, seven-covariate Ranger, and tuned XGBoost.
+  workedm_01 = 1 - workedm is excluded because it is a reflection, not a
+  pure translation.
+
+- pliv_xgboost_weight_note.txt
+  Records the current PLR-IV and Wald-AIPW XGBoost weight status. Both sets of
+  weights have now been extracted, but none provides an exact affine outcome-
+  weight representation of its reported coefficient.
+
+
+1. ESTIMATOR-SPECIFICATION MAP
+------------------------------
+
+Full seven-covariate design
+  - Conventional 2SLS
+  - CBPS and MLE kappa estimators
+  - dml_with_smoother() honest forest
+  - Ranger PLR-IV and Wald-AIPW
+  - XGBoost PLR-IV and Wald-AIPW
+
+Reduced six-covariate design (sex2nd omitted)
+  - Linear PLR-IV
+  - Linear/logistic Wald-AIPW
+
+The six-covariate design was originally introduced because arm-specific
+parametric nuisance regressions are rank deficient with both sex indicators.
+It also has a substantive interpretation: after omitting one component of Z,
+samesex is no longer mechanically known from the conditioning vector. This is
+the only current child specification that directly avoids deterministic Z|X.
+
+The specifications must therefore be described as follows:
+
+  - Seven-covariate 2SLS/kappa: SUW-style parametric working specification.
+  - Six-covariate linear/logit DML: reduced-conditioning-set benchmark.
+  - Seven-covariate flexible learners: stress tests showing what happens when
+    the learner can recover the instrument's deterministic construction.
+
+Do not describe all rows as estimates under one common conditioning set.
+
+
+2. CONDITIONAL-OVERLAP FINDING
+------------------------------
+
+The additive pooled logit used by the kappa estimators produces fitted
+instrument propensities near one half because it includes sexk and sex2nd
+additively and omits their equality/XOR relation. This is computationally
+well behaved but does not establish the Abadie overlap condition for the true
+P(Z=1|X) when X contains both sex indicators.
+
+The fitted XGBoost IIVM models recover the deterministic construction almost
+perfectly. The share of instrument-nuisance predictions below 0.02 or above
+0.98 is:
+
+                          Untuned       Tuned
+  Labor / workedm          99.30%       99.83%
+  Income / lincomem        98.67%       99.70%
+
+Instrument log-loss is approximately 0.002. The currently printed combined
+"propensity boundary share" pools the instrument predictions m(X) with the
+treatment predictions r(Z,X). Its values near 0.50 therefore mask the fact
+that essentially all m(X) predictions are at the boundary. Any future table
+should report instrument and treatment boundary shares separately.
+
+Ranger smooths more strongly: its fitted instrument probabilities remain
+roughly between 0.10 and 0.91. That is regularization behavior, not evidence
+that population overlap has been restored.
+
+Empirical implication:
+  - Wald-AIPW estimates from six-covariate linear/logit, seven-covariate
+    Ranger, and seven-covariate honest forest are fairly similar.
+  - Flexible PLR-IV, especially XGBoost, is extremely unstable because a
+    flexible learner removes almost all residual instrument variation.
+  - XGBoost should remain an estimate-level stress test, not a headline
+    causal estimate or exact weight benchmark.
+
+
+3. CURRENT STATUS — COMPLETED
+-----------------------------
+
+- Both fixed 3,000-row samples are constructed and saved.
+- child_test.Rmd has rendered with both outcome samples and all five sections.
+- SUW-style 2SLS and kappa tables are implemented for all outcome recodings.
+- Honest-forest PLR-IV and Wald-AIPW are fitted tuned and untuned.
+- Linear/logistic and Ranger comparisons are fitted for both samples.
+- Both XGBoost tuning notebooks have been run for labor and income.
+- ae98_xgb_tuning_export.rds and ae98_xgb_pliv_tuning_export.rds exist and
+  match the current sample sizes and treatment/instrument means.
+- XGBoost weights and identity flags are exported. Every current Wald-AIPW
+  and PLR-IV XGBoost identity check is FALSE.
+- child_test.Rmd therefore retains XGBoost estimates but excludes their
+  weights from exact weight diagnostics.
+- The complete Method-A translation rerun has been performed. Normalized
+  kappa estimators are exactly invariant; unnormalized kappa estimators are
+  intentionally non-invariant. Linear specifications are invariant. Forest
+  reruns show small refitting differences, while child XGBoost failures are
+  materially larger, especially tuned Wald-AIPW for workedm.
+
+
+4. REMAINING DECISIONS AND TASKS
+--------------------------------
+
+Required before final thesis interpretation
+  1. Choose the headline interpretation. The recommended structure is:
+       - seven-covariate 2SLS/kappa as SUW parametric replication;
+       - six-covariate linear/logit as the reduced-X benchmark;
+       - seven-covariate flexible learners as overlap/specification stress
+         tests.
+  2. Rewrite the descriptive overlap language. The additive-logit plot may
+     describe the fitted working model, but it must not claim that full-X
+     conditional overlap holds.
+  3. Report m(X) and r(Z,X) boundary diagnostics separately if the XGBoost
+     diagnostics remain in the appendix.
+  4. Label the 3,000-row estimates as diagnostic-subsample results rather
+     than a full-sample AE98 replication. Ordinary SEs do not incorporate a
+     separate finite-population stratified-sampling correction.
+
+Useful robustness checks
+  - Refit kappa and Ranger on the six-covariate design to quantify how much
+    changing the conditioning set moves the estimates.
+  - Consider repeated cross-fitting for the stochastic learners. Current
+    n_reps is one.
+  - Add strict validation of imported XGBoost exports against current data,
+    ideally with a row/data hash rather than sample moments alone.
+
+Not currently necessary
+  - Raising XGBoost TUNE_EVALS merely to seek a more favorable treatment-
+    effect estimate. The present instability is substantively informative
+    and cannot be tuned away without changing the design question.
+
+
+5. HARD RULES
+-------------
+
+1. Use ae98_labor_sub and ae98_income_sub explicitly; never use the obsolete
+   ae98_sub alias and never mix the two outcome samples.
+2. Do not describe the diagnostic-subsample tables as reproducing the full
+   published observation counts.
+3. Do not silently remove sex2nd. Any six-covariate result must be labeled as
+   a reduced-conditioning-set specification and separated from the exact
+   seven-covariate SUW-style specification.
+4. Do not claim that pooled-logit propensities near 0.5 prove overlap. They
+   reflect an additive working model that cannot represent the deterministic
+   equality relation defining samesex.
+5. Do not describe tree learners as "unaffected" by the sex-variable issue.
+   They avoid matrix inversion failure, but flexible learners can discover
+   deterministic Z|X, which is an identification/overlap problem.
+6. Tune nuisance learners only on nuisance-prediction loss, never on the
+   treatment-effect estimate.
+7. Do not plug fold-median XGBoost hyperparameters into a new main-notebook
+   fit. tune_on_folds = TRUE creates fold-specific choices; import the fitted
+   export instead.
+8. Reseed immediately before stochastic fits that must be reproducible or
+   compared with a counterpart run.
+9. The SUW additive-inverse sign change for the "did not work" reproduction
+   column is display-only. Do not apply it elsewhere.
+10. Use only pure outcome translations in translation-invariance tests and
+    hold the exact sample rows fixed.
+11. Do not use XGBoost outcome weights in exact ESS, balance, or Love-plot
+    claims while their identity flags are FALSE. The point estimates may be
+    shown transparently as learner-sensitivity results.

@@ -113,7 +113,7 @@ display_rerun_results <- function(x) {
 RUN_KAPPA <- TRUE
 RUN_DML <- TRUE
 RUN_LM_RF <- TRUE
-RUN_XGB_RERUN <- TRUE
+RUN_XGB_RERUN <- FALSE
 RUN_XGB_WALD_AIPW <- TRUE
 RUN_XGB_PLIV <- TRUE
 USE_XGB_ORIGINAL_EXPORT <- TRUE
@@ -125,10 +125,12 @@ INNER_FOLDS <- 3
 ```
 
 <div class="warn-box">
-**XGBoost rule.** Original-outcome tuned estimates are
-imported from the two tuning exports. For the shifted outcome, nested tuning
-is rerun with the same seed, five outer folds, three inner folds, fifteen
-random-search evaluations, and `tune_on_folds = TRUE`. 
+**XGBoost rule.** The default `RUN_XGB_RERUN = FALSE` loads the verified
+complete-rerun export and does not repeat nested tuning. Set it to `TRUE` only
+for a deliberate rebuild. A rebuild imports the original-outcome estimates
+from the two tuning exports and retunes the shifted outcome with the same seed,
+five outer folds, three inner folds, fifteen random-search evaluations, and
+`tune_on_folds = TRUE`.
 </div>
 
 ## Data — the exact main-analysis sample
@@ -287,7 +289,40 @@ if(RUN_LM_RF) {
 # 4. Tuned XGBoost complete-pipeline rerun
 
 ```{r xgb-setup}
+XGB_RERUN_EXPORT <- "vietnam_translation_xgb_rerun_export.rds"
+
+validate_xgb_rerun_export <- function(export, path, required_specs) {
+  if (!is.list(export) || is.null(export$results) || is.null(export$settings))
+    stop(sprintf("%s has an incomplete schema.", path))
+  required_columns <- c("Estimator", "Shift_k", "tau_original", "tau_shifted",
+                        "rerun_difference", "invariant", "Specification")
+  if (!all(required_columns %in% names(export$results)))
+    stop(sprintf("%s is missing required result columns.", path))
+  expected_settings <- c(seed=SEED,n_cf=N_CF,tune_evals=TUNE_EVALS,
+                         inner_folds=INNER_FOLDS)
+  if (!all(names(expected_settings) %in% names(export$settings)) ||
+      !isTRUE(export$settings$tune_on_folds))
+    stop(sprintf("%s is missing required tuning metadata.", path))
+  observed_settings <- vapply(names(expected_settings),
+    function(x) as.integer(export$settings[[x]]), integer(1))
+  if (!identical(unname(observed_settings),unname(as.integer(expected_settings))))
+    stop(sprintf("%s uses tuning settings that differ from this notebook.", path))
+  required_estimators <- c("Wald-AIPW (XGBoost tuned)",
+                           "PLR-IV (XGBoost tuned)")
+  expected_keys <- as.vector(outer(required_specs,required_estimators,paste,sep="\r"))
+  observed_keys <- paste(export$results$Specification,export$results$Estimator,sep="\r")
+  if (anyDuplicated(observed_keys) || !setequal(observed_keys,expected_keys))
+    stop(sprintf("%s does not contain exactly the required Vietnam XGBoost rows.", path))
+  numeric_columns <- c("Shift_k","tau_original","tau_shifted","rerun_difference")
+  if (any(!vapply(export$results[numeric_columns],
+                  function(x) all(is.finite(as.numeric(x))),logical(1))))
+    stop(sprintf("%s contains non-finite translation results.", path))
+  export$results
+}
+
 if(RUN_XGB_RERUN){
+  if(!RUN_XGB_WALD_AIPW || !RUN_XGB_PLIV)
+    stop("An official Vietnam XGBoost translation rebuild must include both Wald-AIPW and PLR-IV.")
   if(!USE_XGB_ORIGINAL_EXPORT)stop("USE_XGB_ORIGINAL_EXPORT must be TRUE.")
   req<-c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds")
   if(!all(file.exists(req)))stop("Run both Vietnam XGBoost tuning notebooks before the translation rerun.")
@@ -333,25 +368,33 @@ build_xgb_rows<-function(wf){out<-list()
   do.call(rbind,out)}
 ```
 
-```{r xgb-run, cache=TRUE, cache.extra=list(RUN_XGB_RERUN,RUN_XGB_WALD_AIPW,RUN_XGB_PLIV,TUNE_EVALS,INNER_FOLDS)}
+```{r xgb-run, cache=FALSE}
 if(RUN_XGB_RERUN){
   xgb_ti_all<-do.call(rbind,lapply(workflows,build_xgb_rows))
-  saveRDS(list(results=xgb_ti_all,settings=list(seed=SEED,n_cf=N_CF,
+  rebuilt_xgb_export<-list(results=xgb_ti_all,settings=list(seed=SEED,n_cf=N_CF,
     tune_evals=TUNE_EVALS,inner_folds=INNER_FOLDS,tune_on_folds=TRUE,
-    original_exports=c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds"))),
-    "vietnam_translation_xgb_rerun_export.rds")
+    original_exports=c("vietnam_xgb_tuning_export.rds","vietnam_xgb_pliv_tuning_export.rds")))
+  validate_xgb_rerun_export(rebuilt_xgb_export,XGB_RERUN_EXPORT,names(workflows))
+  saveRDS(rebuilt_xgb_export,XGB_RERUN_EXPORT)
+} else {
+  if(!file.exists(XGB_RERUN_EXPORT))
+    stop("Missing verified Vietnam XGBoost translation export. Restore it or set RUN_XGB_RERUN=TRUE to rebuild it.")
+  xgb_ti_all<-validate_xgb_rerun_export(
+    readRDS(XGB_RERUN_EXPORT),XGB_RERUN_EXPORT,names(workflows))
 }
+xgb_ti_all<-classify_rerun_results(xgb_ti_all)
 ```
 
 ```{r xgb-table}
-if(RUN_XGB_RERUN) {
-  xgb_ti_all <- classify_rerun_results(xgb_ti_all)
+if(exists("xgb_ti_all")) {
   display_rerun_results(xgb_ti_all) %>%
     kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",digits=4,row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
     row_spec(which(!xgb_ti_all$invariant),background="#fffbf0") %>%
     footnote(general=paste0(
-      "Original estimates are imported from the saved tuning results; shifted estimates rerun nested tuning. ",
+      if(RUN_XGB_RERUN)
+        "This render rebuilt the shifted-outcome nested-tuning results. " else
+        "This render loaded the verified complete-rerun XGBoost export. ",
       "Shading marks absolute rerun differences above ",
       "10^-4."
     ))
@@ -382,11 +425,16 @@ result_parts <- Filter(Negate(is.null), list(
 ))
 for (nm in names(result_parts)) result_parts[[nm]]$Family <- nm
 translation_results <- bind_rows(result_parts)
-saveRDS(list(
-  results = translation_results,
-  settings = list(seed=SEED,n_cf=N_CF,shift=log(100),
-                  rerun_tolerance=RERUN_TOLERANCE,
-                  grf_tuning="all",xgboost_tune_on_folds=TRUE,
-                  xgboost_tune_evals=TUNE_EVALS,xgboost_inner_folds=INNER_FOLDS)
-), "vietnam_translation_rerun_results.rds")
+if(RUN_XGB_RERUN){
+  expected_families<-c("Kappa","Tuned honest forest","OLS/logit and Ranger","Tuned XGBoost")
+  if(!setequal(unique(translation_results$Family),expected_families))
+    stop("Refusing to replace the complete Vietnam translation export because a result family is missing.")
+  saveRDS(list(
+    results = translation_results,
+    settings = list(seed=SEED,n_cf=N_CF,shift=log(100),
+                    rerun_tolerance=RERUN_TOLERANCE,
+                    grf_tuning="all",xgboost_tune_on_folds=TRUE,
+                    xgboost_tune_evals=TUNE_EVALS,xgboost_inner_folds=INNER_FOLDS)
+  ), "vietnam_translation_rerun_results.rds")
+}
 ```

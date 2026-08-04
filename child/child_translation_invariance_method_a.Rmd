@@ -1,5 +1,5 @@
 ---
-title: "Card (1995) — Translation Invariance: Complete-Pipeline Rerun"
+title: "Angrist & Evans (1998) — Translation Invariance: Complete-Pipeline Rerun"
 subtitle: "Kappa, honest forest, DoubleML learners, and nested XGBoost"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
@@ -29,8 +29,8 @@ table { font-size: 13px; }
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo = TRUE, message = FALSE, warning = FALSE,
-  fig.width = 12, fig.height = 6, cache = TRUE, autodep = TRUE,
-  cache.extra = "translation-rerun-only-v3-canonical-kappa"
+  fig.width = 12, fig.height = 6, autodep = TRUE,
+  cache.extra = "translation-rerun-only-v5-six-covariates"
 )
 ```
 
@@ -39,35 +39,44 @@ knitr::opts_chunk$set(
 # Purpose
 
 This notebook evaluates translation invariance by fitting each complete
-estimation pipeline to log hourly wages in dollars and to
+estimation pipeline to the original outcome and to its additively shifted
+counterpart. The two CHILD workflows are
 \[
-Y_i^{\mathrm{shift}}=Y_i+\log(100),
+Y^{\mathrm{shift}}_{i,\mathrm{work}}
+=Y_{i,\mathrm{work}}+1
 \]
-the cents recoding used in the SUW reproduction. The empirical check compares
-the two independently fitted estimates. It does not reuse fitted nuisance
-models from the original outcome.
+and
+\[
+Y^{\mathrm{shift}}_{i,\mathrm{income}}
+=Y_{i,\mathrm{income}}+\log(100)
+=\log(100\,\mathrm{income}_i).
+\]
+Original and shifted fits use the same samples, covariates, seed, and
+cross-fitting protocol, while nuisance functions and tuning choices are
+re-estimated.
 
 <div class="note-box">
-The full `2 treatments × 2 covariate specifications` design is evaluated.
-For XGBoost, the original tuned estimate is imported from the verified tuning
-export and the shifted-outcome model repeats nested tuning under the same
-protocol.
+The reflected labor outcome, `1 - workedm`, is excluded because it combines a
+reflection with a translation and is therefore not a pure additive shift.
 </div>
 
+An estimate is classified as invariant when its absolute rerun change does not
+exceed \(10^{-4}\). This operational threshold is separate from the
+`all.equal()` check used for fitted outcome-weight representations.
+
 <div class="note-box">
-The absolute threshold of `1e-4` is an operational rule for the complete
-pipeline rerun. It is not Knaus's display epsilon and it is not the
-`all.equal()` criterion used to verify a fitted outcome-weight representation.
-A fitted weight vector can sum to zero while a fully re-estimated,
-data-adaptive learner changes slightly because the second run may select a
-different smoother or tuning configuration.
+**Common design.** As in `child_test.Rmd`, every kappa and DML rerun uses
+`agem`, `agefstm`, `sexk`, `blackm`, `hispm`, and `othracem`. The
+second-child sex indicator is omitted because its interaction with first-child
+sex exactly determines `samesex`. Using the same six covariates in every
+pipeline isolates translation behavior from learner-specific differences in
+the conditioning set.
 </div>
 
 # Setup
 
 ```{r packages-and-source, include=FALSE, cache=FALSE}
 library(AER)
-library(haven)
 library(sandwich)
 library(lmtest)
 library(knitr)
@@ -89,7 +98,7 @@ source(file.path("..", "functions_all.R"))
 
 RERUN_TOLERANCE <- 1e-4
 
-ti_card_row <- function(name, tau_original, tau_shifted, k, digits = 12) {
+ti_child_row <- function(name, tau_original, tau_shifted, k, digits = 12) {
   out <- translation_rerun_row(
     name, tau_original, tau_shifted, k,
     tolerance = RERUN_TOLERANCE, digits = digits
@@ -105,7 +114,11 @@ display_rerun_results <- function(x) {
     formatC(value, format = "f", digits = 4)
   }
   data.frame(
-    Specification = x$Specification,
+    Specification = recode(
+      x$Specification,
+      "Labor (workedm)" = "Work Status",
+      "Income (lincomem)" = "Maternal Log Income"
+    ),
     Estimator = x$Estimator,
     Shift = fixed_four(x$Shift_k),
     `Original estimate` = fixed_four(x$tau_original),
@@ -117,82 +130,83 @@ display_rerun_results <- function(x) {
 }
 ```
 
-## Runtime switches
+<div class="warn-box">
+The default `RUN_XGB_RERUN = FALSE` loads the verified complete-rerun XGBoost
+export. Set it to `TRUE` only to import the original tuned estimates and repeat
+nested tuning for the shifted outcomes.
+</div>
 
 ```{r switches, include=FALSE}
 RUN_KAPPA             <- TRUE
 RUN_DML               <- TRUE
 RUN_LM_RF             <- TRUE
 RUN_XGB_RERUN         <- FALSE
+RUN_XGB_LABOR_ONLY    <- FALSE
 RUN_XGB_WALD_AIPW     <- TRUE
 RUN_XGB_PLIV          <- TRUE
 USE_XGB_ORIGINAL_EXPORT <- TRUE
-XGB_EXPORT_FILES <- c("card_xgb_tuning_export.rds", "card_xgb_pliv_tuning_export.rds")
-XGB_EXPORTS_AVAILABLE <- all(file.exists(XGB_EXPORT_FILES))
 ```
 
-<div class="warn-box">
-**XGBoost rule.** The default `RUN_XGB_RERUN = FALSE` loads the verified
-complete-rerun export. Set it to `TRUE` only for a deliberate rebuild, which
-imports the original tuned estimates and repeats nested tuning for the shifted
-outcome. Reusing the original selected hyperparameters after shifting the
-outcome would not test the complete tuned procedure.
-</div>
+```{r data, include=FALSE}
+obj <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub.")
+}
+ae98_labor_sub  <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
 
-## Data — the exact main-analysis sample
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(workedm = as.integer(workedm), morekids = as.integer(morekids),
+         samesex = as.integer(samesex))
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(morekids = as.integer(morekids), samesex = as.integer(samesex),
+         lincomem = log(incomem))
 
-```{r data-and-design}
-card <- read_dta("card.dta")
-card <- card[!is.na(card$wage) & !is.na(card$educ), ]
-if (nrow(card) != 3010L) stop("Expected the Card analysis sample to contain 3,010 observations.")
+Z_labor <- ae98_labor_sub$samesex;  D_labor  <- ae98_labor_sub$morekids
+Z_income <- ae98_income_sub$samesex; D_income <- ae98_income_sub$morekids
 
-card$somecol <- as.integer(card$educ >= 13)
-card$educ16  <- as.integer(card$educ >= 16)
-card$Z_inst  <- as.integer(card$nearc4)
-if (!"expersq" %in% names(card)) card$expersq <- card$exper^2
+k_labor  <- 1
+k_income <- log(100)
 
-k <- log(100)
-Y_orig  <- log(card$wage / 100)
-Y_shift <- log(card$wage)
-max_dev <- max(abs((Y_shift - Y_orig) - k))
+Y_labor_orig   <- ae98_labor_sub$workedm
+Y_labor_shift  <- ae98_labor_sub$workedm + k_labor
+
+Y_income_orig  <- ae98_income_sub$lincomem
+Y_income_shift <- ae98_income_sub$lincomem + k_income
+
+max_dev <- max(abs(Y_income_shift - log(100 * ae98_income_sub$incomem)))
 stopifnot(max_dev < 1e-9)
+```
 
-X_card_kappa <- model.matrix(
-  ~ exper + expersq + black + south + smsa + smsa66 +
-    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
-  data = card)
-X_kit_kappa <- model.matrix(~ black + south + smsa + smsa66 + south66, data = card)
-X_card <- make_X(
-  ~ 0 + exper + expersq + black + south + smsa + smsa66 +
-    reg661 + reg662 + reg663 + reg664 + reg665 + reg666 + reg667 + reg668,
-  data = card)
-X_kit <- make_X(~ 0 + black + south + smsa + smsa66 + south66, data = card)
+```{r design-matrices, include=FALSE}
+CHILD_COVARIATES <- c(
+  "agem", "agefstm", "sexk", "blackm", "hispm", "othracem"
+)
+RHS_FORMULA     <- reformulate(CHILD_COVARIATES)
+RHS_DML_FORMULA <- reformulate(CHILD_COVARIATES, intercept = FALSE)
+
+X_labor_kappa  <- model.matrix(RHS_FORMULA, data = ae98_labor_sub)
+X_income_kappa <- model.matrix(RHS_FORMULA, data = ae98_income_sub)
+
+X_dml_labor  <- make_X(RHS_DML_FORMULA, data = ae98_labor_sub)
+X_dml_income <- make_X(RHS_DML_FORMULA, data = ae98_income_sub)
 
 workflows <- list(
-  "Card / some college" = list(label = "Card / some college", D = card$somecol, Z = card$Z_inst, X_kappa = X_card_kappa, X_dml = X_card, X_dml_lm = X_card, Y_orig = Y_orig, Y_shift = Y_shift, k = k),
-  "Card / college completion" = list(label = "Card / college completion", D = card$educ16, Z = card$Z_inst, X_kappa = X_card_kappa, X_dml = X_card, X_dml_lm = X_card, Y_orig = Y_orig, Y_shift = Y_shift, k = k),
-  "Kitagawa / some college" = list(label = "Kitagawa / some college", D = card$somecol, Z = card$Z_inst, X_kappa = X_kit_kappa, X_dml = X_kit, X_dml_lm = X_kit, Y_orig = Y_orig, Y_shift = Y_shift, k = k),
-  "Kitagawa / college completion" = list(label = "Kitagawa / college completion", D = card$educ16, Z = card$Z_inst, X_kappa = X_kit_kappa, X_dml = X_kit, X_dml_lm = X_kit, Y_orig = Y_orig, Y_shift = Y_shift, k = k)
+  Labor = list(label = "Labor (workedm)", D = D_labor, Z = Z_labor,
+               X_kappa = X_labor_kappa, X_dml = X_dml_labor,
+               Y_orig = Y_labor_orig, Y_shift = Y_labor_shift, k = k_labor),
+  Income = list(label = "Income (lincomem)", D = D_income, Z = Z_income,
+               X_kappa = X_income_kappa, X_dml = X_dml_income,
+               Y_orig = Y_income_orig, Y_shift = Y_income_shift, k = k_income)
 )
-
-data.frame(
-  Quantity = c(
-    "Analysis sample", "Treatment definitions", "Covariate specifications",
-    "Translation", "Maximum numerical deviation from exact shift"
-  ),
-  Value = c(
-    format(nrow(card), big.mark = ","), "2", "2",
-    "log wage + log(100)", format(max_dev, scientific = TRUE)
-  )
-) %>%
-  kbl(caption = "Translation-rerun design") %>%
-  kable_styling(bootstrap_options = c("striped", "condensed"),
-                full_width = FALSE)
 ```
 
 ---
 
 # 1. Kappa estimators
+
+Normalized and unnormalized kappa estimators provide the benchmark for the
+complete-pipeline learner reruns.
 
 ```{r kappa-estimator-names, include=FALSE}
 kappa_estimator_names <- c(
@@ -204,7 +218,7 @@ build_kappa_ti_rows <- function(wf) {
   est_o <- kappa_point_estimates(wf$Y_orig,  wf$Z, wf$D, wf$X_kappa)
   est_s <- kappa_point_estimates(wf$Y_shift, wf$Z, wf$D, wf$X_kappa)
   rows <- lapply(kappa_estimator_names, function(est_name) {
-    row <- ti_card_row(name = est_name, tau_original = est_o[[est_name]],
+    row <- ti_child_row(name = est_name, tau_original = est_o[[est_name]],
                         tau_shifted = est_s[[est_name]], k = wf$k)
     row$Specification <- wf$label
     row
@@ -213,7 +227,7 @@ build_kappa_ti_rows <- function(wf) {
 }
 ```
 
-```{r kappa-ti-run, include=FALSE}
+```{r kappa-ti-run, cache=TRUE, include=FALSE}
 if (RUN_KAPPA) {
   kappa_ti_all <- do.call(rbind, lapply(workflows, build_kappa_ti_rows))
 }
@@ -229,7 +243,7 @@ if (RUN_KAPPA) {
     collapse_rows(columns = 1, valign = "middle") %>%
     row_spec(which(!kappa_ti_all$invariant), background = "#fffbf0") %>%
     footnote(general = paste0(
-      "Orange rows have an absolute rerun difference above ",
+      "Orange rows exceed the pre-specified absolute rerun threshold of ",
       format(RERUN_TOLERANCE, scientific = TRUE), "."
     ))
 }
@@ -239,7 +253,10 @@ if (RUN_KAPPA) {
 
 # 2. Headline DML: tuned honest forest
 
-Tuned honest forests use `tune.parameters="all"` in both reruns.
+<div class="note-box">
+The headline rerun uses tuned honest forests. Original and shifted fits use
+the same seed, five cross-fitting folds, and tuning setting.
+</div>
 
 ```{r dml-headline-builder, include=FALSE}
 build_dml_headline_ti_rows <- function(wf, n_cf_folds = 5) {
@@ -252,7 +269,7 @@ build_dml_headline_ti_rows <- function(wf, n_cf_folds = 5) {
 
   res_o <- summary(fit_o); res_s <- summary(fit_s)
   rows <- lapply(c("PLR-IV", "Wald-AIPW"), function(est) {
-    row <- ti_card_row(name = est, tau_original = get_estimate(res_o, est),
+    row <- ti_child_row(name = est, tau_original = get_estimate(res_o, est),
                         tau_shifted = get_estimate(res_s, est), k = wf$k)
     row$Specification <- wf$label
     row
@@ -261,7 +278,7 @@ build_dml_headline_ti_rows <- function(wf, n_cf_folds = 5) {
 }
 ```
 
-```{r dml-headline-run, include=FALSE}
+```{r dml-headline-run, cache=TRUE, include=FALSE}
 if (RUN_DML) {
   dml_headline_ti_all <- do.call(rbind, lapply(workflows, build_dml_headline_ti_rows))
 }
@@ -275,7 +292,8 @@ if (RUN_DML) {
     kable_styling(bootstrap_options = c("striped","hover","condensed"),
                   full_width = TRUE, font_size = 13) %>%
     collapse_rows(columns = 1, valign = "middle") %>%
-    row_spec(which(!dml_headline_ti_all$invariant), background = "#fffbf0")
+    row_spec(which(!dml_headline_ti_all$invariant), background = "#fffbf0") %>%
+    footnote(general = "Orange rows exceed the pre-specified absolute rerun threshold of 10^-4.")
 }
 ```
 
@@ -283,7 +301,9 @@ if (RUN_DML) {
 
 # 3. OLS/logit and Ranger learners
 
-The learner definitions match `card_test.Rmd`.
+The learner comparison repeats the specifications in `child_test.Rmd`.
+All learners use the same six covariates. XGBoost is handled separately
+because the shifted outcome requires a new nested-tuning run.
 
 ```{r dml-learner-setup, include=FALSE}
 make_dml_data <- function(Y, D, Z, X) {
@@ -329,19 +349,19 @@ build_dml_learner_ti_row <- function(wf, label, learners_fn, X_dml, fit_fn) {
   fit_o <- fit_fn(dat_o, learners_fn())
   fit_s <- fit_fn(dat_s, learners_fn())
 
-  row <- ti_card_row(name = label, tau_original = get_dml_coef(fit_o),
+  row <- ti_child_row(name = label, tau_original = get_dml_coef(fit_o),
                       tau_shifted = get_dml_coef(fit_s), k = wf$k)
   row$Specification <- wf$label
   row
 }
 ```
 
-```{r dml-learner-run, include=FALSE}
+```{r dml-learner-run, cache=TRUE, include=FALSE}
 if (RUN_LM_RF) {
   dml_learner_ti_all <- do.call(rbind, lapply(workflows, function(wf) {
     rbind(
-      build_dml_learner_ti_row(wf, "PLR-IV (linear)",          ml_lm_pliv,  wf$X_dml_lm, fit_pliv),
-      build_dml_learner_ti_row(wf, "Wald-AIPW (linear+logit)", ml_lm_iivm,  wf$X_dml_lm, fit_iivm),
+      build_dml_learner_ti_row(wf, "PLR-IV (linear)",          ml_lm_pliv,  wf$X_dml, fit_pliv),
+      build_dml_learner_ti_row(wf, "Wald-AIPW (linear+logit)", ml_lm_iivm,  wf$X_dml, fit_iivm),
       build_dml_learner_ti_row(wf, "PLR-IV (ranger)",          ml_rf_pliv,  wf$X_dml,    fit_pliv),
       build_dml_learner_ti_row(wf, "Wald-AIPW (ranger)",       ml_rf_iivm,  wf$X_dml,    fit_iivm)
     )
@@ -358,31 +378,40 @@ if (RUN_LM_RF) {
                   full_width = TRUE, font_size = 13) %>%
     collapse_rows(columns = 1, valign = "middle") %>%
     row_spec(which(!dml_learner_ti_all$invariant), background = "#fffbf0") %>%
-    footnote(general = paste0(
-      "PLR-IV uses DoubleMLPLIV and Wald-AIPW uses DoubleMLIIVM. Orange rows have an absolute rerun difference above ",
-      format(RERUN_TOLERANCE, scientific = TRUE), "."
+    footnote(general = paste(
+      "Every learner uses the same six covariates.",
+      "Orange rows exceed the pre-specified absolute rerun threshold of 10^-4."
     ))
 }
 ```
 
 # 4. Tuned XGBoost complete-pipeline rerun
 
-Original tuned estimates are imported from the two Card tuning exports. For
-the shifted outcome, tuning is repeated separately inside each outer training
-fold using the same search space, folds, budget, and seed.
+<div class="warn-box">
+The shifted-outcome XGBoost fits repeat the complete nested-tuning protocol
+with the same seed, samples, folds, and tuning budget.
+</div>
 
 ```{r xgb-setup, include=FALSE}
 SEED <- 42; N_CF <- 5; TUNE_EVALS <- 15; INNER_FOLDS <- 3
-XGB_RERUN_EXPORT <- "card_translation_xgb_rerun_export.rds"
+XGB_WALD_EXPORT <- "ae98_xgb_tuning_export.rds"
+XGB_PLIV_EXPORT <- "ae98_xgb_pliv_tuning_export.rds"
+XGB_RERUN_EXPORT <- "ae98_translation_xgb_rerun_export.rds"
 
 if (RUN_XGB_RERUN && !USE_XGB_ORIGINAL_EXPORT) {
   stop("This notebook expects USE_XGB_ORIGINAL_EXPORT <- TRUE for the original XGBoost side.")
 }
+if (RUN_XGB_RERUN && RUN_XGB_LABOR_ONLY) {
+  stop("An official XGBoost translation rebuild must include both Child outcomes; set RUN_XGB_LABOR_ONLY=FALSE.")
+}
+if (RUN_XGB_RERUN && (!RUN_XGB_WALD_AIPW || !RUN_XGB_PLIV)) {
+  stop("An official Child XGBoost translation rebuild must include both Wald-AIPW and PLR-IV.")
+}
 
-xgb_wald_export <- if (RUN_XGB_RERUN && XGB_EXPORTS_AVAILABLE) readRDS(XGB_EXPORT_FILES[[1]]) else NULL
-xgb_pliv_export <- if (RUN_XGB_RERUN && XGB_EXPORTS_AVAILABLE) readRDS(XGB_EXPORT_FILES[[2]]) else NULL
+xgb_wald_export <- if (RUN_XGB_RERUN && file.exists(XGB_WALD_EXPORT)) readRDS(XGB_WALD_EXPORT) else NULL
+xgb_pliv_export <- if (RUN_XGB_RERUN && file.exists(XGB_PLIV_EXPORT)) readRDS(XGB_PLIV_EXPORT) else NULL
 
-validate_xgb_export <- function(export, path, required_cells) {
+validate_xgb_export <- function(export, path, required_cells, required_covariates) {
   settings <- export$settings
   if (is.null(settings) || !isTRUE(settings$tune_on_folds)) {
     stop(sprintf("%s is not a tune_on_folds=TRUE export.", path))
@@ -398,9 +427,38 @@ validate_xgb_export <- function(export, path, required_cells) {
   }
   if (is.null(export$weight_diagnostics) ||
       !all(required_cells %in% export$weight_diagnostics$Cell)) {
-    stop(sprintf("%s does not contain every required Card cell.", path))
+    stop(sprintf("%s does not contain every required child sample.", path))
+  }
+  if (is.null(settings$covariates) ||
+      !identical(settings$covariates, required_covariates)) {
+    stop(sprintf("%s does not use the common six-covariate Child design.", path))
+  }
+  info <- export$sample_info
+  if (is.null(info) ||
+      !identical(as.integer(info$labor_n), as.integer(nrow(ae98_labor_sub))) ||
+      !identical(as.integer(info$income_n), as.integer(nrow(ae98_income_sub))) ||
+      !isTRUE(all.equal(as.numeric(info$labor_mean_Z), mean(Z_labor), tolerance = 1e-12)) ||
+      !isTRUE(all.equal(as.numeric(info$labor_mean_D), mean(D_labor), tolerance = 1e-12)) ||
+      !isTRUE(all.equal(as.numeric(info$income_mean_Z), mean(Z_income), tolerance = 1e-12)) ||
+      !isTRUE(all.equal(as.numeric(info$income_mean_D), mean(D_income), tolerance = 1e-12))) {
+    stop(sprintf("%s metadata do not match the current Child samples.", path))
   }
   invisible(TRUE)
+}
+
+required_xgb_cells <- vapply(workflows, function(wf) wf$label, character(1))
+if (RUN_XGB_RERUN) {
+  if (!file.exists(XGB_WALD_EXPORT) || !file.exists(XGB_PLIV_EXPORT)) {
+    stop("Run or restore both Child XGBoost tuning exports before rebuilding the translation rerun.")
+  }
+  validate_xgb_export(
+    xgb_wald_export, XGB_WALD_EXPORT,
+    required_xgb_cells, CHILD_COVARIATES
+  )
+  validate_xgb_export(
+    xgb_pliv_export, XGB_PLIV_EXPORT,
+    required_xgb_cells, CHILD_COVARIATES
+  )
 }
 
 validate_xgb_rerun_export <- function(export, path, required_specs) {
@@ -424,12 +482,16 @@ validate_xgb_rerun_export <- function(export, path, required_specs) {
   if (!identical(unname(observed_settings), unname(as.integer(expected_settings)))) {
     stop(sprintf("%s uses tuning settings that differ from this notebook.", path))
   }
+  if (is.null(export$settings$covariates) ||
+      !identical(export$settings$covariates, CHILD_COVARIATES)) {
+    stop(sprintf("%s does not use the common six-covariate Child design.", path))
+  }
   required_estimators <- c("Wald-AIPW (XGBoost tuned)",
                            "PLR-IV (XGBoost tuned)")
   expected_keys <- as.vector(outer(required_specs, required_estimators, paste, sep = "\r"))
   observed_keys <- paste(export$results$Specification, export$results$Estimator, sep = "\r")
   if (anyDuplicated(observed_keys) || !setequal(observed_keys, expected_keys)) {
-    stop(sprintf("%s does not contain exactly the required Card XGBoost rows.", path))
+    stop(sprintf("%s does not contain exactly the required Child XGBoost rows.", path))
   }
   numeric_columns <- c("Shift_k", "tau_original", "tau_shifted", "rerun_difference")
   if (any(!vapply(export$results[numeric_columns],
@@ -437,18 +499,6 @@ validate_xgb_rerun_export <- function(export, path, required_specs) {
     stop(sprintf("%s contains non-finite translation results.", path))
   }
   export$results
-}
-
-if (RUN_XGB_RERUN && !XGB_EXPORTS_AVAILABLE) {
-  stop("Run both Card XGBoost tuning notebooks before the translation rerun.")
-}
-if (RUN_XGB_RERUN && (!RUN_XGB_WALD_AIPW || !RUN_XGB_PLIV)) {
-  stop("An official Card XGBoost translation rebuild must include both Wald-AIPW and PLR-IV.")
-}
-
-if (RUN_XGB_RERUN && XGB_EXPORTS_AVAILABLE) {
-  validate_xgb_export(xgb_wald_export, XGB_EXPORT_FILES[[1]], names(workflows))
-  validate_xgb_export(xgb_pliv_export, XGB_EXPORT_FILES[[2]], names(workflows))
 }
 
 make_xgb_learners_iivm <- function() {
@@ -516,7 +566,7 @@ build_xgb_rerun_rows <- function(wf) {
     original <- get_xgb_original(xgb_wald_export, wf$label, "XGB tuned")
     set.seed(SEED)
     shifted <- fit_xgb_wald_shifted(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
-    row <- ti_card_row(name = "Wald-AIPW (XGBoost tuned)",
+    row <- ti_child_row(name = "Wald-AIPW (XGBoost tuned)",
                         tau_original = original,
                         tau_shifted = shifted$tau,
                         k = wf$k)
@@ -528,7 +578,7 @@ build_xgb_rerun_rows <- function(wf) {
     original <- get_xgb_original(xgb_pliv_export, wf$label, "PLR-IV XGB tuned")
     set.seed(SEED)
     shifted <- fit_xgb_pliv_shifted(wf$Y_shift, wf$D, wf$Z, wf$X_dml)
-    row <- ti_card_row(name = "PLR-IV (XGBoost tuned)",
+    row <- ti_child_row(name = "PLR-IV (XGBoost tuned)",
                         tau_original = original,
                         tau_shifted = shifted$tau,
                         k = wf$k)
@@ -542,12 +592,14 @@ build_xgb_rerun_rows <- function(wf) {
 save_xgb_rerun_export <- function(xgb_ti_all) {
   export <- list(
     results = xgb_ti_all,
-    settings = list(seed = SEED, n_cf = N_CF, tune_evals = TUNE_EVALS,
+    settings = list(seed = SEED, n_cf = N_CF,
+                    rerun_tolerance = RERUN_TOLERANCE,
+                    tune_evals = TUNE_EVALS,
                     inner_folds = INNER_FOLDS, tune_on_folds = TRUE,
-                    original_exports = c("card_xgb_tuning_export.rds",
-                                         "card_xgb_pliv_tuning_export.rds"))
+                    covariates = CHILD_COVARIATES,
+                    original_exports = c(XGB_WALD_EXPORT, XGB_PLIV_EXPORT))
   )
-  validate_xgb_rerun_export(export, XGB_RERUN_EXPORT, names(workflows))
+  validate_xgb_rerun_export(export, XGB_RERUN_EXPORT, required_xgb_cells)
   saveRDS(export, XGB_RERUN_EXPORT)
 }
 ```
@@ -558,10 +610,10 @@ if (RUN_XGB_RERUN) {
   save_xgb_rerun_export(xgb_ti_all)
 } else {
   if (!file.exists(XGB_RERUN_EXPORT)) {
-    stop("Missing verified Card XGBoost translation export. Restore it or set RUN_XGB_RERUN=TRUE to rebuild it.")
+    stop("Missing verified Child XGBoost translation export. Restore it or set RUN_XGB_RERUN=TRUE to rebuild it.")
   }
   xgb_ti_all <- validate_xgb_rerun_export(
-    readRDS(XGB_RERUN_EXPORT), XGB_RERUN_EXPORT, names(workflows)
+    readRDS(XGB_RERUN_EXPORT), XGB_RERUN_EXPORT, required_xgb_cells
   )
 }
 xgb_ti_all$invariant <- abs(xgb_ti_all$rerun_difference) <= RERUN_TOLERANCE
@@ -576,18 +628,19 @@ if (exists("xgb_ti_all")) {
                   full_width = TRUE, font_size = 13) %>%
     collapse_rows(columns = 1, valign = "middle") %>%
     row_spec(which(!xgb_ti_all$invariant), background = "#fffbf0") %>%
-    footnote(general = paste0(
+    footnote(general = paste(
       if (RUN_XGB_RERUN)
-        "This render rebuilt the shifted-outcome nested-tuning results. " else
-        "This render loaded the verified complete-rerun XGBoost export. ",
-      "Orange rows have an absolute ",
-      "rerun difference above ",
-      format(RERUN_TOLERANCE, scientific = TRUE), "."
+        "This render rebuilt the shifted-outcome nested-tuning results." else
+        "This render loaded the verified complete-rerun XGBoost export.",
+      "Orange rows exceed the pre-specified absolute rerun threshold of 10^-4."
     ))
 }
 ```
 
----
+<div class="note-box">
+The XGBoost rerun is stored separately and does not overwrite the original
+tuning exports.
+</div>
 
 # 5. Save reusable rerun results
 
@@ -599,18 +652,19 @@ result_parts <- Filter(Negate(is.null), list(
   `Tuned XGBoost` = if (exists("xgb_ti_all")) xgb_ti_all else NULL
 ))
 for (nm in names(result_parts)) result_parts[[nm]]$Family <- nm
-translation_results <- dplyr::bind_rows(result_parts)
+translation_results <- bind_rows(result_parts)
 if (RUN_XGB_RERUN) {
   expected_families <- c("Kappa", "Tuned honest forest", "Linear and Ranger", "Tuned XGBoost")
   if (!setequal(unique(translation_results$Family), expected_families)) {
-    stop("Refusing to replace the complete Card translation export because a result family is missing.")
+    stop("Refusing to replace the complete Child translation export because a result family is missing.")
   }
   saveRDS(list(
     results = translation_results,
-    settings = list(seed=42,n_cf=5,shift=log(100),
-                    rerun_tolerance=RERUN_TOLERANCE,grf_tuning="all",
-                    xgboost_tune_on_folds=TRUE,xgboost_tune_evals=TUNE_EVALS,
-                    xgboost_inner_folds=INNER_FOLDS)
-  ), "card_translation_rerun_results.rds")
+    settings = list(seed=42,n_cf=5,shifts=c(Labor=1,Income=log(100)),
+                    rerun_tolerance=RERUN_TOLERANCE,
+                    covariates=CHILD_COVARIATES,
+                    grf_tuning="all",xgboost_tune_on_folds=TRUE,
+                    xgboost_tune_evals=TUNE_EVALS,xgboost_inner_folds=INNER_FOLDS)
+  ), "ae98_translation_rerun_results.rds")
 }
 ```

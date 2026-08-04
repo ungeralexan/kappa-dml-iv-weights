@@ -206,9 +206,19 @@ $$
 \widehat\tau=\sum_{i=1}^N\omega_iY_i
 $$
 
-to the project's numerical tolerance of $10^{-8}$.
-`check_weight_identity()` performs this reconstruction check for the
-closed-form kappa vectors.
+`check_weight_identity()` performs this numerical reconstruction check. It
+compares the unrounded inner product `sum(w * Y)` with the corresponding
+unrounded point estimate by calling R's `all.equal()` without overriding its
+default tolerance. The check is therefore scale-aware and uses R's default
+numerical comparison rule (approximately the square root of machine precision,
+rather than a fixed absolute threshold of exactly $10^{-8}$). This is the same
+`all.equal()` convention reported in the application notebooks.
+
+The reconstruction check is distinct from the normalization diagnostics. A
+weight vector can reproduce its fitted estimate without having overall,
+treated, and control masses equal to $0$, $1$, and $1$, respectively. Conversely,
+a vector with approximately normalized masses is not treated as an exact
+outcome-weight representation unless it also passes the reconstruction check.
 
 ### DML outcome-weight extraction
 
@@ -225,10 +235,11 @@ parametric, Ranger, and XGBoost specifications are fitted as
 support weight recovery, their stored nuisance fits are passed to the
 corresponding `DoubleML` method of `get_outcome_weights()`.
 
-`check_doubleml_identity()` applies the same reconstruction requirement to a
-weight object extracted from a `DoubleML` fit. A vector is classified as an
-exact outcome-weight representation only when its inner product with the
-observed outcome reproduces the fitted coefficient within $10^{-8}$. Vectors
+The same `check_weight_identity()` helper is applied to weight vectors
+extracted from `DoubleML` fits; no separate DoubleML-specific identity helper
+is used. A fitted vector is classified as an exact outcome-weight
+representation only when its inner product with the observed outcome passes
+R's default `all.equal()` comparison against the fitted coefficient. Vectors
 that fail this identity, including the affected XGBoost extractions in the
 current analysis, may be retained as explicitly flagged learner-sensitivity
 information but are excluded from the main normalization, concentration, and
@@ -238,6 +249,40 @@ The diagnostics are computed from unrounded weights and include normalization
 masses, effective support, maximum absolute weights, sign composition,
 cancellation, and covariate balance. Presentation tables apply rounding only
 after these quantities have been computed.
+
+### Covariate-balance computation
+
+All three application notebooks call the shared `make_love()` helper in
+`functions_all.R`. The helper receives the treatment indicator, the
+application-specific balance matrix, and a numerically verified outcome-weight
+vector as explicit arguments. It first orients the signed outcome weights as
+`w * (2 * D - 1)`, so treated coefficients retain their sign and control
+coefficients are sign-reversed. `cobalt::love.plot()` then normalizes these
+oriented weights separately within the observed treatment groups when
+computing the adjusted covariate means.
+
+The validated environment uses `cobalt` 4.6.2 with
+`continuous = "std"`, `binary = "raw"`, `s.d.denom = "pooled"`,
+`stats = "mean.diffs"`, and `abs = TRUE`. For a continuous covariate, the
+adjusted and unadjusted mean differences are divided by the same unweighted
+pooled within-group standard deviation,
+`sqrt((var_T + var_C) / 2)`. For a binary covariate, `cobalt` detects the
+two-valued column and reports the absolute raw difference between the two
+signed weighted means without standardization. Consequently, the plotted
+reference value of 0.1 represents 0.1 pooled standard deviations for a
+continuous covariate but a raw signed-moment difference of 0.10 for a binary
+covariate; it is a visual guide rather than a common pass/fail scale.
+
+The balance matrices coincide with the covariates used by the corresponding
+analysis specification: cubic or saturated age terms in Vietnam, the Card or
+Kitagawa conditioning set in the schooling application, and the common six
+covariates in the Child application. Only algebraic or numerically verified
+outcome-weight vectors enter these plots. Because the adjusted weights can be
+negative, a reported binary weighted mean is an algebraic signed moment and
+need not be a probability or lie in the unit interval. The plots therefore
+describe balance in the included observed covariate means; they do not test
+instrument validity, balance unobserved covariates, or identify the source of
+any remaining difference.
 
 ## DML integration
 
@@ -282,24 +327,97 @@ log-loss for its instrument and treatment classification models.
 from both nuisance fitting and hyperparameter selection, and it implies that
 the selected hyperparameters may differ across outer folds.
 
-The Vietnam and Card tuning notebooks default to loading their verified
-exports with `RERUN_TUNING = FALSE`. The current Child tuning notebooks have
-no corresponding switch and rerun tuning when rendered; their stored exports
-are consumed directly by the downstream Child analysis.
+All six application-specific XGBoost tuning notebooks—Wald-AIPW and PLR-IV for
+Vietnam, Card, and Child—default to loading their verified exports with
+`RERUN_TUNING = FALSE`. Setting this switch to `TRUE` deliberately repeats the
+expensive fold-specific nested-tuning procedure and replaces the corresponding
+tuning export after the run has completed.
 
 Complete-pipeline transformation checks rerun the relevant nuisance estimation,
 cross-fitting, and tuning rules after the outcome has been shifted. They are
 distinct from frozen-weight algebraic checks, which hold a fitted weight vector
 fixed and evaluate the implied change directly.
 
+The three headline translation notebooks classify a complete-pipeline rerun as
+unchanged when the absolute difference between the separately fitted original-
+and shifted-outcome estimates does not exceed $10^{-4}$. This is an operational
+reporting rule for the empirical rerun. It is separate from both R's
+`all.equal()` outcome-weight reconstruction check and the $10^{-4}$ display
+epsilon used when presenting small individual weights.
+
+The supplementary Child four-unit notebook studies maternal log income in
+dollars, cents, thousands of dollars, and hundred-thousands of dollars. It uses
+the stricter absolute threshold $10^{-8}$ by design to inspect whether the
+translation result continues to hold numerically under much larger positive
+and negative log-unit changes. This stricter diagnostic does not replace the
+$10^{-4}$ reporting convention used by the headline Child translation table.
+
+The shared `translation_rerun_row()` helper now defaults to the headline
+$10^{-4}$ reporting tolerance, and every headline translation notebook also
+passes that tolerance explicitly. The supplementary Child four-unit notebook
+does not rely on this helper default: it applies its deliberately stricter
+$10^{-8}$ diagnostic rule explicitly. Callers should continue to pass their
+intended tolerance so that the applicable reporting convention remains visible
+at the point where results are classified.
+
+### Translation XGBoost runtime switch
+
+Each main translation notebook defaults to `RUN_XGB_RERUN = FALSE`. In this
+state, the notebook loads a small verified `*_translation_xgb_rerun_export.rds`
+file, checks its schema, required estimator/specification rows, seed, fold
+counts, tuning budget, and `tune_on_folds` setting, and then recalculates the
+$10^{-4}$ classification from the stored unrounded rerun differences. The
+XGBoost translation table is therefore complete without access to a local
+knitr cache. Neither the XGBoost translation export nor the combined complete
+translation export is overwritten in this default state.
+
+Setting `RUN_XGB_RERUN = TRUE` is a deliberate rebuild. It requires the two
+matching original-outcome XGBoost tuning exports, repeats shifted-outcome
+nested tuning in a non-cached chunk, validates the rebuilt rows, and replaces
+the application-specific XGBoost and complete translation exports. The final
+save is refused when an expected result family is missing. This switch affects
+the shifted-outcome XGBoost branch only; the other translation sections retain
+their existing individual runtime and cache settings.
+
+For the supplementary Child four-unit diagnostic, each learner receives an
+outcome constructed directly as `Y_dollars + shift`. Expressions based on
+rescaling the original income before taking logs are evaluated only as a
+numerical unit-coding check. This avoids feeding adaptive learners outcomes
+that are mathematically equivalent but differ slightly because of floating-
+point evaluation order.
+
 ## Reproducibility
 
 The repository-level `README.md` records the validated R and package versions,
 required data files, notebook execution order, stored tuning exports, and cache
-policy. For a public replication repository, retain the canonical
+policy. `REPRODUCING.md` provides the corresponding step-by-step instructions
+for a fresh checkout without local caches. For a public replication repository, retain the canonical
 `functions_all.R`, the application notebooks, the verified `.rds` exports, and
 an `renv.lock` once it has been created. Do not distribute duplicate helper
 files inside the application folders.
+
+Seeds, fold counts, and stored exports control the current analysis, but exact
+cross-machine equality of forest and XGBoost reruns is not yet guaranteed.
+Package versions, thread scheduling, and cached objects can affect fitted
+learners. A final clean replication should therefore pin the R environment,
+use explicit single-thread settings where exact equality is required, and run
+the validation once without relying on pre-existing knitr caches.
+
+On 4 August 2026, the three headline translation notebooks were rendered after
+moving aside their relevant caches. The resulting 28 Vietnam, 56 Card, and 28
+Child rows matched the stored complete-result references exactly. The Child
+four-unit notebook was then rerun from a new cache after constructing every
+income coding as an exact additive shift. All 28 dollar/cent comparisons with
+Method A passed its $10^{-8}$ audit, with a maximum absolute difference of
+$4.76\times10^{-13}$. This resolves the previously observed cross-notebook
+honest-forest and Ranger discrepancy on the validated machine.
+
+The application-specific smoother-condition audits cover the same eligible
+DML learner families used in the outcome-weight diagnostics. The Card audit
+covers its four conditioning-set/treatment cells, the Vietnam audit covers its
+cubic and saturated age specifications, and the Child audit covers the work-
+status and maternal-log-income samples. XGBoost vectors that fail the estimator
+reproduction gate are not given a smoother-condition interpretation.
 
 ## External software references
 

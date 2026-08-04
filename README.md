@@ -7,7 +7,7 @@ three instrumental-variables applications:
 
 1. Vietnam-era draft eligibility, military service, and wages;
 2. proximity to college, schooling, and wages (Card);
-3. sibling-sex composition, fertility, and maternal labor outcomes
+3. sibling-sex composition, fertility, and maternal labor and income outcomes
    (Angrist–Evans).
 
 The code compares 2SLS, normalized and unnormalized kappa estimators, PLR-IV,
@@ -21,11 +21,16 @@ analytical standard errors, outcome-weight reconstruction, and its relationship
 to available R and Stata software are provided in
 [`IMPLEMENTATION.md`](IMPLEMENTATION.md).
 
+A beginner-facing checklist for a fresh checkout, required data and exports,
+default switches, ordinary rendering, and deliberate rebuilds is provided in
+[`REPRODUCING.md`](REPRODUCING.md).
+
 ## Repository structure
 
 ```text
 .
 ├── functions_all.R       # canonical shared estimator/diagnostic library
+├── REPRODUCING.md        # fresh-checkout and rerun instructions
 ├── vietnam_final/        # Vietnam application
 ├── card_final/           # Card application
 ├── child/                # Angrist–Evans application
@@ -48,7 +53,7 @@ across applications.
 
 ## Software environment
 
-The analysis was last validated on 29 July 2026 with R 4.5.3 and the following
+The analysis was last validated on 4 August 2026 with R 4.5.3 and the following
 package versions:
 
 | Package | Version |
@@ -118,7 +123,8 @@ Run a notebook from its own application directory, or use
 rmarkdown::render("vietnam_final/vietnam_presentation_4.Rmd")
 ```
 
-The Vietnam and Card XGBoost tuning notebooks default to:
+All six XGBoost tuning notebooks—Wald-AIPW and PLR-IV for Vietnam, Card, and
+Child—default to:
 
 ```r
 RERUN_TUNING <- FALSE
@@ -128,11 +134,18 @@ In this mode they read the verified `.rds` exports rather than repeating
 expensive nested tuning. The main application notebooks also import these
 exports. Keep the exports when an ordinary, reasonably fast render is desired.
 
-The two Child tuning notebooks currently do not expose a
-`RERUN_TUNING` switch and rerun their tuning exercises when rendered. Their
-verified exports are nevertheless read by `child_test.Rmd` and the downstream
-translation analysis. Avoid rendering the Child tuning notebooks unless a
-deliberate retuning run is intended.
+The three main translation notebooks default to:
+
+```r
+RUN_XGB_RERUN <- FALSE
+```
+
+In this mode they load and validate the verified shifted-outcome XGBoost
+translation exports. No XGBoost cache, tuning, or weight extraction is needed,
+and the official translation result files are not overwritten. Setting the
+switch to `TRUE` deliberately repeats shifted-outcome nested tuning with the
+documented protocol. The XGBoost rerun chunk is then evaluated without a cache,
+validated, and saved together with the complete translation result.
 
 ## Recommended execution order
 
@@ -143,7 +156,7 @@ deliberate retuning run is intended.
 3. `vietnam_presentation_4.Rmd`
 4. `vietnam_translation_invariance_method_a.Rmd`
 5. `vietnam_descriptives_1.Rmd`
-6. `vietnam_smoother_matrix_diagnostics.Rmd`, when the additional smoother
+6. `vietnam_smoother_conditions_ols_ranger.Rmd`, when the additional smoother
    audit is required
 
 The ordinary tuning-notebook render loads:
@@ -160,6 +173,9 @@ vietnam_translation_rerun_results.rds
 vietnam_translation_xgb_rerun_export.rds
 ```
 
+With the default `RUN_XGB_RERUN = FALSE`, these are treated as verified
+reference exports and are not replaced.
+
 ### Card
 
 1. `card_xgb_tuning.Rmd`
@@ -170,6 +186,12 @@ vietnam_translation_xgb_rerun_export.rds
 6. `card_descriptives_1.Rmd`
 7. Run `card_final/export_thesis_figures.R` from the repository root
 
+The Card tuning notebooks read or rebuild
+`card_xgb_tuning_export.rds` and `card_xgb_pliv_tuning_export.rds`. The
+translation notebook writes `card_translation_rerun_results.rds` and
+`card_translation_xgb_rerun_export.rds`; the additional smoother audit writes
+`card_smoother_condition_results.rds`.
+
 ### Child
 
 1. `ae98_make_balanced_subsample_submission.Rmd`
@@ -177,18 +199,28 @@ vietnam_translation_xgb_rerun_export.rds
 3. `child_xgb_pliv_tuning.Rmd`
 4. `child_test.Rmd`
 5. `child_translation_invariance_method_a.Rmd`
-6. `ae98_descriptives.Rmd`
+6. `child_income_translation_four_units.Rmd`, for the supplementary strict
+   unit-change diagnostic
+7. `child_smoother_conditions.Rmd`, for the smoother-condition audit
+8. `ae98_descriptives.Rmd`
+
+The sample-construction notebook writes `ae98_sub.rds`. The two tuning
+notebooks read or rebuild `ae98_xgb_tuning_export.rds` and
+`ae98_xgb_pliv_tuning_export.rds`. The headline translation notebook writes
+`ae98_translation_rerun_results.rds` and
+`ae98_translation_xgb_rerun_export.rds`. The supplementary four-unit notebook
+writes separate `ae98_income_four_unit_*.rds` files and does not overwrite the
+headline translation or tuning exports. The Child smoother-condition audit
+writes `ae98_smoother_condition_results.rds`.
 
 ## Repeating the XGBoost tuning
 
-For Vietnam and Card, deliberately repeat a tuning exercise by changing the
-corresponding notebook to:
+For any application, deliberately repeat a tuning exercise by changing the
+corresponding Wald-AIPW or PLR-IV tuning notebook to:
 
 ```r
 RERUN_TUNING <- TRUE
 ```
-
-The Child tuning notebooks currently retune whenever they are rendered.
 
 The tuning design uses seed 42, five outer cross-fitting folds, three inner
 folds, fifteen random-search evaluations, and fold-specific tuning. These
@@ -205,6 +237,27 @@ For the most defensible replication package:
 4. use explicit single-thread XGBoost settings if bit-level reproducibility is
    required;
 5. distinguish ordinary rendering from deliberate full retuning.
+
+## Numerical comparison conventions
+
+The code intentionally uses different numerical rules for different tasks.
+They should not be replaced by one common threshold.
+
+- Outcome-weight reconstruction is checked by `check_weight_identity()`, which
+  calls R's `all.equal()` without overriding its default scale-aware tolerance.
+- The three headline complete-pipeline translation notebooks classify an
+  estimate as unchanged when the absolute rerun difference is at most
+  $10^{-4}$.
+- `child_income_translation_four_units.Rmd` is a supplementary strict
+  diagnostic. It compares maternal log income measured in dollars, cents,
+  thousands, and hundred-thousands and deliberately uses $10^{-8}$.
+- Propensity-score clipping at $10^{-8}$ and tighter checks used for sample
+  metadata, optimizers, and matrix calculations are numerical safeguards, not
+  translation-invariance reporting rules.
+
+The shared `translation_rerun_row()` function defaults to $10^{-4}$, and all
+headline translation notebooks also pass $10^{-4}$ explicitly. The strict
+Child four-unit diagnostic applies its separate $10^{-8}$ rule explicitly.
 
 ## Stored results, caches, and generated files
 
@@ -233,19 +286,50 @@ cache may contain objects produced by the previous helper version. Remove or
 rename only that notebook's cache directory and render it again. Do not remove
 the tuning `.rds` exports unless the intention is to repeat tuning.
 
+For the final replication audit, first preserve the current files and exports,
+then run the selected validation in a fresh R session without using the
+affected notebook cache. Cache directories should not be deleted before the
+current state has been versioned or backed up. In particular, changing
+`functions_all.R` does not by itself guarantee that every previously cached
+model fit will be recomputed.
+
+## Current reproducibility limitations
+
+The stored exports make the present results inspectable and avoid accidental
+retuning, but the repository is not yet a fully restorable clean-machine
+package. It currently has no `renv.lock`, the fitted forest and XGBoost
+learners do not impose a common explicit single-thread setting, and result
+exports do not yet record checksums of the raw data, notebook, and shared
+helper. The final external test must therefore use a fresh clone on a second
+machine after the environment lockfile has been added.
+
+The earlier supplementary Child discrepancy has been resolved. The four-unit
+notebook now constructs every unit as an exact additive shift of the same
+dollar-log vector. In a cache-free run on 4 August 2026, its 28 dollar/cent
+comparisons all reproduced the corresponding Method A estimates under the
+strict $10^{-8}$ audit rule. The maximum absolute cross-notebook difference was
+$4.76\times10^{-13}$. The cache-free headline Child translation notebook also
+reproduced all 28 stored result rows exactly. No additional thread control was
+needed for these results on the validated machine.
+
 ## Validation status
 
-At the last audit:
+At the 4 August 2026 static audit:
 
-- all 18 R Markdown notebooks parsed successfully;
-- all standalone R files parsed successfully;
+- all 21 R Markdown notebooks, including the new Child smoother-condition
+  audit, parsed successfully;
+- `functions_all.R` and both standalone Card scripts parsed successfully;
 - every notebook that uses shared estimator functions referenced the root
   helper correctly;
 - the six kappa outcome-weight identities held on the three empirical datasets
   to numerical precision;
 - CBPS converged for all audited specifications;
 - the Vietnam main presentation completed all 74 chunks;
-- the refreshed Vietnam estimates agreed with the thesis at the reported
+- cache-free headline translation renders reproduced all 28 Vietnam, 56 Card,
+  and 28 Child stored rows, with no numerical or classification discrepancies;
+- the cache-free Child four-unit diagnostic reproduced all 28 corresponding
+  Method A dollar/cent rows and generated all 56 four-unit rows;
+- the refreshed translation estimates agreed with the thesis at the reported
   precision.
 
 The XGBoost reconstructed outcome weights do not exactly reproduce their fitted

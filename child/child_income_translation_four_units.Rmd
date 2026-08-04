@@ -1,0 +1,707 @@
+---
+title: "Angrist & Evans (1998) — Maternal Log Income Across Four Units"
+subtitle: "Complete-pipeline translation diagnostic with high-precision output"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 2
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+table { font-size: 12.5px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  cache = TRUE, autodep = TRUE,
+  fig.width = 12, fig.height = 6,
+  cache.extra = "child-income-four-units-v1"
+)
+```
+
+# Purpose
+
+This diagnostic repeats the maternal-log-income analysis under four equivalent
+measurement units:
+\[
+\begin{aligned}
+Y_i^{\mathrm{dollars}} &= \log(\mathrm{income}_i),\\
+Y_i^{\mathrm{cents}} &= Y_i^{\mathrm{dollars}}+\log(100),\\
+Y_i^{\mathrm{thousands}} &= Y_i^{\mathrm{dollars}}-\log(1000),\\
+Y_i^{\mathrm{hundred\ thousands}} &=
+Y_i^{\mathrm{dollars}}-\log(100000).
+\end{aligned}
+\]
+Every complete-pipeline rerun uses the same sample, six covariates, seed, and
+cross-fitting protocol. Nuisance functions and tuning choices are re-estimated
+for each outcome coding. The estimation vectors are constructed as exact
+additive shifts of the stored dollar-log vector. Separately evaluated expressions
+such as `log(100 * income)` are used only to verify the economic unit
+interpretation, not as alternative learner inputs.
+
+<div class="note-box">
+**Inspection settings.** Results are displayed with eight decimal places and
+classified using the strict diagnostic threshold (10^{-8}). To reproduce the
+main Method A convention later, change `DISPLAY_DIGITS` to `4` and
+`RERUN_TOLERANCE` to `1e-4` in the setup chunk.
+</div>
+
+<div class="warn-box">
+The XGBoost block is computationally intensive. It imports only the verified
+tuned dollar estimates. Cents, thousands, and hundred-thousands are separately
+retuned within each outer training fold. The resulting export is stored under
+a new filename and does not overwrite the existing tuning or Method A exports.
+</div>
+
+# Setup
+
+```{r packages-and-functions, include=FALSE, cache=FALSE}
+library(AER)
+library(sandwich)
+library(lmtest)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(tidyr)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+source(file.path("..", "functions_all.R"))
+
+SEED <- 42L
+N_CF <- 5L
+DISPLAY_DIGITS <- 8L
+RERUN_TOLERANCE <- 1e-8
+
+RUN_KAPPA <- TRUE
+RUN_HONEST_FOREST <- TRUE
+RUN_LINEAR_RANGER <- TRUE
+RUN_XGBOOST <- TRUE
+RUN_METHOD_A_AUDIT <- TRUE
+
+RUN_XGB_PLIV <- TRUE
+RUN_XGB_WALD_AIPW <- TRUE
+TUNE_EVALS <- 15L
+INNER_FOLDS <- 3L
+
+fmt_fixed <- function(x, digits = DISPLAY_DIGITS) {
+  x <- round(as.numeric(x), digits)
+  x[abs(x) < 0.5 * 10^(-digits)] <- 0
+  formatC(x, format = "f", digits = digits)
+}
+
+add_translation_diagnostics <- function(x) {
+  dollar <- x |>
+    filter(.data$Unit == "Dollars") |>
+    select(Family, Estimator, Dollar_estimate = Estimate)
+
+  x |>
+    left_join(dollar, by = c("Family", "Estimator")) |>
+    mutate(
+      Change_from_dollars = .data$Estimate - .data$Dollar_estimate,
+      Invariant = abs(.data$Change_from_dollars) <= RERUN_TOLERANCE
+    )
+}
+
+wide_translation_table <- function(x, caption) {
+  metrics <- x |>
+    group_by(.data$Family, .data$Estimator) |>
+    summarise(
+      `Maximum absolute change` = max(abs(.data$Change_from_dollars)),
+      `Invariant` = all(.data$Invariant),
+      .groups = "drop"
+    )
+
+  out <- x |>
+    select(Family, Estimator, Unit, Estimate) |>
+    pivot_wider(names_from = .data$Unit, values_from = .data$Estimate) |>
+    left_join(metrics, by = c("Family", "Estimator")) |>
+    select(
+      Estimator, Dollars, Cents, Thousands, `Hundred-thousands`,
+      `Maximum absolute change`, Invariant
+    )
+
+  display <- out
+  numeric_columns <- c(
+    "Dollars", "Cents", "Thousands", "Hundred-thousands",
+    "Maximum absolute change"
+  )
+  display[numeric_columns] <- lapply(display[numeric_columns], fmt_fixed)
+
+  display |>
+    kbl(
+      caption = caption, row.names = FALSE,
+      align = c("l", rep("r", 5), "c")
+    ) |>
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = TRUE, font_size = 12.5
+    ) |>
+    row_spec(which(!out$Invariant), background = "#fffbf0") |>
+    footnote(general = paste0(
+      "All changes are relative to log income measured in dollars. ",
+      "Orange rows exceed the absolute diagnostic threshold of ",
+      format(RERUN_TOLERANCE, scientific = TRUE), "."
+    ))
+}
+```
+
+```{r data-and-design, include=FALSE, cache=FALSE}
+obj <- readRDS("ae98_sub.rds")
+if (!"ae98_income_sub" %in% names(obj)) {
+  stop("ae98_sub.rds must contain ae98_income_sub.")
+}
+
+ae98_income_sub <- obj$ae98_income_sub |>
+  mutate(
+    morekids = as.integer(.data$morekids),
+    samesex = as.integer(.data$samesex)
+  )
+
+if (any(!is.finite(ae98_income_sub$incomem)) ||
+    any(ae98_income_sub$incomem <= 0)) {
+  stop("The income sample must contain strictly positive finite income.")
+}
+
+CHILD_COVARIATES <- c(
+  "agem", "agefstm", "sexk", "blackm", "hispm", "othracem"
+)
+RHS_FORMULA <- reformulate(CHILD_COVARIATES)
+RHS_DML_FORMULA <- reformulate(CHILD_COVARIATES, intercept = FALSE)
+
+Z_income <- ae98_income_sub$samesex
+D_income <- ae98_income_sub$morekids
+X_income_kappa <- model.matrix(RHS_FORMULA, data = ae98_income_sub)
+X_income_dml <- make_X(RHS_DML_FORMULA, data = ae98_income_sub)
+
+Y_dollars <- log(ae98_income_sub$incomem)
+income_units <- list(
+  Dollars = list(Y = Y_dollars, shift = 0),
+  Cents = list(Y = Y_dollars + log(100), shift = log(100)),
+  Thousands = list(Y = Y_dollars - log(1000), shift = -log(1000)),
+  `Hundred-thousands` = list(
+    Y = Y_dollars - log(100000), shift = -log(100000)
+  )
+)
+
+direct_unit_codings <- list(
+  Dollars = log(ae98_income_sub$incomem),
+  Cents = log(100 * ae98_income_sub$incomem),
+  Thousands = log(ae98_income_sub$incomem / 1000),
+  `Hundred-thousands` = log(ae98_income_sub$incomem / 100000)
+)
+
+unit_coding_max_deviation <- vapply(
+  names(income_units),
+  function(nm) max(abs(income_units[[nm]]$Y - direct_unit_codings[[nm]])),
+  numeric(1)
+)
+stopifnot(all(unit_coding_max_deviation < 1e-10))
+
+unit_design <- data.frame(
+  Unit = names(income_units),
+  Multiplicative_scale = c("1", "100", "1/1,000", "1/100,000"),
+  Additive_log_shift = vapply(income_units, `[[`, numeric(1), "shift"),
+  check.names = FALSE
+)
+```
+
+```{r unit-design-table, echo=FALSE}
+unit_design |>
+  mutate(`Additive log shift` = fmt_fixed(.data$Additive_log_shift)) |>
+  select(Unit, `Income scale` = Multiplicative_scale,
+         `Additive log shift`) |>
+  kbl(caption = "Four equivalent maternal-income codings", row.names = FALSE) |>
+  kable_styling(
+    bootstrap_options = c("striped", "condensed"),
+    full_width = FALSE
+  )
+```
+
+# 1. Normalized and unnormalized kappa estimators
+
+```{r kappa-four-units, include=FALSE, cache=TRUE, cache.extra=list("kappa-v1", RERUN_TOLERANCE, CHILD_COVARIATES)}
+kappa_estimator_names <- c(
+  "tau_cb_u", "tau_ml_u", "tau_ml_a10",
+  "tau_ml_a", "tau_ml_t", "tau_ml_a0"
+)
+
+if (RUN_KAPPA) {
+  kappa_four_units <- bind_rows(lapply(names(income_units), function(unit) {
+    estimates <- kappa_point_estimates(
+      income_units[[unit]]$Y, Z_income, D_income, X_income_kappa
+    )
+    data.frame(
+      Family = "Kappa",
+      Estimator = kappa_estimator_names,
+      Unit = unit,
+      Shift = income_units[[unit]]$shift,
+      Estimate = unname(estimates[kappa_estimator_names]),
+      stringsAsFactors = FALSE
+    )
+  })) |>
+    add_translation_diagnostics()
+}
+```
+
+```{r kappa-four-units-table, echo=FALSE}
+if (RUN_KAPPA) {
+  wide_translation_table(
+    kappa_four_units,
+    "Kappa estimators across four maternal-income units"
+  )
+}
+```
+
+# 2. Tuned honest-forest DML
+
+```{r honest-forest-four-units, include=FALSE, cache=TRUE, cache.extra=list("honest-forest-v1", SEED, N_CF, CHILD_COVARIATES)}
+if (RUN_HONEST_FOREST) {
+  honest_forest_four_units <- bind_rows(lapply(names(income_units), function(unit) {
+    set.seed(SEED)
+    fit <- dml_with_smoother(
+      income_units[[unit]]$Y, D_income, X_income_dml, Z_income,
+      n_cf_folds = N_CF, tune.parameters = "all"
+    )
+    result <- summary(fit)
+    estimators <- c("PLR-IV", "Wald-AIPW")
+    data.frame(
+      Family = "Tuned honest forest",
+      Estimator = estimators,
+      Unit = unit,
+      Shift = income_units[[unit]]$shift,
+      Estimate = vapply(estimators, function(est) get_estimate(result, est), numeric(1)),
+      stringsAsFactors = FALSE
+    )
+  })) |>
+    add_translation_diagnostics()
+}
+```
+
+```{r honest-forest-four-units-table, echo=FALSE}
+if (RUN_HONEST_FOREST) {
+  wide_translation_table(
+    honest_forest_four_units,
+    "Tuned honest-forest DML across four maternal-income units"
+  )
+}
+```
+
+# 3. Linear/logit and Ranger learners
+
+```{r learner-functions, include=FALSE, cache=FALSE}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y)
+  df$d <- as.numeric(D)
+  df$z <- as.numeric(Z)
+  DoubleMLData$new(
+    data = df, y_col = "y", d_cols = "d", z_cols = "z",
+    x_cols = colnames(X)
+  )
+}
+
+ml_lm_iivm <- function() list(
+  g = lrn("regr.lm"),
+  m = lrn("classif.log_reg"),
+  r = lrn("classif.log_reg")
+)
+ml_rf_iivm <- function() list(
+  g = lrn("regr.ranger", keep.inbag = TRUE),
+  m = lrn("classif.ranger", keep.inbag = TRUE),
+  r = lrn("classif.ranger", keep.inbag = TRUE)
+)
+ml_lm_pliv <- function() list(
+  l = lrn("regr.lm"), m = lrn("regr.lm"), r = lrn("regr.lm")
+)
+ml_rf_pliv <- function() list(
+  l = lrn("regr.ranger", keep.inbag = TRUE),
+  m = lrn("regr.ranger", keep.inbag = TRUE),
+  r = lrn("regr.ranger", keep.inbag = TRUE)
+)
+
+fit_iivm <- function(Y, learners) {
+  set.seed(SEED)
+  obj <- DoubleMLIIVM$new(
+    data = make_dml_data(Y, D_income, Z_income, X_income_dml),
+    ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+    n_folds = N_CF, score = "LATE"
+  )
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  get_dml_coef(obj)
+}
+
+fit_pliv <- function(Y, learners) {
+  set.seed(SEED)
+  obj <- DoubleMLPLIV$new(
+    data = make_dml_data(Y, D_income, Z_income, X_income_dml),
+    ml_l = learners$l, ml_m = learners$m, ml_r = learners$r,
+    n_folds = N_CF
+  )
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  get_dml_coef(obj)
+}
+```
+
+```{r learners-four-units, include=FALSE, cache=TRUE, cache.extra=list("linear-ranger-v1", SEED, N_CF, CHILD_COVARIATES)}
+learner_specs <- list(
+  list(label = "PLR-IV (linear)", fit = function(Y) fit_pliv(Y, ml_lm_pliv())),
+  list(label = "Wald-AIPW (linear+logit)", fit = function(Y) fit_iivm(Y, ml_lm_iivm())),
+  list(label = "PLR-IV (ranger)", fit = function(Y) fit_pliv(Y, ml_rf_pliv())),
+  list(label = "Wald-AIPW (ranger)", fit = function(Y) fit_iivm(Y, ml_rf_iivm()))
+)
+
+if (RUN_LINEAR_RANGER) {
+  linear_ranger_four_units <- bind_rows(lapply(names(income_units), function(unit) {
+    bind_rows(lapply(learner_specs, function(spec) {
+      data.frame(
+        Family = "Linear and Ranger",
+        Estimator = spec$label,
+        Unit = unit,
+        Shift = income_units[[unit]]$shift,
+        Estimate = spec$fit(income_units[[unit]]$Y),
+        stringsAsFactors = FALSE
+      )
+    }))
+  })) |>
+    add_translation_diagnostics()
+}
+```
+
+```{r learners-four-units-table, echo=FALSE}
+if (RUN_LINEAR_RANGER) {
+  wide_translation_table(
+    linear_ranger_four_units,
+    "Linear/logit and Ranger DML across four maternal-income units"
+  )
+}
+```
+
+# 4. Tuned XGBoost
+
+```{r xgboost-functions, include=FALSE, cache=FALSE}
+xgb_wald_export <- readRDS("ae98_xgb_tuning_export.rds")
+xgb_pliv_export <- readRDS("ae98_xgb_pliv_tuning_export.rds")
+
+validate_xgb_export <- function(export, path, expected_class) {
+  settings <- export$settings
+  required <- c("seed", "n_cf", "tune_evals", "inner_folds", "tune_on_folds")
+  if (is.null(settings) || !all(required %in% names(settings))) {
+    stop(sprintf("%s is missing required tuning metadata.", path))
+  }
+  if (!isTRUE(settings$tune_on_folds) ||
+      as.integer(settings$seed) != SEED ||
+      as.integer(settings$n_cf) != N_CF ||
+      as.integer(settings$tune_evals) != TUNE_EVALS ||
+      as.integer(settings$inner_folds) != INNER_FOLDS ||
+      !identical(settings$dml_class, expected_class) ||
+      !identical(settings$covariates, CHILD_COVARIATES)) {
+    stop(sprintf("%s does not match the current four-unit protocol.", path))
+  }
+  info <- export$sample_info
+  if (is.null(info) ||
+      as.integer(info$income_n) != nrow(ae98_income_sub) ||
+      !isTRUE(all.equal(as.numeric(info$income_mean_Z), mean(Z_income), tolerance = 1e-12)) ||
+      !isTRUE(all.equal(as.numeric(info$income_mean_D), mean(D_income), tolerance = 1e-12))) {
+    stop(sprintf("%s does not match the current income sample.", path))
+  }
+  invisible(TRUE)
+}
+
+validate_xgb_export(
+  xgb_wald_export, "ae98_xgb_tuning_export.rds", "DoubleMLIIVM"
+)
+validate_xgb_export(
+  xgb_pliv_export, "ae98_xgb_pliv_tuning_export.rds", "DoubleMLPLIV"
+)
+
+get_tuned_dollar_estimate <- function(export, cell = "Income (lincomem)") {
+  value <- export$coefficients[[cell]]$tuned
+  if (length(value) != 1L || !is.finite(value)) {
+    stop(sprintf("A unique tuned dollar estimate is unavailable for %s.", cell))
+  }
+  as.numeric(value)
+}
+
+make_xgb_learners_iivm <- function() list(
+  g = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+  m = lrn("classif.xgboost", predict_type = "prob"),
+  r = lrn("classif.xgboost", predict_type = "prob")
+)
+make_xgb_learners_pliv <- function() list(
+  l = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+  m = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+  r = lrn("regr.xgboost", alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0)
+)
+xgb_ps <- function() {
+  ps(
+    nrounds = p_int(50, 400), max_depth = p_int(2, 5),
+    eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8)
+  )
+}
+tune_param_set_iivm <- function() list(
+  ml_g = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps()
+)
+tune_param_set_pliv <- function() list(
+  ml_l = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps()
+)
+tune_settings_iivm <- function() list(
+  n_folds_tune = INNER_FOLDS,
+  rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
+  measure = list(
+    ml_g = "regr.rmse", ml_m = "classif.logloss", ml_r = "classif.logloss"
+  ),
+  terminator = trm("evals", n_evals = TUNE_EVALS),
+  algorithm = tnr("random_search")
+)
+tune_settings_pliv <- function() list(
+  n_folds_tune = INNER_FOLDS,
+  rsmp_tune = rsmp("cv", folds = INNER_FOLDS),
+  measure = list(ml_l = "regr.rmse", ml_m = "regr.rmse", ml_r = "regr.rmse"),
+  terminator = trm("evals", n_evals = TUNE_EVALS),
+  algorithm = tnr("random_search")
+)
+
+fit_xgb_wald <- function(Y) {
+  learners <- make_xgb_learners_iivm()
+  obj <- DoubleMLIIVM$new(
+    data = make_dml_data(Y, D_income, Z_income, X_income_dml),
+    ml_g = learners$g, ml_m = learners$m, ml_r = learners$r,
+    n_folds = N_CF, score = "LATE"
+  )
+  obj$tune(
+    param_set = tune_param_set_iivm(),
+    tune_settings = tune_settings_iivm(), tune_on_folds = TRUE
+  )
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  get_dml_coef(obj)
+}
+
+fit_xgb_pliv <- function(Y) {
+  learners <- make_xgb_learners_pliv()
+  obj <- DoubleMLPLIV$new(
+    data = make_dml_data(Y, D_income, Z_income, X_income_dml),
+    ml_l = learners$l, ml_m = learners$m, ml_r = learners$r,
+    n_folds = N_CF
+  )
+  obj$tune(
+    param_set = tune_param_set_pliv(),
+    tune_settings = tune_settings_pliv(), tune_on_folds = TRUE
+  )
+  obj$fit(store_models = TRUE, store_predictions = TRUE)
+  get_dml_coef(obj)
+}
+```
+
+```{r xgboost-four-units, include=FALSE, cache=TRUE, cache.extra=list("xgboost-four-units-v1", SEED, N_CF, TUNE_EVALS, INNER_FOLDS, CHILD_COVARIATES, RUN_XGB_PLIV, RUN_XGB_WALD_AIPW)}
+if (RUN_XGBOOST) {
+  xgb_rows <- list()
+
+  if (RUN_XGB_PLIV) {
+    pliv_values <- c(
+      Dollars = get_tuned_dollar_estimate(xgb_pliv_export),
+      vapply(names(income_units)[-1], function(unit) {
+        set.seed(SEED)
+        fit_xgb_pliv(income_units[[unit]]$Y)
+      }, numeric(1))
+    )
+    names(pliv_values) <- names(income_units)
+    xgb_rows[["pliv"]] <- data.frame(
+      Family = "Tuned XGBoost",
+      Estimator = "PLR-IV (XGBoost tuned)",
+      Unit = names(income_units),
+      Shift = vapply(income_units, `[[`, numeric(1), "shift"),
+      Estimate = unname(pliv_values),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (RUN_XGB_WALD_AIPW) {
+    wald_values <- c(
+      Dollars = get_tuned_dollar_estimate(xgb_wald_export),
+      vapply(names(income_units)[-1], function(unit) {
+        set.seed(SEED)
+        fit_xgb_wald(income_units[[unit]]$Y)
+      }, numeric(1))
+    )
+    names(wald_values) <- names(income_units)
+    xgb_rows[["wald"]] <- data.frame(
+      Family = "Tuned XGBoost",
+      Estimator = "Wald-AIPW (XGBoost tuned)",
+      Unit = names(income_units),
+      Shift = vapply(income_units, `[[`, numeric(1), "shift"),
+      Estimate = unname(wald_values),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  xgboost_four_units <- bind_rows(xgb_rows) |>
+    add_translation_diagnostics()
+}
+```
+
+```{r save-xgboost-four-units, include=FALSE, cache=FALSE}
+if (RUN_XGBOOST && exists("xgboost_four_units")) {
+  saveRDS(
+    list(
+      results = xgboost_four_units,
+      settings = list(
+        seed = SEED, n_cf = N_CF, tune_evals = TUNE_EVALS,
+        inner_folds = INNER_FOLDS, tune_on_folds = TRUE,
+        display_digits = DISPLAY_DIGITS,
+        rerun_tolerance = RERUN_TOLERANCE,
+        covariates = CHILD_COVARIATES,
+        dollar_source = c(
+          "ae98_xgb_pliv_tuning_export.rds",
+          "ae98_xgb_tuning_export.rds"
+        )
+      )
+    ),
+    "ae98_income_four_unit_xgb_export.rds"
+  )
+}
+```
+
+```{r xgboost-four-units-table, echo=FALSE}
+if (RUN_XGBOOST) {
+  wide_translation_table(
+    xgboost_four_units,
+    "Tuned XGBoost across four maternal-income units"
+  )
+}
+```
+
+# 5. Dollar–cent reproduction audit
+
+This audit compares the dollar and cent estimates produced above with the
+stored Method A results. It verifies that the expanded four-unit workflow
+reproduces the two codings already used in the thesis analysis.
+
+```{r method-a-audit, include=FALSE, cache=FALSE}
+available_parts <- Filter(Negate(is.null), list(
+  if (exists("kappa_four_units")) kappa_four_units else NULL,
+  if (exists("honest_forest_four_units")) honest_forest_four_units else NULL,
+  if (exists("linear_ranger_four_units")) linear_ranger_four_units else NULL,
+  if (exists("xgboost_four_units")) xgboost_four_units else NULL
+))
+four_unit_results <- bind_rows(available_parts)
+
+method_a_path <- "ae98_translation_rerun_results.rds"
+if (RUN_METHOD_A_AUDIT && file.exists(method_a_path)) {
+  method_a <- readRDS(method_a_path)$results
+  sample_column <- intersect(c("Specification", "Sample"), names(method_a))[1]
+  if (is.na(sample_column)) {
+    stop("Method A results contain neither Specification nor Sample.")
+  }
+
+  method_a_income <- method_a |>
+    filter(.data[[sample_column]] %in% c(
+      "Income (lincomem)", "Maternal Log Income"
+    ))
+
+  method_a_long <- bind_rows(
+    method_a_income |>
+      transmute(
+        Family, Estimator, Unit = "Dollars",
+        Method_A_estimate = .data$tau_original
+      ),
+    method_a_income |>
+      transmute(
+        Family, Estimator, Unit = "Cents",
+        Method_A_estimate = .data$tau_shifted
+      )
+  )
+
+  method_a_audit <- four_unit_results |>
+    filter(.data$Unit %in% c("Dollars", "Cents")) |>
+    select(Family, Estimator, Unit,
+           Four_unit_estimate = Estimate) |>
+    inner_join(
+      method_a_long,
+      by = c("Family", "Estimator", "Unit")
+    ) |>
+    mutate(
+      Difference = .data$Four_unit_estimate - .data$Method_A_estimate,
+      Reproduced = abs(.data$Difference) <= RERUN_TOLERANCE
+    )
+}
+```
+
+```{r method-a-audit-table, echo=FALSE}
+if (RUN_METHOD_A_AUDIT && exists("method_a_audit")) {
+  audit_display <- method_a_audit |>
+    transmute(
+      Family, Estimator, Unit,
+      `Four-unit estimate` = fmt_fixed(.data$Four_unit_estimate),
+      `Method A estimate` = fmt_fixed(.data$Method_A_estimate),
+      Difference = fmt_fixed(.data$Difference),
+      Reproduced
+    )
+
+  audit_display |>
+    kbl(
+      caption = "Dollar–cent reproduction audit against Method A",
+      row.names = FALSE,
+      align = c("l", "l", "l", "r", "r", "r", "c")
+    ) |>
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = TRUE, font_size = 12
+    ) |>
+    collapse_rows(columns = 1, valign = "top") |>
+    row_spec(which(!method_a_audit$Reproduced), background = "#fffbf0") |>
+    footnote(general = paste0(
+      "Reproduction requires an absolute difference no larger than ",
+      format(RERUN_TOLERANCE, scientific = TRUE), "."
+    ))
+}
+```
+
+# 6. Save complete diagnostic results
+
+```{r save-results, include=FALSE, cache=FALSE}
+saveRDS(
+  list(
+    results = four_unit_results,
+    method_a_audit = if (exists("method_a_audit")) method_a_audit else NULL,
+    unit_design = unit_design,
+    settings = list(
+      seed = SEED, n_cf = N_CF,
+      display_digits = DISPLAY_DIGITS,
+      rerun_tolerance = RERUN_TOLERANCE,
+      grf_tuning = "all",
+      xgboost_tune_on_folds = TRUE,
+      xgboost_tune_evals = TUNE_EVALS,
+      xgboost_inner_folds = INNER_FOLDS,
+      covariates = CHILD_COVARIATES
+    )
+  ),
+  "ae98_income_four_unit_translation_results.rds"
+)
+```
+
+<div class="note-box">
+The complete results are saved to
+`ae98_income_four_unit_translation_results.rds`. The separately fitted
+XGBoost results are also stored in `ae98_income_four_unit_xgb_export.rds`.
+</div>

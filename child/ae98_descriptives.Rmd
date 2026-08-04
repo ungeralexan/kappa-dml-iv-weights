@@ -1,0 +1,710 @@
+---
+title: "Fertility and Mothers' Labor-Market Outcomes:  Design and Descriptive Diagnostics"
+subtitle: "Analysis samples · treatment uptake · IV building blocks · overlap and balance"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 2
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1 { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 34px; }
+h2 { color: #2c7bb6; margin-top: 24px; }
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.warn-box {
+  background: #fff3e0;
+  border-left: 4px solid #fb8c00;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 10, fig.height = 5.2, dpi = 110)
+```
+
+```{r packages, include=FALSE}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(sandwich)
+library(cobalt)
+library(gridExtra)
+
+col_z1 <- "#2c7bb6"
+col_z0 <- "#d7191c"
+col_grey <- "#4d4d4d"
+```
+
+```{r data, include=FALSE}
+obj <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub. Run ae98_make_balanced_subsample_submission.Rmd first.")
+}
+
+ae98_labor_sub <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
+
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(
+    workedm = as.integer(workedm),
+    morekids = as.integer(morekids),
+    samesex = as.integer(samesex),
+    incomepos = as.integer(!is.na(incomem) & incomem > 0)
+  )
+
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(
+    workedm = as.integer(workedm),
+    morekids = as.integer(morekids),
+    samesex = as.integer(samesex),
+    lincomem = log(incomem)
+  )
+
+ANALYSIS_COVARIATES <- c(
+  "agem", "agefstm", "sexk", "blackm", "hispm", "othracem"
+)
+RHS <- paste(ANALYSIS_COVARIATES, collapse = " + ")
+```
+
+<div class="note-box">
+Following Słoczyński, Uysal, and Wooldridge, the application distinguishes the labor-force-participation sample from the positive-income sample. The computational analysis uses one fixed 3,000-observation proportional stratified subsample for each outcome family. The comparison below documents how closely their central IV moments track the corresponding parent samples.
+</div>
+
+# 1. Samples and Empirical Design
+
+**Instrument:** whether the first two children have the same sex (`samesex`).
+**Treatment:** having more than two children (`morekids`). **Outcomes:**
+maternal labor-force participation and maternal log income in dollars. Every
+conditional diagnostic uses the same six covariates as the main Child analysis:
+mother's age, age at first birth, first-child sex, and the three race
+indicators.
+
+```{r parent-subsample-validation}
+data_candidates <- c("ae98.dta", file.path("child", "ae98.dta"))
+data_file <- data_candidates[file.exists(data_candidates)][1]
+if (is.na(data_file)) stop("Could not find ae98.dta in the notebook or project directory.")
+
+ae98_raw <- read_dta(data_file)
+base_vars <- c("workedm", "morekids", "samesex", "agem", "agefstm",
+               "sexk", "sex2nd", "blackm", "hispm", "othracem")
+ae98_labor_parent <- ae98_raw %>%
+  filter(if_all(all_of(base_vars), ~ !is.na(.x)))
+ae98_income_parent <- ae98_labor_parent %>%
+  filter(!is.na(incomem), incomem > 0)
+
+sample_moments <- function(df, y, sample, source) {
+  data.frame(
+    Sample = sample,
+    Source = source,
+    N = nrow(df),
+    `Pr(Z = 1)` = mean(df$samesex),
+    `Pr(D = 1)` = mean(df$morekids),
+    `First-stage gap` = mean(df$morekids[df$samesex == 1]) -
+      mean(df$morekids[df$samesex == 0]),
+    `Reduced-form gap` = mean(y[df$samesex == 1]) - mean(y[df$samesex == 0]),
+    check.names = FALSE
+  )
+}
+
+validation_tab <- bind_rows(
+  sample_moments(ae98_labor_parent, ae98_labor_parent$workedm,
+                 "Work Status", "Parent sample"),
+  sample_moments(ae98_labor_sub, ae98_labor_sub$workedm,
+                 "Work Status", "Diagnostic subsample"),
+  sample_moments(ae98_income_parent, log(ae98_income_parent$incomem),
+                 "Maternal Log Income", "Parent sample"),
+  sample_moments(ae98_income_sub, ae98_income_sub$lincomem,
+                 "Maternal Log Income", "Diagnostic subsample")
+)
+
+validation_tab %>%
+  mutate(across(where(is.numeric) & !all_of("N"), ~ round(.x, 4))) %>%
+  kbl(caption = "Parent samples and fixed diagnostic subsamples",
+      align = c("l", "l", "r", "r", "r", "r", "r"), row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  footnote(general = "The subsamples are used for the computational comparison. Parent-sample moments are shown to make the approximation transparent; estimates and uncertainty in the main notebook refer to the selected subsamples unless stated otherwise.")
+```
+
+## Covariate Specification and Construction of the Instrument
+
+<div class="warn-box">
+`samesex` is exactly \(1\{\texttt{sexk}=\texttt{sex2nd}\}\). An unrestricted
+tree learner supplied with both child-sex indicators can therefore reconstruct
+the instrument and eliminate the residual instrument variation required by
+DML. Moreover, within \(Z=1\), `sex2nd = sexk`, whereas within \(Z=0\),
+`sex2nd = 1 - sexk`. Including both variables in an arm-specific parametric
+nuisance fit creates exact rank deficiency. The analysis consequently retains
+`sexk` and omits `sex2nd`. Angrist and Evans report that removing the individual child-sex
+controls changes their estimates by no more than about two percent. See
+[Angrist and Evans (1998)](https://www.dpipe.tsukuba.ac.jp/~naito/teaching_web/public_economics_2013_web/Angrist_Evans_AER_1998.pdf).
+</div>
+
+```{r sex-structure}
+sex_structure <- function(df, label) {
+  constructed_z <- as.integer(df$sexk == df$sex2nd)
+  data.frame(
+    Sample = label,
+    N = nrow(df),
+    `Exact construction` = all(df$samesex == constructed_z),
+    Mismatches = sum(df$samesex != constructed_z),
+    `Pooled correlation` = cor(df$sexk, df$sex2nd),
+    `Correlation, Z = 0` = cor(
+      df$sexk[df$samesex == 0], df$sex2nd[df$samesex == 0]
+    ),
+    `Correlation, Z = 1` = cor(
+      df$sexk[df$samesex == 1], df$sex2nd[df$samesex == 1]
+    ),
+    check.names = FALSE
+  )
+}
+
+sex_structure_tab <- bind_rows(
+  sex_structure(ae98_labor_sub, "Work Status"),
+  sex_structure(ae98_income_sub, "Maternal Log Income")
+)
+
+sex_structure_tab %>%
+  mutate(across(contains("correlation"), ~ round(.x, 3))) %>%
+  kbl(
+    caption = "Construction of the instrument from the child-sex indicators",
+    align = c("l", "r", "c", "r", "r", "r", "r")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE, font_size = 12.5
+  ) %>%
+  footnote(general = paste(
+    "Exact construction verifies samesex = 1{sexk = sex2nd} observation by observation.",
+    "The pooled correlation can be near zero even though the two indicators are",
+    "perfectly related within each instrument arm."
+  ))
+```
+
+```{r sex-structure-plot, fig.height=4.8}
+sex_corr_plot <- sex_structure_tab %>%
+  select(Sample, `Pooled correlation`, `Correlation, Z = 0`,
+         `Correlation, Z = 1`) %>%
+  pivot_longer(
+    -Sample, names_to = "Panel", values_to = "Correlation"
+  ) %>%
+  mutate(Panel = paste(Sample, Panel, sep = " / "),
+         Pair = "cor(sexk, sex2nd)")
+
+ggplot(sex_corr_plot, aes(x = Pair, y = Panel, fill = Correlation)) +
+  geom_tile(colour = "white", linewidth = 1.2) +
+  geom_text(aes(label = sprintf("%.2f", Correlation)),
+            size = 3.8, colour = "black") +
+  scale_fill_gradient2(low = col_z0, mid = "white", high = col_z1,
+                       limits = c(-1, 1), name = "Correlation") +
+  labs(
+    title = "Child-sex indicators: nearly unrelated overall, deterministic within Z",
+    x = NULL, y = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold"))
+```
+
+# 2. Distributions of Z, D, and Y
+
+```{r core-distributions}
+distribution_tab <- bind_rows(
+  data.frame(
+    Sample = "Work Status", N = nrow(ae98_labor_sub),
+    `Pr(Z = 1)` = mean(ae98_labor_sub$samesex),
+    `Pr(D = 1)` = mean(ae98_labor_sub$morekids),
+    `Outcome mean` = mean(ae98_labor_sub$workedm),
+    `Outcome SD` = sd(ae98_labor_sub$workedm),
+    `Outcome P05` = quantile(ae98_labor_sub$workedm, .05),
+    `Outcome median` = median(ae98_labor_sub$workedm),
+    `Outcome P95` = quantile(ae98_labor_sub$workedm, .95),
+    check.names = FALSE
+  ),
+  data.frame(
+    Sample = "Maternal Log Income", N = nrow(ae98_income_sub),
+    `Pr(Z = 1)` = mean(ae98_income_sub$samesex),
+    `Pr(D = 1)` = mean(ae98_income_sub$morekids),
+    `Outcome mean` = mean(ae98_income_sub$lincomem),
+    `Outcome SD` = sd(ae98_income_sub$lincomem),
+    `Outcome P05` = quantile(ae98_income_sub$lincomem, .05),
+    `Outcome median` = median(ae98_income_sub$lincomem),
+    `Outcome P95` = quantile(ae98_income_sub$lincomem, .95),
+    check.names = FALSE
+  )
+)
+
+distribution_tab %>%
+  mutate(across(where(is.numeric) & !all_of("N"), ~ round(.x, 3))) %>%
+  kbl(caption = "Instrument, treatment, and outcome distributions",
+      align = c("l", rep("r", ncol(distribution_tab) - 1))) %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 12.5)
+```
+
+```{r core-distribution-plots, fig.height=4.8}
+zd_plot_data <- bind_rows(
+  data.frame(Sample = "Work Status", Variable = c("Instrument: Z", "Treatment: D"),
+             Share = c(mean(ae98_labor_sub$samesex), mean(ae98_labor_sub$morekids))),
+  data.frame(Sample = "Maternal Log Income", Variable = c("Instrument: Z", "Treatment: D"),
+             Share = c(mean(ae98_income_sub$samesex), mean(ae98_income_sub$morekids)))
+)
+
+p_zd <- ggplot(zd_plot_data, aes(x = Variable, y = Share, fill = Sample)) +
+  geom_col(position = position_dodge(width = .75), width = .65) +
+  scale_fill_manual(values = c("Work Status" = col_z1,
+                               "Maternal Log Income" = col_z0)) +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+  labs(title = "Instrument and treatment prevalence", x = NULL, y = "Share", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+
+p_labor <- ggplot(ae98_labor_sub, aes(x = factor(workedm))) +
+  geom_bar(fill = col_z0, colour = "white") +
+  labs(title = "Work Status", x = "workedm", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+p_income <- ggplot(ae98_income_sub, aes(x = lincomem)) +
+  geom_histogram(bins = 30, fill = col_z1, colour = "white") +
+  labs(title = "Maternal Log Income",
+       x = "Maternal log income (dollars)", y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(p_zd, p_labor, p_income, ncol = 3)
+```
+
+# 3. Instrument–Treatment Composition
+
+```{r descriptive-helpers}
+first_stage <- function(df) {
+  mean(df$morekids[df$samesex == 1]) - mean(df$morekids[df$samesex == 0])
+}
+
+reduced_form <- function(df, y) {
+  mean(y[df$samesex == 1]) - mean(y[df$samesex == 0])
+}
+
+fmt_num <- function(x) {
+  ifelse(is.na(x), "--",
+         ifelse(abs(x) >= 1000, format(round(x), big.mark = ",", scientific = FALSE),
+                sprintf("%.4f", x)))
+}
+
+coef_hc1 <- function(model, term) {
+  se <- sqrt(diag(vcovHC(model, type = "HC1")))[term]
+  est <- coef(model)[term]
+  c(estimate = unname(est), se = unname(se), robust_t2 = unname((est / se)^2))
+}
+```
+
+```{r zd-cells}
+cell_table <- function(df, label) {
+  tab <- table(
+    factor(df$samesex, levels = 0:1),
+    factor(df$morekids, levels = 0:1)
+  )
+  p_d_z1 <- mean(df$morekids[df$samesex == 1])
+  p_d_z0 <- mean(df$morekids[df$samesex == 0])
+
+  data.frame(
+    Sample = label,
+    `n(Z=0,D=0)` = unname(tab["0", "0"]),
+    `n(Z=0,D=1)` = unname(tab["0", "1"]),
+    `n(Z=1,D=0)` = unname(tab["1", "0"]),
+    `n(Z=1,D=1)` = unname(tab["1", "1"]),
+    `Pr(D=1|Z=1)` = p_d_z1,
+    `Pr(D=1|Z=0)` = p_d_z0,
+    `Unadjusted gap` = p_d_z1 - p_d_z0,
+    check.names = FALSE
+  )
+}
+
+zd_cells <- bind_rows(
+  cell_table(ae98_labor_sub, "Work Status"),
+  cell_table(ae98_income_sub, "Maternal Log Income")
+)
+
+zd_cells %>%
+  mutate(across(starts_with("Pr(") | all_of("Unadjusted gap"), ~ round(.x, 4))) %>%
+  kbl(
+    caption = "Instrument–treatment cells and unconditional treatment-rate contrasts",
+    align = c("l", rep("r", 7))
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE, font_size = 12.5
+  ) %>%
+  add_header_above(c(
+    " " = 1, "Cell counts" = 4,
+    "Conditional treatment rates" = 2, "Contrast" = 1
+  )) %>%
+  column_spec(8, bold = TRUE, color = "#2c7bb6") %>%
+  footnote(general = paste(
+    "Z = samesex and D = morekids. The unadjusted gap is",
+    "Pr(D=1|Z=1) - Pr(D=1|Z=0). A principal-strata interpretation",
+    "additionally requires the relevant IV assumptions."
+  ))
+```
+
+```{r zd-share-plot}
+zd_share_plot <- bind_rows(
+  ae98_labor_sub %>%
+    summarise(Sample = "Work Status",
+              `Z = 1 (samesex)` = mean(samesex),
+              `D = 1 (morekids)` = mean(morekids)),
+  ae98_income_sub %>%
+    summarise(Sample = "Maternal Log Income",
+              `Z = 1 (samesex)` = mean(samesex),
+              `D = 1 (morekids)` = mean(morekids))
+) %>%
+  pivot_longer(-Sample, names_to = "Measure", values_to = "Share")
+
+ggplot(zd_share_plot, aes(x = Measure, y = Share, fill = Measure)) +
+  geom_col(width = 0.58, alpha = 0.92) +
+  geom_text(aes(label = percent(Share, accuracy = 0.1)),
+            vjust = -0.35, size = 3.4) +
+  facet_wrap(~ Sample) +
+  scale_fill_manual(values = c("Z = 1 (samesex)" = col_z1,
+                               "D = 1 (morekids)" = col_grey)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     limits = c(0, .62)) +
+  labs(title = "Instrument and treatment shares",
+       x = NULL, y = "Share", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(angle = 15, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"))
+```
+
+# 4. First Stage, Reduced Form, and Linear-IV Benchmark
+
+The unadjusted differences summarize the two instrument groups. The adjusted results use the same covariates as the main child analysis.
+
+```{r iv-summary}
+iv_summary <- function(df, y, label, outcome_label) {
+  d_z1 <- mean(df$morekids[df$samesex == 1])
+  d_z0 <- mean(df$morekids[df$samesex == 0])
+  y_z1 <- mean(y[df$samesex == 1])
+  y_z0 <- mean(y[df$samesex == 0])
+  raw_fs <- d_z1 - d_z0
+  raw_rf <- y_z1 - y_z0
+
+  df$.y <- y
+  fs_raw <- coef_hc1(lm(morekids ~ samesex, data = df), "samesex")
+  fs_adj <- coef_hc1(lm(as.formula(paste("morekids ~ samesex +", RHS)), data = df), "samesex")
+  rf_adj <- coef_hc1(lm(as.formula(paste(".y ~ samesex +", RHS)), data = df), "samesex")
+
+  data.frame(
+    Sample = label,
+    Outcome = outcome_label,
+    N = nrow(df),
+    `Pr(Z = 1)` = mean(df$samesex),
+    `Pr(D = 1)` = mean(df$morekids),
+    `Raw first stage` = raw_fs,
+    `Raw first-stage SE` = unname(fs_raw["se"]),
+    `Raw robust t²` = unname(fs_raw["robust_t2"]),
+    `Adj. first stage` = unname(fs_adj["estimate"]),
+    `Adj. first-stage SE` = unname(fs_adj["se"]),
+    `Adj. robust t²` = unname(fs_adj["robust_t2"]),
+    `Raw reduced form` = raw_rf,
+    `Adj. reduced form` = unname(rf_adj["estimate"]),
+    `Adj. reduced-form SE` = unname(rf_adj["se"]),
+    `Raw Wald` = raw_rf / raw_fs,
+    `Adj. Wald` = unname(rf_adj["estimate"] / fs_adj["estimate"]),
+    check.names = FALSE
+  )
+}
+
+iv_summary_tab <- bind_rows(
+  iv_summary(ae98_labor_sub, ae98_labor_sub$workedm,
+             "Work Status", "workedm"),
+  iv_summary(ae98_income_sub, ae98_income_sub$lincomem,
+             "Maternal Log Income", "maternal log income")
+)
+
+first_stage_tab <- bind_rows(
+  iv_summary_tab %>% transmute(
+    Sample, Specification = "Unadjusted",
+    `First stage` = `Raw first stage`,
+    `Robust SE` = `Raw first-stage SE`,
+    `Robust t²` = `Raw robust t²`
+  ),
+  iv_summary_tab %>% transmute(
+    Sample, Specification = "Adjusted",
+    `First stage` = `Adj. first stage`,
+    `Robust SE` = `Adj. first-stage SE`,
+    `Robust t²` = `Adj. robust t²`
+  )
+) %>%
+  arrange(factor(Sample, levels = c("Work Status", "Maternal Log Income")),
+          factor(Specification, levels = c("Unadjusted", "Adjusted")))
+
+linear_iv_tab <- bind_rows(
+  iv_summary_tab %>% transmute(
+    Sample, Specification = "Unadjusted",
+    `First stage` = `Raw first stage`,
+    `Reduced form` = `Raw reduced form`, Wald = `Raw Wald`
+  ),
+  iv_summary_tab %>% transmute(
+    Sample, Specification = "Adjusted",
+    `First stage` = `Adj. first stage`,
+    `Reduced form` = `Adj. reduced form`, Wald = `Adj. Wald`
+  )
+) %>%
+  arrange(factor(Sample, levels = c("Work Status", "Maternal Log Income")),
+          factor(Specification, levels = c("Unadjusted", "Adjusted")))
+
+first_stage_tab %>%
+  mutate(across(where(is.numeric), fmt_num)) %>%
+  kbl(
+    caption = "First-stage strength in the selected subsamples",
+    align = c("l", "l", "r", "r", "r"), row.names = FALSE
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE, font_size = 13
+  ) %>%
+  footnote(general = paste(
+    "Robust t² is the squared HC1 t-statistic for samesex.",
+    "Adjusted regressions use the common six-covariate specification."
+  ))
+
+linear_iv_tab %>%
+  mutate(across(where(is.numeric), fmt_num)) %>%
+  kbl(
+    caption = "Linear-IV building blocks in the selected subsamples",
+    align = c("l", "l", "r", "r", "r"), row.names = FALSE
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE, font_size = 13
+  ) %>%
+  column_spec(5, bold = TRUE) %>%
+  footnote(general = paste(
+    "The unadjusted entries are instrument-group mean differences.",
+    "With the same linear controls in both equations, the adjusted ratio",
+    "equals the just-identified linear-IV coefficient."
+  ))
+```
+
+```{r first-stage-plot}
+first_stage_plot <- bind_rows(
+  ae98_labor_sub %>%
+    group_by(samesex) %>%
+    summarise(Sample = "Work Status", Rate = mean(morekids), .groups = "drop"),
+  ae98_income_sub %>%
+    group_by(samesex) %>%
+    summarise(Sample = "Maternal Log Income", Rate = mean(morekids), .groups = "drop")
+) %>%
+  mutate(
+    Sample = factor(Sample, levels = c("Work Status", "Maternal Log Income")),
+    `Z group` = ifelse(samesex == 1, "Z = 1 (same sex)", "Z = 0 (different sex)")
+  )
+
+first_stage_labels <- first_stage_plot %>%
+  select(Sample, samesex, Rate) %>%
+  pivot_wider(names_from = samesex, values_from = Rate, names_prefix = "z") %>%
+  mutate(Gap = z1 - z0,
+         Label = paste0("First stage = ", sprintf("%.3f", Gap)))
+
+ggplot(first_stage_plot, aes(x = `Z group`, y = Rate, fill = `Z group`)) +
+  geom_col(width = 0.58, alpha = 0.92) +
+  geom_text(aes(label = percent(Rate, accuracy = 0.1)),
+            vjust = -0.35, size = 3.4) +
+  geom_text(data = first_stage_labels,
+            aes(x = 1.5, y = pmax(z0, z1) + .055, label = Label),
+            inherit.aes = FALSE, size = 3.3, colour = col_grey) +
+  facet_wrap(~ Sample) +
+  scale_fill_manual(values = c("Z = 1 (same sex)" = col_z1,
+                               "Z = 0 (different sex)" = col_z0)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     limits = c(0, .52)) +
+  labs(title = "First stage: morekids rate by sibling-sex composition",
+       x = NULL, y = "Pr(morekids = 1)", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_blank(),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"))
+```
+
+```{r outcome-by-z}
+outcome_by_z <- bind_rows(
+  ae98_labor_sub %>%
+    group_by(samesex) %>%
+    summarise(
+      Sample = "Work Status",
+      Outcome = "workedm",
+      N = n(),
+      Mean = mean(workedm),
+      SD = sd(workedm),
+      .groups = "drop"
+    ),
+  ae98_income_sub %>%
+    group_by(samesex) %>%
+    summarise(
+      Sample = "Maternal Log Income",
+      Outcome = "maternal log income",
+      N = n(),
+      Mean = mean(lincomem),
+      SD = sd(lincomem),
+      .groups = "drop"
+    )
+) %>%
+  mutate(`Z group` = ifelse(samesex == 1, "Z = 1 (same sex)", "Z = 0 (different sex)")) %>%
+  select(Sample, Outcome, `Z group`, N, Mean, SD)
+
+outcome_by_z %>%
+  select(-Outcome) %>%
+  mutate(across(c(Mean, SD), ~ round(.x, 4))) %>%
+  kbl(caption = "Outcome distribution by instrument status",
+      align = c("l", "l", "r", "r", "r")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 13) %>%
+  footnote(general = "The mean differences across Z are the raw reduced forms summarized above.")
+```
+
+```{r outcome-mean-plot}
+outcome_mean_plot <- outcome_by_z %>%
+  mutate(
+    `Z group` = factor(`Z group`,
+                       levels = c("Z = 1 (same sex)", "Z = 0 (different sex)")),
+    Outcome = dplyr::recode(Outcome,
+                            workedm = "Worked last year",
+                            `maternal log income` = "Maternal Log Income")
+  )
+
+ggplot(outcome_mean_plot, aes(x = `Z group`, y = Mean, fill = `Z group`)) +
+  geom_col(width = 0.58, alpha = 0.92) +
+  geom_text(aes(label = ifelse(Outcome == "Worked last year",
+                               percent(Mean, accuracy = 0.1),
+                               sprintf("%.3f", Mean))),
+            vjust = -0.35, size = 3.4) +
+  facet_wrap(~ Sample + Outcome, scales = "free_y") +
+  scale_fill_manual(values = c("Z = 1 (same sex)" = col_z1,
+                               "Z = 0 (different sex)" = col_z0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, .12))) +
+  labs(title = "Outcome means by instrument status",
+       subtitle = "The gap between bars is the raw reduced form.",
+       x = NULL, y = "Mean outcome", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_blank(),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10))
+```
+
+# 5. Propensity-Score Overlap
+
+These diagnostics describe observed support and covariate composition. The additive logit uses the same six
+covariates as every estimator in the main analysis.
+
+```{r propensity-overlap}
+fit_pscore <- function(df) {
+  fit <- glm(as.formula(paste("samesex ~", RHS)), data = df, family = binomial())
+  as.numeric(fitted(fit))
+}
+
+ps_summary <- function(df, label) {
+  p <- fit_pscore(df)
+  z <- df$samesex
+  data.frame(
+    Sample = label,
+    Min = min(p),
+    P05 = quantile(p, .05, names = FALSE),
+    P25 = quantile(p, .25, names = FALSE),
+    Mean = mean(p),
+    P75 = quantile(p, .75, names = FALSE),
+    P95 = quantile(p, .95, names = FALSE),
+    Max = max(p),
+    SD = sd(p),
+    `Max, Z=0` = max(p[z == 0]),
+    `N(Z=0, p>.90)` = sum(z == 0 & p > .90),
+    `Min, Z=1` = min(p[z == 1]),
+    `N(Z=1, p<.10)` = sum(z == 1 & p < .10),
+    check.names = FALSE
+  )
+}
+
+ps_tab <- bind_rows(
+  ps_summary(ae98_labor_sub, "Work Status"),
+  ps_summary(ae98_income_sub, "Maternal Log Income")
+)
+
+continuous_cols <- c(
+  "Min", "P05", "P25", "Mean", "P75", "P95", "Max", "SD",
+  "Max, Z=0", "Min, Z=1"
+)
+
+ps_tab %>%
+  mutate(across(all_of(continuous_cols), ~ round(.x, 4))) %>%
+  kbl(caption = "Propensity-score overlap for Z = samesex",
+      align = c("l", rep("r", ncol(ps_tab) - 1))) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 12.5) %>%
+  footnote(general = paste(
+    "The group-specific columns target the relevant inverse-propensity tails:",
+    "high fitted probabilities among Z=0 observations and low fitted",
+    "probabilities among Z=1 observations."
+  ))
+```
+
+```{r propensity-overlap-plot}
+ps_plot_df <- bind_rows(
+  ae98_labor_sub %>%
+    mutate(Sample = "Work Status", p_hat = fit_pscore(ae98_labor_sub)),
+  ae98_income_sub %>%
+    mutate(Sample = "Maternal Log Income", p_hat = fit_pscore(ae98_income_sub))
+) %>%
+  mutate(`Z group` = factor(ifelse(samesex == 1, "Z = 1 (same sex)", "Z = 0 (different sex)"),
+                            levels = c("Z = 1 (same sex)", "Z = 0 (different sex)")))
+
+ggplot(ps_plot_df, aes(x = p_hat, fill = `Z group`)) +
+  geom_histogram(bins = 30, alpha = 0.68, colour = "white", position = "identity") +
+  geom_vline(xintercept = .5, linetype = "dashed", colour = col_grey) +
+  facet_wrap(~ Sample, scales = "free_y") +
+  scale_fill_manual(values = c("Z = 1 (same sex)" = col_z1,
+                               "Z = 0 (different sex)" = col_z0)) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Propensity-score concentration and overlap",
+       subtitle = "Both samples stay tightly centered around 0.5.",
+       x = "p-hat(X) = Pr(Z = 1 | X)", y = "Count", fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(colour = "grey40", size = 10))
+```

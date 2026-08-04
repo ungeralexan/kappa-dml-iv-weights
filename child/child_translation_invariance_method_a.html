@@ -13,7 +13,7 @@
 
 <meta name="date" content="2026-08-04" />
 
-<title>Card (1995) — Translation Invariance: Complete-Pipeline Rerun</title>
+<title>Angrist &amp; Evans (1998) — Translation Invariance: Complete-Pipeline Rerun</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1896,8 +1896,8 @@ font-size: 0.95em;
 
 
 
-<h1 class="title toc-ignore">Card (1995) — Translation Invariance:
-Complete-Pipeline Rerun</h1>
+<h1 class="title toc-ignore">Angrist &amp; Evans (1998) — Translation
+Invariance: Complete-Pipeline Rerun</h1>
 <h3 class="subtitle">Kappa, honest forest, DoubleML learners, and nested
 XGBoost</h3>
 <h4 class="author">Alexander Unger</h4>
@@ -1919,163 +1919,64 @@ table { font-size: 13px; }
 <div id="purpose" class="section level1">
 <h1>Purpose</h1>
 <p>This notebook evaluates translation invariance by fitting each
-complete estimation pipeline to log hourly wages in dollars and to <span class="math display">\[
-Y_i^{\mathrm{shift}}=Y_i+\log(100),
-\]</span> the cents recoding used in the SUW reproduction. The empirical
-check compares the two independently fitted estimates. It does not reuse
-fitted nuisance models from the original outcome.</p>
+complete estimation pipeline to the original outcome and to its
+additively shifted counterpart. The two CHILD workflows are <span class="math display">\[
+Y^{\mathrm{shift}}_{i,\mathrm{work}}
+=Y_{i,\mathrm{work}}+1
+\]</span> and <span class="math display">\[
+Y^{\mathrm{shift}}_{i,\mathrm{income}}
+=Y_{i,\mathrm{income}}+\log(100)
+=\log(100\,\mathrm{income}_i).
+\]</span> Original and shifted fits use the same samples, covariates,
+seed, and cross-fitting protocol, while nuisance functions and tuning
+choices are re-estimated.</p>
 <div class="note-box">
-<p>The full <code>2 treatments × 2 covariate specifications</code>
-design is evaluated. For XGBoost, the original tuned estimate is
-imported from the verified tuning export and the shifted-outcome model
-repeats nested tuning under the same protocol.</p>
+<p>The reflected labor outcome, <code>1 - workedm</code>, is excluded
+because it combines a reflection with a translation and is therefore not
+a pure additive shift.</p>
 </div>
+<p>An estimate is classified as invariant when its absolute rerun change
+does not exceed <span class="math inline">\(10^{-4}\)</span>. This
+operational threshold is separate from the <code>all.equal()</code>
+check used for fitted outcome-weight representations.</p>
 <div class="note-box">
-<p>The absolute threshold of <code>1e-4</code> is an operational rule
-for the complete pipeline rerun. It is not Knaus’s display epsilon and
-it is not the <code>all.equal()</code> criterion used to verify a fitted
-outcome-weight representation. A fitted weight vector can sum to zero
-while a fully re-estimated, data-adaptive learner changes slightly
-because the second run may select a different smoother or tuning
-configuration.</p>
+<p><strong>Common design.</strong> As in <code>child_test.Rmd</code>,
+every kappa and DML rerun uses <code>agem</code>, <code>agefstm</code>,
+<code>sexk</code>, <code>blackm</code>, <code>hispm</code>, and
+<code>othracem</code>. The second-child sex indicator is omitted because
+its interaction with first-child sex exactly determines
+<code>samesex</code>. Using the same six covariates in every pipeline
+isolates translation behavior from learner-specific differences in the
+conditioning set.</p>
 </div>
 </div>
 <div id="setup" class="section level1">
 <h1>Setup</h1>
-<div id="runtime-switches" class="section level2">
-<h2>Runtime switches</h2>
 <div class="warn-box">
-<p><strong>XGBoost rule.</strong> The default
-<code>RUN_XGB_RERUN = FALSE</code> loads the verified complete-rerun
-export. Set it to <code>TRUE</code> only for a deliberate rebuild, which
-imports the original tuned estimates and repeats nested tuning for the
-shifted outcome. Reusing the original selected hyperparameters after
-shifting the outcome would not test the complete tuned procedure.</p>
+<p>The default <code>RUN_XGB_RERUN = FALSE</code> loads the verified
+complete-rerun XGBoost export. Set it to <code>TRUE</code> only to
+import the original tuned estimates and repeat nested tuning for the
+shifted outcomes.</p>
 </div>
-</div>
-<div id="data-the-exact-main-analysis-sample" class="section level2">
-<h2>Data — the exact main-analysis sample</h2>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>card <span class="ot">&lt;-</span> <span class="fu">read_dta</span>(<span class="st">&quot;card.dta&quot;</span>)</span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>card <span class="ot">&lt;-</span> card[<span class="sc">!</span><span class="fu">is.na</span>(card<span class="sc">$</span>wage) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(card<span class="sc">$</span>educ), ]</span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">nrow</span>(card) <span class="sc">!=</span> <span class="dv">3010</span><span class="dt">L</span>) <span class="fu">stop</span>(<span class="st">&quot;Expected the Card analysis sample to contain 3,010 observations.&quot;</span>)</span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>card<span class="sc">$</span>somecol <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(card<span class="sc">$</span>educ <span class="sc">&gt;=</span> <span class="dv">13</span>)</span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>card<span class="sc">$</span>educ16  <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(card<span class="sc">$</span>educ <span class="sc">&gt;=</span> <span class="dv">16</span>)</span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>card<span class="sc">$</span>Z_inst  <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(card<span class="sc">$</span>nearc4)</span>
-<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="st">&quot;expersq&quot;</span> <span class="sc">%in%</span> <span class="fu">names</span>(card)) card<span class="sc">$</span>expersq <span class="ot">&lt;-</span> card<span class="sc">$</span>exper<span class="sc">^</span><span class="dv">2</span></span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a></span>
-<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>k <span class="ot">&lt;-</span> <span class="fu">log</span>(<span class="dv">100</span>)</span>
-<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>Y_orig  <span class="ot">&lt;-</span> <span class="fu">log</span>(card<span class="sc">$</span>wage <span class="sc">/</span> <span class="dv">100</span>)</span>
-<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a>Y_shift <span class="ot">&lt;-</span> <span class="fu">log</span>(card<span class="sc">$</span>wage)</span>
-<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a>max_dev <span class="ot">&lt;-</span> <span class="fu">max</span>(<span class="fu">abs</span>((Y_shift <span class="sc">-</span> Y_orig) <span class="sc">-</span> k))</span>
-<span id="cb1-14"><a href="#cb1-14" tabindex="-1"></a><span class="fu">stopifnot</span>(max_dev <span class="sc">&lt;</span> <span class="fl">1e-9</span>)</span>
-<span id="cb1-15"><a href="#cb1-15" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" tabindex="-1"></a>X_card_kappa <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(</span>
-<span id="cb1-17"><a href="#cb1-17" tabindex="-1"></a>  <span class="sc">~</span> exper <span class="sc">+</span> expersq <span class="sc">+</span> black <span class="sc">+</span> south <span class="sc">+</span> smsa <span class="sc">+</span> smsa66 <span class="sc">+</span></span>
-<span id="cb1-18"><a href="#cb1-18" tabindex="-1"></a>    reg661 <span class="sc">+</span> reg662 <span class="sc">+</span> reg663 <span class="sc">+</span> reg664 <span class="sc">+</span> reg665 <span class="sc">+</span> reg666 <span class="sc">+</span> reg667 <span class="sc">+</span> reg668,</span>
-<span id="cb1-19"><a href="#cb1-19" tabindex="-1"></a>  <span class="at">data =</span> card)</span>
-<span id="cb1-20"><a href="#cb1-20" tabindex="-1"></a>X_kit_kappa <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(<span class="sc">~</span> black <span class="sc">+</span> south <span class="sc">+</span> smsa <span class="sc">+</span> smsa66 <span class="sc">+</span> south66, <span class="at">data =</span> card)</span>
-<span id="cb1-21"><a href="#cb1-21" tabindex="-1"></a>X_card <span class="ot">&lt;-</span> <span class="fu">make_X</span>(</span>
-<span id="cb1-22"><a href="#cb1-22" tabindex="-1"></a>  <span class="sc">~</span> <span class="dv">0</span> <span class="sc">+</span> exper <span class="sc">+</span> expersq <span class="sc">+</span> black <span class="sc">+</span> south <span class="sc">+</span> smsa <span class="sc">+</span> smsa66 <span class="sc">+</span></span>
-<span id="cb1-23"><a href="#cb1-23" tabindex="-1"></a>    reg661 <span class="sc">+</span> reg662 <span class="sc">+</span> reg663 <span class="sc">+</span> reg664 <span class="sc">+</span> reg665 <span class="sc">+</span> reg666 <span class="sc">+</span> reg667 <span class="sc">+</span> reg668,</span>
-<span id="cb1-24"><a href="#cb1-24" tabindex="-1"></a>  <span class="at">data =</span> card)</span>
-<span id="cb1-25"><a href="#cb1-25" tabindex="-1"></a>X_kit <span class="ot">&lt;-</span> <span class="fu">make_X</span>(<span class="sc">~</span> <span class="dv">0</span> <span class="sc">+</span> black <span class="sc">+</span> south <span class="sc">+</span> smsa <span class="sc">+</span> smsa66 <span class="sc">+</span> south66, <span class="at">data =</span> card)</span>
-<span id="cb1-26"><a href="#cb1-26" tabindex="-1"></a></span>
-<span id="cb1-27"><a href="#cb1-27" tabindex="-1"></a>workflows <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb1-28"><a href="#cb1-28" tabindex="-1"></a>  <span class="st">&quot;Card / some college&quot;</span> <span class="ot">=</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">&quot;Card / some college&quot;</span>, <span class="at">D =</span> card<span class="sc">$</span>somecol, <span class="at">Z =</span> card<span class="sc">$</span>Z_inst, <span class="at">X_kappa =</span> X_card_kappa, <span class="at">X_dml =</span> X_card, <span class="at">X_dml_lm =</span> X_card, <span class="at">Y_orig =</span> Y_orig, <span class="at">Y_shift =</span> Y_shift, <span class="at">k =</span> k),</span>
-<span id="cb1-29"><a href="#cb1-29" tabindex="-1"></a>  <span class="st">&quot;Card / college completion&quot;</span> <span class="ot">=</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">&quot;Card / college completion&quot;</span>, <span class="at">D =</span> card<span class="sc">$</span>educ16, <span class="at">Z =</span> card<span class="sc">$</span>Z_inst, <span class="at">X_kappa =</span> X_card_kappa, <span class="at">X_dml =</span> X_card, <span class="at">X_dml_lm =</span> X_card, <span class="at">Y_orig =</span> Y_orig, <span class="at">Y_shift =</span> Y_shift, <span class="at">k =</span> k),</span>
-<span id="cb1-30"><a href="#cb1-30" tabindex="-1"></a>  <span class="st">&quot;Kitagawa / some college&quot;</span> <span class="ot">=</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">&quot;Kitagawa / some college&quot;</span>, <span class="at">D =</span> card<span class="sc">$</span>somecol, <span class="at">Z =</span> card<span class="sc">$</span>Z_inst, <span class="at">X_kappa =</span> X_kit_kappa, <span class="at">X_dml =</span> X_kit, <span class="at">X_dml_lm =</span> X_kit, <span class="at">Y_orig =</span> Y_orig, <span class="at">Y_shift =</span> Y_shift, <span class="at">k =</span> k),</span>
-<span id="cb1-31"><a href="#cb1-31" tabindex="-1"></a>  <span class="st">&quot;Kitagawa / college completion&quot;</span> <span class="ot">=</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">&quot;Kitagawa / college completion&quot;</span>, <span class="at">D =</span> card<span class="sc">$</span>educ16, <span class="at">Z =</span> card<span class="sc">$</span>Z_inst, <span class="at">X_kappa =</span> X_kit_kappa, <span class="at">X_dml =</span> X_kit, <span class="at">X_dml_lm =</span> X_kit, <span class="at">Y_orig =</span> Y_orig, <span class="at">Y_shift =</span> Y_shift, <span class="at">k =</span> k)</span>
-<span id="cb1-32"><a href="#cb1-32" tabindex="-1"></a>)</span>
-<span id="cb1-33"><a href="#cb1-33" tabindex="-1"></a></span>
-<span id="cb1-34"><a href="#cb1-34" tabindex="-1"></a><span class="fu">data.frame</span>(</span>
-<span id="cb1-35"><a href="#cb1-35" tabindex="-1"></a>  <span class="at">Quantity =</span> <span class="fu">c</span>(</span>
-<span id="cb1-36"><a href="#cb1-36" tabindex="-1"></a>    <span class="st">&quot;Analysis sample&quot;</span>, <span class="st">&quot;Treatment definitions&quot;</span>, <span class="st">&quot;Covariate specifications&quot;</span>,</span>
-<span id="cb1-37"><a href="#cb1-37" tabindex="-1"></a>    <span class="st">&quot;Translation&quot;</span>, <span class="st">&quot;Maximum numerical deviation from exact shift&quot;</span></span>
-<span id="cb1-38"><a href="#cb1-38" tabindex="-1"></a>  ),</span>
-<span id="cb1-39"><a href="#cb1-39" tabindex="-1"></a>  <span class="at">Value =</span> <span class="fu">c</span>(</span>
-<span id="cb1-40"><a href="#cb1-40" tabindex="-1"></a>    <span class="fu">format</span>(<span class="fu">nrow</span>(card), <span class="at">big.mark =</span> <span class="st">&quot;,&quot;</span>), <span class="st">&quot;2&quot;</span>, <span class="st">&quot;2&quot;</span>,</span>
-<span id="cb1-41"><a href="#cb1-41" tabindex="-1"></a>    <span class="st">&quot;log wage + log(100)&quot;</span>, <span class="fu">format</span>(max_dev, <span class="at">scientific =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb1-42"><a href="#cb1-42" tabindex="-1"></a>  )</span>
-<span id="cb1-43"><a href="#cb1-43" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
-<span id="cb1-44"><a href="#cb1-44" tabindex="-1"></a>  <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Translation-rerun design&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb1-45"><a href="#cb1-45" tabindex="-1"></a>  <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>, <span class="st">&quot;condensed&quot;</span>),</span>
-<span id="cb1-46"><a href="#cb1-46" tabindex="-1"></a>                <span class="at">full_width =</span> <span class="cn">FALSE</span>)</span></code></pre></div>
-<table class="table table-striped table-condensed" style="color: black; width: auto !important; margin-left: auto; margin-right: auto;">
-<caption>
-Translation-rerun design
-</caption>
-<thead>
-<tr>
-<th style="text-align:left;">
-Quantity
-</th>
-<th style="text-align:left;">
-Value
-</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left;">
-Analysis sample
-</td>
-<td style="text-align:left;">
-3,010
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Treatment definitions
-</td>
-<td style="text-align:left;">
-2
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Covariate specifications
-</td>
-<td style="text-align:left;">
-2
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Translation
-</td>
-<td style="text-align:left;">
-log wage + log(100)
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Maximum numerical deviation from exact shift
-</td>
-<td style="text-align:left;">
-8.881784e-16
-</td>
-</tr>
-</tbody>
-</table>
 <hr />
-</div>
 </div>
 <div id="kappa-estimators" class="section level1">
 <h1>1. Kappa estimators</h1>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="cf">if</span> (RUN_KAPPA) {</span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(kappa_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Kappa estimators — original versus shifted outcome&quot;</span>,</span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
-<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>kappa_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste0</span>(</span>
-<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>      <span class="st">&quot;Orange rows have an absolute rerun difference above &quot;</span>,</span>
-<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a>      <span class="fu">format</span>(RERUN_TOLERANCE, <span class="at">scientific =</span> <span class="cn">TRUE</span>), <span class="st">&quot;.&quot;</span></span>
-<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>    ))</span>
-<span id="cb2-13"><a href="#cb2-13" tabindex="-1"></a>}</span></code></pre></div>
+<p>Normalized and unnormalized kappa estimators provide the benchmark
+for the complete-pipeline learner reruns.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="cf">if</span> (RUN_KAPPA) {</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(kappa_ti_all) <span class="sc">%&gt;%</span></span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Kappa estimators — original versus shifted outcome&quot;</span>,</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>kappa_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste0</span>(</span>
+<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>      <span class="st">&quot;Orange rows exceed the pre-specified absolute rerun threshold of &quot;</span>,</span>
+<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>      <span class="fu">format</span>(RERUN_TOLERANCE, <span class="at">scientific =</span> <span class="cn">TRUE</span>), <span class="st">&quot;.&quot;</span></span>
+<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a>    ))</span>
+<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a>}</span></code></pre></div>
 <table class="table table-striped table-hover table-condensed" style="font-size: 13px; color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
 <caption style="font-size: initial !important;">
 Kappa estimators — original versus shifted outcome
@@ -2108,19 +2009,19 @@ Invariant
 <tbody>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;" rowspan="6">
-Card / some college
+Work Status
 </td>
 <td style="text-align:left;">
 tau_cb_u
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.3762
+-0.0945
 </td>
 <td style="text-align:left;">
-0.3762
+-0.0945
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2134,13 +2035,13 @@ TRUE
 tau_ml_u
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.3308
+-0.0945
 </td>
 <td style="text-align:left;">
-0.3308
+-0.0945
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2154,13 +2055,13 @@ TRUE
 tau_ml_a10
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.3460
+-0.0945
 </td>
 <td style="text-align:left;">
-0.3460
+-0.0945
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2174,16 +2075,16 @@ TRUE
 tau_ml_a
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.1695
+-0.0942
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.3193
+-0.0938
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.4888
+0.0004
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2194,16 +2095,16 @@ FALSE
 tau_ml_t
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.1707
+-0.0942
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.3214
+-0.0938
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.4921
+0.0004
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2214,16 +2115,16 @@ FALSE
 tau_ml_a0
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.1542
+-0.0943
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.2904
+-0.0938
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.4446
+0.0004
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2231,7 +2132,7 @@ FALSE
 </tr>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;" rowspan="6">
-Card / college completion
+Maternal Log Income
 </td>
 <td style="text-align:left;">
 tau_cb_u
@@ -2240,10 +2141,10 @@ tau_cb_u
 4.6052
 </td>
 <td style="text-align:left;">
-0.8530
+-0.1816
 </td>
 <td style="text-align:left;">
-0.8530
+-0.1816
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2260,133 +2161,10 @@ tau_ml_u
 4.6052
 </td>
 <td style="text-align:left;">
-0.6191
+-0.1816
 </td>
 <td style="text-align:left;">
-0.6191
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-tau_ml_a10
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.5862
-</td>
-<td style="text-align:left;">
-0.5862
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_a
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.3154
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.5939
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.9093
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_t
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.3193
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.6013
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.9206
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_a0
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2661
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.5012
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.7673
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="6">
-Kitagawa / some college
-</td>
-<td style="text-align:left;">
-tau_cb_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3310
-</td>
-<td style="text-align:left;">
-0.3310
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-tau_ml_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3556
-</td>
-<td style="text-align:left;">
-0.3556
+-0.1816
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2403,133 +2181,10 @@ tau_ml_a10
 4.6052
 </td>
 <td style="text-align:left;">
-0.2930
+-0.1815
 </td>
 <td style="text-align:left;">
-0.2930
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_a
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.8418
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.2476
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.4058
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_t
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.7688
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.0526
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.2838
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-tau_ml_a0
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.0659
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.8460
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.7801
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="6">
-Kitagawa / college completion
-</td>
-<td style="text-align:left;">
-tau_cb_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.5885
-</td>
-<td style="text-align:left;">
-0.5885
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-tau_ml_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.6276
-</td>
-<td style="text-align:left;">
-0.6276
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-tau_ml_a10
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.8356
-</td>
-<td style="text-align:left;">
-0.8356
+-0.1815
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2546,13 +2201,13 @@ tau_ml_a
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.6168
+-0.1767
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.3169
+-0.1743
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.7001
+0.0025
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2566,13 +2221,13 @@ tau_ml_t
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.3673
+-0.1767
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-3.6507
+-0.1742
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.2834
+0.0025
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2586,13 +2241,13 @@ tau_ml_a0
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-2.7120
+-0.1768
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-7.2410
+-0.1743
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.5290
+0.0025
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2607,7 +2262,8 @@ FALSE
 </tr>
 <tr>
 <td style="padding: 0; " colspan="100%">
-<sup></sup> Orange rows have an absolute rerun difference above 1e-04.
+<sup></sup> Orange rows exceed the pre-specified absolute rerun
+threshold of 1e-04.
 </td>
 </tr>
 </tfoot>
@@ -2616,18 +2272,22 @@ FALSE
 </div>
 <div id="headline-dml-tuned-honest-forest" class="section level1">
 <h1>2. Headline DML: tuned honest forest</h1>
-<p>Tuned honest forests use <code>tune.parameters=&quot;all&quot;</code> in both
-reruns.</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="cf">if</span> (RUN_DML) {</span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(dml_headline_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Tuned honest forest — original versus shifted outcome&quot;</span>,</span>
-<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
-<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>dml_headline_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>)</span>
-<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>}</span></code></pre></div>
-<table class="table table-striped table-hover table-condensed" style="font-size: 13px; color: black; margin-left: auto; margin-right: auto;">
+<div class="note-box">
+<p>The headline rerun uses tuned honest forests. Original and shifted
+fits use the same seed, five cross-fitting folds, and tuning
+setting.</p>
+</div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="cf">if</span> (RUN_DML) {</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(dml_headline_ti_all) <span class="sc">%&gt;%</span></span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Tuned honest forest — original versus shifted outcome&quot;</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>dml_headline_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="st">&quot;Orange rows exceed the pre-specified absolute rerun threshold of 10^-4.&quot;</span>)</span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>}</span></code></pre></div>
+<table class="table table-striped table-hover table-condensed" style="font-size: 13px; color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
 <caption style="font-size: initial !important;">
 Tuned honest forest — original versus shifted outcome
 </caption>
@@ -2659,22 +2319,22 @@ Invariant
 <tbody>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Card / some college
+Work Status
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 PLR-IV
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6807
+-0.1174
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6802
+-0.1120
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0006
+0.0054
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2685,16 +2345,16 @@ FALSE
 Wald-AIPW
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2793
+-0.1007
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2776
+-0.0972
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0017
+0.0035
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2702,7 +2362,7 @@ FALSE
 </tr>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Card / college completion
+Maternal Log Income
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 PLR-IV
@@ -2711,13 +2371,13 @@ PLR-IV
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.1399
+-0.2480
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.1390
+-0.2503
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0009
+-0.0023
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -2731,124 +2391,54 @@ Wald-AIPW
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.5303
+-0.2379
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.5271
+-0.2317
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0032
+0.0061
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
-Kitagawa / some college
-</td>
-<td style="text-align:left;">
-PLR-IV
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.5925
-</td>
-<td style="text-align:left;">
-0.5926
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Wald-AIPW
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2921
-</td>
-<td style="text-align:left;">
-0.2921
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
-Kitagawa / college completion
-</td>
-<td style="text-align:left;">
-PLR-IV
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-1.0303
-</td>
-<td style="text-align:left;">
-1.0303
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Wald-AIPW
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.5347
-</td>
-<td style="text-align:left;">
-0.5348
-</td>
-<td style="text-align:left;">
-0.0001
-</td>
-<td style="text-align:left;">
-TRUE
 </td>
 </tr>
 </tbody>
+<tfoot>
+<tr>
+<td style="padding: 0; " colspan="100%">
+<span style="font-style: italic;">Note: </span>
+</td>
+</tr>
+<tr>
+<td style="padding: 0; " colspan="100%">
+<sup></sup> Orange rows exceed the pre-specified absolute rerun
+threshold of 10^-4.
+</td>
+</tr>
+</tfoot>
 </table>
 <hr />
 </div>
 <div id="olslogit-and-ranger-learners" class="section level1">
 <h1>3. OLS/logit and Ranger learners</h1>
-<p>The learner definitions match <code>card_test.Rmd</code>.</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="cf">if</span> (RUN_LM_RF) {</span>
-<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(dml_learner_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;DoubleML learners — original versus shifted outcome&quot;</span>,</span>
-<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
-<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>dml_learner_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste0</span>(</span>
-<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>      <span class="st">&quot;PLR-IV uses DoubleMLPLIV and Wald-AIPW uses DoubleMLIIVM. Orange rows have an absolute rerun difference above &quot;</span>,</span>
-<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a>      <span class="fu">format</span>(RERUN_TOLERANCE, <span class="at">scientific =</span> <span class="cn">TRUE</span>), <span class="st">&quot;.&quot;</span></span>
-<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a>    ))</span>
-<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a>}</span></code></pre></div>
+<p>The learner comparison repeats the specifications in
+<code>child_test.Rmd</code>. All learners use the same six covariates.
+XGBoost is handled separately because the shifted outcome requires a new
+nested-tuning run.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="cf">if</span> (RUN_LM_RF) {</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(dml_learner_ti_all) <span class="sc">%&gt;%</span></span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;DoubleML learners — original versus shifted outcome&quot;</span>,</span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>dml_learner_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste</span>(</span>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>      <span class="st">&quot;Every learner uses the same six covariates.&quot;</span>,</span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>      <span class="st">&quot;Orange rows exceed the pre-specified absolute rerun threshold of 10^-4.&quot;</span></span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>    ))</span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>}</span></code></pre></div>
 <table class="table table-striped table-hover table-condensed" style="font-size: 13px; color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
 <caption style="font-size: initial !important;">
 DoubleML learners — original versus shifted outcome
@@ -2881,19 +2471,19 @@ Invariant
 <tbody>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;" rowspan="4">
-Card / some college
+Work Status
 </td>
 <td style="text-align:left;">
 PLR-IV (linear)
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.6779
+-0.1019
 </td>
 <td style="text-align:left;">
-0.6779
+-0.1019
 </td>
 <td style="text-align:left;">
 0.0000
@@ -2907,96 +2497,13 @@ TRUE
 Wald-AIPW (linear+logit)
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.3991
+-0.1042
 </td>
 <td style="text-align:left;">
-0.3991
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-PLR-IV (ranger)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6853
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6847
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0006
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-Wald-AIPW (ranger)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2621
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2617
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0004
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="4">
-Card / college completion
-</td>
-<td style="text-align:left;">
-PLR-IV (linear)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-1.4189
-</td>
-<td style="text-align:left;">
-1.4189
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Wald-AIPW (linear+logit)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.8843
-</td>
-<td style="text-align:left;">
-0.8843
+-0.1042
 </td>
 <td style="text-align:left;">
 0.0000
@@ -3010,102 +2517,19 @@ TRUE
 PLR-IV (ranger)
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.1123
+-0.1476
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.1114
+-0.1474
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0010
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-Wald-AIPW (ranger)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.4926
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.4919
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0007
+0.0001
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;" rowspan="4">
-Kitagawa / some college
-</td>
-<td style="text-align:left;">
-PLR-IV (linear)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.5679
-</td>
-<td style="text-align:left;">
-0.5679
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Wald-AIPW (linear+logit)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3112
-</td>
-<td style="text-align:left;">
-0.3112
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-PLR-IV (ranger)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.6225
-</td>
-<td style="text-align:left;">
-0.6225
-</td>
-<td style="text-align:left;">
-0.0000
-</td>
-<td style="text-align:left;">
-TRUE
 </td>
 </tr>
 <tr>
@@ -3113,13 +2537,13 @@ TRUE
 Wald-AIPW (ranger)
 </td>
 <td style="text-align:left;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;">
-0.2943
+-0.1631
 </td>
 <td style="text-align:left;">
-0.2943
+-0.1631
 </td>
 <td style="text-align:left;">
 0.0000
@@ -3130,7 +2554,7 @@ TRUE
 </tr>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;" rowspan="4">
-Kitagawa / college completion
+Maternal Log Income
 </td>
 <td style="text-align:left;">
 PLR-IV (linear)
@@ -3139,10 +2563,10 @@ PLR-IV (linear)
 4.6052
 </td>
 <td style="text-align:left;">
-0.9427
+-0.2136
 </td>
 <td style="text-align:left;">
-0.9427
+-0.2136
 </td>
 <td style="text-align:left;">
 0.0000
@@ -3159,10 +2583,10 @@ Wald-AIPW (linear+logit)
 4.6052
 </td>
 <td style="text-align:left;">
-0.5336
+-0.2174
 </td>
 <td style="text-align:left;">
-0.5336
+-0.2174
 </td>
 <td style="text-align:left;">
 0.0000
@@ -3172,43 +2596,43 @@ TRUE
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 PLR-IV (ranger)
 </td>
-<td style="text-align:left;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:left;">
-1.0446
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.2501
 </td>
-<td style="text-align:left;">
-1.0447
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.2506
 </td>
-<td style="text-align:left;">
-0.0000
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.0005
 </td>
-<td style="text-align:left;">
-TRUE
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+FALSE
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 Wald-AIPW (ranger)
 </td>
-<td style="text-align:left;">
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 4.6052
 </td>
-<td style="text-align:left;">
-0.5142
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.2589
 </td>
-<td style="text-align:left;">
-0.5142
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.2597
 </td>
-<td style="text-align:left;">
-0.0000
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+-0.0008
 </td>
-<td style="text-align:left;">
-TRUE
+<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
+FALSE
 </td>
 </tr>
 </tbody>
@@ -3220,8 +2644,8 @@ TRUE
 </tr>
 <tr>
 <td style="padding: 0; " colspan="100%">
-<sup></sup> PLR-IV uses DoubleMLPLIV and Wald-AIPW uses DoubleMLIIVM.
-Orange rows have an absolute rerun difference above 1e-04.
+<sup></sup> Every learner uses the same six covariates. Orange rows
+exceed the pre-specified absolute rerun threshold of 10^-4.
 </td>
 </tr>
 </tfoot>
@@ -3229,27 +2653,25 @@ Orange rows have an absolute rerun difference above 1e-04.
 </div>
 <div id="tuned-xgboost-complete-pipeline-rerun" class="section level1">
 <h1>4. Tuned XGBoost complete-pipeline rerun</h1>
-<p>Original tuned estimates are imported from the two Card tuning
-exports. For the shifted outcome, tuning is repeated separately inside
-each outer training fold using the same search space, folds, budget, and
-seed.</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">exists</span>(<span class="st">&quot;xgb_ti_all&quot;</span>)) {</span>
-<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(xgb_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Tuned XGBoost — original export versus shifted nested-tuning rerun&quot;</span>,</span>
-<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>xgb_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste0</span>(</span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a>      <span class="cf">if</span> (RUN_XGB_RERUN)</span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a>        <span class="st">&quot;This render rebuilt the shifted-outcome nested-tuning results. &quot;</span> <span class="cf">else</span></span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a>        <span class="st">&quot;This render loaded the verified complete-rerun XGBoost export. &quot;</span>,</span>
-<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a>      <span class="st">&quot;Orange rows have an absolute &quot;</span>,</span>
-<span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a>      <span class="st">&quot;rerun difference above &quot;</span>,</span>
-<span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a>      <span class="fu">format</span>(RERUN_TOLERANCE, <span class="at">scientific =</span> <span class="cn">TRUE</span>), <span class="st">&quot;.&quot;</span></span>
-<span id="cb5-16"><a href="#cb5-16" tabindex="-1"></a>    ))</span>
-<span id="cb5-17"><a href="#cb5-17" tabindex="-1"></a>}</span></code></pre></div>
+<div class="warn-box">
+<p>The shifted-outcome XGBoost fits repeat the complete nested-tuning
+protocol with the same seed, samples, folds, and tuning budget.</p>
+</div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">exists</span>(<span class="st">&quot;xgb_ti_all&quot;</span>)) {</span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(xgb_ti_all) <span class="sc">%&gt;%</span></span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption =</span> <span class="st">&quot;Tuned XGBoost — original export versus shifted nested-tuning rerun&quot;</span>,</span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a>        <span class="at">digits =</span> <span class="dv">4</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),</span>
+<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>                  <span class="at">full_width =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">13</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a>    <span class="fu">collapse_rows</span>(<span class="at">columns =</span> <span class="dv">1</span>, <span class="at">valign =</span> <span class="st">&quot;middle&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>    <span class="fu">row_spec</span>(<span class="fu">which</span>(<span class="sc">!</span>xgb_ti_all<span class="sc">$</span>invariant), <span class="at">background =</span> <span class="st">&quot;#fffbf0&quot;</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general =</span> <span class="fu">paste</span>(</span>
+<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>      <span class="cf">if</span> (RUN_XGB_RERUN)</span>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a>        <span class="st">&quot;This render rebuilt the shifted-outcome nested-tuning results.&quot;</span> <span class="cf">else</span></span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a>        <span class="st">&quot;This render loaded the verified complete-rerun XGBoost export.&quot;</span>,</span>
+<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a>      <span class="st">&quot;Orange rows exceed the pre-specified absolute rerun threshold of 10^-4.&quot;</span></span>
+<span id="cb4-14"><a href="#cb4-14" tabindex="-1"></a>    ))</span>
+<span id="cb4-15"><a href="#cb4-15" tabindex="-1"></a>}</span></code></pre></div>
 <table class="table table-striped table-hover table-condensed" style="font-size: 13px; color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
 <caption style="font-size: initial !important;">
 Tuned XGBoost — original export versus shifted nested-tuning rerun
@@ -3282,22 +2704,22 @@ Invariant
 <tbody>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Card / some college
+Work Status
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 Wald-AIPW (XGBoost tuned)
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.3821
+-0.1168
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.3819
+-0.1405
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0002
+-0.0238
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -3308,16 +2730,16 @@ FALSE
 PLR-IV (XGBoost tuned)
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
+1.0000
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.5774
+-0.1294
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.5642
+-0.1452
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0132
+-0.0157
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -3325,7 +2747,7 @@ FALSE
 </tr>
 <tr>
 <td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Card / college completion
+Maternal Log Income
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 Wald-AIPW (XGBoost tuned)
@@ -3334,13 +2756,13 @@ Wald-AIPW (XGBoost tuned)
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.7299
+-0.3405
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.7295
+-0.3100
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0004
+0.0305
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -3354,99 +2776,13 @@ PLR-IV (XGBoost tuned)
 4.6052
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.9556
+-0.2629
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.9338
+-0.2732
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
--0.0218
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Kitagawa / some college
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-Wald-AIPW (XGBoost tuned)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2381
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.2423
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.0042
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-PLR-IV (XGBoost tuned)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6119
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.6122
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.0003
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;vertical-align: middle !important;background-color: rgba(255, 251, 240, 255) !important;" rowspan="2">
-Kitagawa / college completion
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-Wald-AIPW (XGBoost tuned)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.4765
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.4849
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.0084
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-FALSE
-</td>
-</tr>
-<tr>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-PLR-IV (XGBoost tuned)
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-4.6052
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.0104
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-1.0110
-</td>
-<td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
-0.0005
+-0.0103
 </td>
 <td style="text-align:left;background-color: rgba(255, 251, 240, 255) !important;">
 FALSE
@@ -3462,12 +2798,16 @@ FALSE
 <tr>
 <td style="padding: 0; " colspan="100%">
 <sup></sup> This render loaded the verified complete-rerun XGBoost
-export. Orange rows have an absolute rerun difference above 1e-04.
+export. Orange rows exceed the pre-specified absolute rerun threshold of
+10^-4.
 </td>
 </tr>
 </tfoot>
 </table>
-<hr />
+<div class="note-box">
+<p>The XGBoost rerun is stored separately and does not overwrite the
+original tuning exports.</p>
+</div>
 </div>
 <div id="save-reusable-rerun-results" class="section level1">
 <h1>5. Save reusable rerun results</h1>

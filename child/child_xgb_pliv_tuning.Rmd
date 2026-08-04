@@ -1,0 +1,572 @@
+---
+title: "Fertility and Mothers' Labor-Market Outcomes: XGBoost Tuning for PLR-IV"
+subtitle: "Nested nuisance tuning within the cross-fitting design"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    code_folding: hide
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
+h2   { color: #2c7bb6; margin-top: 28px; }
+.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
+table { font-size: 13px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      cache = FALSE,
+                      fig.width = 11, fig.height = 5.5)
+```
+
+```{r packages, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(mlr3tuning)
+
+source(file.path("..", "functions_all.R"))
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+SEED            <- 42
+N_CF            <- 5
+TUNE_EVALS      <- 15
+INNER_FOLDS     <- 3
+EXTRACT_WEIGHTS <- TRUE
+RERUN_TUNING    <- FALSE
+EXPORT_PATH     <- "ae98_xgb_pliv_tuning_export.rds"
+```
+
+<div class="note-box">
+**Purpose.** This notebook compares untuned and fold-specifically tuned
+XGBoost nuisances for PLR-IV in the two child-application samples.
+Hyperparameters are selected by nuisance-prediction loss within each outer
+training fold. The learner uses the common six-covariate Child design:
+`agem`, `agefstm`, `sexk`, `blackm`, `hispm`, and `othracem`.
+`sex2nd` is omitted because, together with `sexk`, it exactly reconstructs
+the `samesex` instrument. Giving both indicators to an unrestricted tree
+learner would therefore remove the residual instrument variation required
+for DML. This is the same design used by every estimator in
+`child_test.Rmd`.
+
+Ordinary renders read the verified export. Set `RERUN_TUNING = TRUE` only
+when deliberately re-estimating the nested tuning procedure.
+</div>
+
+<div class="warn-box">
+**Runtime.** A substantive rerun tunes the three regression nuisances
+separately within every outer training fold and replaces
+`ae98_xgb_pliv_tuning_export.rds`.
+</div>
+
+---
+
+# Setup
+
+```{r data, include=FALSE}
+obj_data <- readRDS("ae98_sub.rds")
+if (!all(c("ae98_labor_sub", "ae98_income_sub") %in% names(obj_data))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub.")
+}
+
+ae98_labor_sub  <- obj_data$ae98_labor_sub
+ae98_income_sub <- obj_data$ae98_income_sub
+
+ae98_labor_sub <- ae98_labor_sub %>%
+  mutate(workedm = as.integer(workedm),
+         morekids = as.integer(morekids),
+         samesex  = as.integer(samesex))
+
+ae98_income_sub <- ae98_income_sub %>%
+  mutate(morekids  = as.integer(morekids),
+         samesex   = as.integer(samesex),
+         lincomem  = log(incomem))
+
+CHILD_COVARIATES <- c(
+  "agem", "agefstm", "sexk", "blackm", "hispm", "othracem"
+)
+RHS_FORMULA <- reformulate(CHILD_COVARIATES, intercept = FALSE)
+X_dml_labor  <- make_X(RHS_FORMULA, data = ae98_labor_sub)
+X_dml_income <- make_X(RHS_FORMULA, data = ae98_income_sub)
+
+D_labor  <- ae98_labor_sub$morekids;  Z_labor  <- ae98_labor_sub$samesex
+D_income <- ae98_income_sub$morekids; Z_income <- ae98_income_sub$samesex
+
+```
+
+```{r analysis-dimensions, echo=FALSE}
+data.frame(
+  Outcome = c("Work Status", "Maternal Log Income"),
+  N = c(nrow(ae98_labor_sub), nrow(ae98_income_sub)),
+  Covariates = c(ncol(X_dml_labor), ncol(X_dml_income))
+) %>%
+  kbl(caption = "Analysis dimensions") %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+```
+
+```{r learners-and-tuning-setup, include=FALSE}
+make_dml_data <- function(Y, D, Z, X) {
+  df <- as.data.frame(X)
+  df$y <- as.numeric(Y); df$d <- as.numeric(D); df$z <- as.numeric(Z)
+  DoubleMLData$new(data = df, y_col = "y", d_cols = "d", z_cols = "z",
+                   x_cols = colnames(X))
+}
+
+make_xgb_pliv_learners <- function() {
+  base <- list(alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0)
+  list(
+    l = do.call(lrn, c(list("regr.xgboost"), base)),
+    m = do.call(lrn, c(list("regr.xgboost"), base)),
+    r = do.call(lrn, c(list("regr.xgboost"), base))
+  )
+}
+
+xgb_ps <- function() {
+  ps(nrounds = p_int(50, 400), max_depth = p_int(2, 5),
+     eta = p_dbl(0.02, 0.20), min_child_weight = p_int(1, 8))
+}
+
+tune_param_set <- function() list(ml_l = xgb_ps(), ml_m = xgb_ps(), ml_r = xgb_ps())
+
+tune_settings <- function() {
+  list(
+    n_folds_tune = INNER_FOLDS,
+    rsmp_tune    = rsmp("cv", folds = INNER_FOLDS),
+    measure      = list(ml_l = "regr.rmse", ml_m = "regr.rmse", ml_r = "regr.rmse"),
+    terminator   = trm("evals", n_evals = TUNE_EVALS),
+    algorithm    = tnr("random_search")
+  )
+}
+
+get_prediction_vector <- function(obj, learner_name) {
+  pred <- tryCatch(obj$predictions[[learner_name]], error = function(e) NULL)
+  if (is.null(pred)) return(numeric(0))
+  as.numeric(drop(pred))
+}
+
+rmse_loss <- function(truth, pred) {
+  if (length(pred) != length(truth) || length(pred) == 0) return(NA_real_)
+  truth <- as.numeric(truth); pred <- as.numeric(pred)
+  keep <- is.finite(truth) & is.finite(pred)
+  if (!any(keep)) return(NA_real_)
+  sqrt(mean((truth[keep] - pred[keep])^2))
+}
+
+calc_nuisance_losses <- function(r, cell) {
+  if (is.null(r)) return(c(outcome_l_rmse = NA_real_, instrument_m_rmse = NA_real_, treatment_r_rmse = NA_real_))
+  l_hat <- get_prediction_vector(r$obj, "ml_l")
+  m_hat <- get_prediction_vector(r$obj, "ml_m")
+  r_hat <- get_prediction_vector(r$obj, "ml_r")
+  c(outcome_l_rmse    = rmse_loss(cell$Y, l_hat),
+    instrument_m_rmse = rmse_loss(cell$Z, m_hat),
+    treatment_r_rmse  = rmse_loss(cell$D, r_hat))
+}
+
+omega_vec <- function(om) {
+  w <- om$omega
+  if (is.null(dim(w))) return(as.vector(w))
+  if (!is.null(rownames(w)) && "PLR-IV" %in% rownames(w)) return(as.vector(w["PLR-IV", ]))
+  as.vector(w[1, ])
+}
+
+extract_xgb_w <- function(r, cell) {
+  if (is.null(r) || is.null(r$obj)) {
+    stop("Cannot extract weights because the fitted DoubleML object is NULL.")
+  }
+  dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+  om <- get_outcome_weights(object = r$obj, dml_data = dml_data)
+  omega_vec(om)
+}
+
+safe_extract_xgb_w <- function(r, cell) {
+  tryCatch(extract_xgb_w(r, cell), error = function(e) NULL)
+}
+
+fit_cell <- function(dml_data, learners, label, tune = FALSE, tune_on_folds = FALSE) {
+  tryCatch({
+    set.seed(SEED)
+    obj <- DoubleMLPLIV$new(data = dml_data,
+                            ml_l = learners$l, ml_m = learners$m, ml_r = learners$r,
+                            n_folds = N_CF)
+    if (tune) {
+      obj$tune(param_set = tune_param_set(), tune_settings = tune_settings(),
+               tune_on_folds = tune_on_folds)
+    }
+    obj$fit(store_models = TRUE, store_predictions = TRUE)
+
+    list(label = label, tuned = tune,
+         coef = get_dml_coef(obj), se = get_dml_se(obj),
+         tuning_result = tryCatch(obj$tuning_result, error = function(e) NULL),
+         params        = tryCatch(obj$params,        error = function(e) NULL),
+         obj = obj)
+  }, error = function(e) {
+    message(sprintf("Fit failed for %s: %s", label, conditionMessage(e)))
+    NULL
+  })
+}
+
+cells <- list(
+  "Labor (workedm)"   = list(Y = ae98_labor_sub$workedm,  D = D_labor,  Z = Z_labor,  X = X_dml_labor),
+  "Income (lincomem)" = list(Y = ae98_income_sub$lincomem, D = D_income, Z = Z_income, X = X_dml_income)
+)
+```
+
+---
+
+# Fit: untuned versus tuned XGBoost
+
+```{r fit-all, include=FALSE}
+if (RERUN_TUNING) {
+  results <- list()
+  for (cell_name in names(cells)) {
+    cell <- cells[[cell_name]]
+    dml_data <- make_dml_data(cell$Y, cell$D, cell$Z, cell$X)
+
+    results[[cell_name]] <- list(
+      untuned = fit_cell(dml_data, make_xgb_pliv_learners(),
+                         paste(cell_name, "pliv-xgb-untuned"),
+                         tune = FALSE),
+      tuned   = fit_cell(dml_data, make_xgb_pliv_learners(),
+                         paste(cell_name, "pliv-xgb-tuned"),
+                         tune = TRUE, tune_on_folds = TRUE)
+    )
+  }
+} else {
+  if (!file.exists(EXPORT_PATH)) {
+    stop("Verified PLR-IV XGBoost export not found. Set RERUN_TUNING=TRUE to rebuild it.")
+  }
+  stored_export <- readRDS(EXPORT_PATH)
+}
+```
+
+## 1. Estimate comparison
+
+```{r comparison-table}
+fmt_est <- function(r) if (is.null(r)) "\u2014" else sprintf("%.3f (%.3f)", r$coef, r$se)
+
+if (RERUN_TUNING) {
+  rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+    R <- results[[cell_name]]
+    data.frame(Cell = cell_name,
+               Learner = c("PLR-IV XGB untuned",
+                           "PLR-IV XGB tuned (tune_on_folds=TRUE)"),
+               `Estimate (SE)` = c(fmt_est(R$untuned), fmt_est(R$tuned)),
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+} else {
+  rows <- stored_export$estimate_comparison
+}
+
+rows %>%
+  mutate(Cell = recode(
+    Cell,
+    "Labor (workedm)" = "Work Status",
+    "Income (lincomem)" = "Maternal Log Income"
+  )) %>%
+  kbl(align = c("l","l","c"),
+      caption = "Child PLR-IV: XGBoost untuned vs. fold-specifically tuned") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(rows$Learner == "PLR-IV XGB tuned (tune_on_folds=TRUE)"), background = "#eef6ff") %>%
+  footnote(general = "Tuning uses nuisance-prediction loss within each outer training fold.")
+```
+
+## 2. Nuisance-prediction losses
+
+```{r nuisance-loss-table}
+if (RERUN_TUNING) {
+  loss_rows <- do.call(rbind, lapply(names(results), function(cell_name) {
+    R <- results[[cell_name]]; cell <- cells[[cell_name]]
+    ul <- calc_nuisance_losses(R$untuned, cell)
+    tl <- calc_nuisance_losses(R$tuned, cell)
+    data.frame(Cell = cell_name,
+               Learner = c("PLR-IV XGB untuned", "PLR-IV XGB tuned"),
+               `Outcome l RMSE` = c(ul["outcome_l_rmse"], tl["outcome_l_rmse"]),
+               `Instrument m RMSE` = c(ul["instrument_m_rmse"], tl["instrument_m_rmse"]),
+               `Treatment r RMSE` = c(ul["treatment_r_rmse"], tl["treatment_r_rmse"]),
+               check.names = FALSE, row.names = NULL)
+  }))
+} else {
+  loss_rows <- stored_export$nuisance_losses
+}
+
+loss_rows %>%
+  mutate(Cell = recode(
+    Cell,
+    "Labor (workedm)" = "Work Status",
+    "Income (lincomem)" = "Maternal Log Income"
+  )) %>%
+  kbl(digits = 4, caption = "PLR-IV nuisance-prediction loss: untuned vs. tuned (lower is better)") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = TRUE, font_size = 12.5) %>%
+  collapse_rows(columns = 1, valign = "middle") %>%
+  row_spec(which(loss_rows$Learner == "PLR-IV XGB tuned"), background = "#eef6ff")
+```
+
+## 3. Tuning protocol
+
+The tuning design is the relevant reproducibility information because
+selection occurs separately within each outer training fold.
+
+```{r tuning-protocol}
+data.frame(
+  Component = c(
+    "Outer cross-fitting", "Inner validation", "Search algorithm", "Budget",
+    "nrounds", "max_depth", "eta", "min_child_weight",
+    "Outcome nuisance", "Instrument nuisance", "Treatment nuisance"
+  ),
+  Specification = c(
+    paste(N_CF, "folds"), paste(INNER_FOLDS, "folds"), "Random search",
+    paste(TUNE_EVALS, "evaluations per nuisance and outer fold"),
+    "50–400", "2–5", "0.02–0.20", "1–8",
+    "RMSE", "RMSE", "RMSE"
+  )
+) %>%
+  kbl(caption = "Nested XGBoost tuning protocol: PLR-IV") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+```{r hyperparameter-summary, include=FALSE}
+extract_tuned_params <- function(r, cell_name) {
+  if (is.null(r) || !r$tuned) return(data.frame())
+  src <- if (!is.null(r$params)) r$params else r$tuning_result
+  if (is.null(src)) return(data.frame())
+
+  u <- unlist(src, recursive = TRUE)
+  u <- u[grepl("nrounds|max_depth|eta|min_child_weight", names(u))]
+  if (length(u) == 0) return(data.frame())
+
+  hp <- data.frame(Cell = cell_name, Raw_name = names(u), Value = as.numeric(u), stringsAsFactors = FALSE)
+  hp$Nuisance <- ifelse(grepl("ml_l", hp$Raw_name), "Outcome l",
+                  ifelse(grepl("ml_m", hp$Raw_name), "Instrument m",
+                  ifelse(grepl("ml_r", hp$Raw_name), "Treatment r", "Unknown")))
+  hp$Parameter <- sub(".*(nrounds|max_depth|eta|min_child_weight).*", "\\1", hp$Raw_name)
+  hp
+}
+
+if (RERUN_TUNING) {
+  hp_raw <- do.call(rbind, lapply(names(results), function(cn) {
+    extract_tuned_params(results[[cn]]$tuned, cn)
+  }))
+  if (!nrow(hp_raw)) stop("Fold-specific hyperparameters could not be extracted.")
+  hp_raw <- hp_raw[hp_raw$Nuisance != "Unknown", ]
+  hp_summary <- hp_raw %>%
+    group_by(Cell, Nuisance, Parameter) %>%
+    summarise(Median_across_folds = median(Value), N_values_seen = n(), .groups = "drop") %>%
+    arrange(Cell, Nuisance, Parameter)
+} else {
+  hp_raw <- NULL
+  hp_summary <- stored_export$hyperparameters
+}
+```
+
+## 4. Outcome-weight representation audit and export
+
+Reconstructed weights enter subsequent diagnostics only when
+\(\omega'Y\) reproduces the fitted coefficient.
+
+```{r xgb-pliv-weight-table}
+one_xgb_diag_row <- function(cell_name, learner_name, r, cell, w) {
+  if (is.null(r) || is.null(r$obj)) {
+    return(data.frame(Cell = cell_name, Learner = learner_name,
+                      Estimate = NA_real_,
+                      `Overall sum` = NA_real_,
+                      `Treated sum` = NA_real_,
+                      `Control sum` = NA_real_,
+                      `ω′Y reproduces τ̂` = NA,
+                      check.names = FALSE))
+  }
+  if (is.null(w)) {
+    return(data.frame(Cell = cell_name, Learner = learner_name,
+                      Estimate = as.numeric(r$coef),
+                      `Overall sum` = NA_real_,
+                      `Treated sum` = NA_real_,
+                      `Control sum` = NA_real_,
+                      `ω′Y reproduces τ̂` = NA,
+                      check.names = FALSE))
+  }
+  data.frame(
+    Cell = cell_name,
+    Learner = learner_name,
+    Estimate = as.numeric(r$coef),
+    `Overall sum` = sum(w),
+    `Treated sum` = sum(w[cell$D == 1]),
+    `Control sum` = -sum(w[cell$D == 0]),
+    `ω′Y reproduces τ̂` = check_weight_identity(w, cell$Y, r$coef),
+    check.names = FALSE
+  )
+}
+
+if (RERUN_TUNING) {
+  xgb_pliv_omega_vectors <- lapply(names(cells), function(cell_name) {
+    if (!isTRUE(EXTRACT_WEIGHTS)) return(list(untuned = NULL, tuned = NULL))
+    list(
+      untuned = safe_extract_xgb_w(results[[cell_name]]$untuned,
+                                    cells[[cell_name]]),
+      tuned = safe_extract_xgb_w(results[[cell_name]]$tuned,
+                                  cells[[cell_name]])
+    )
+  })
+  names(xgb_pliv_omega_vectors) <- names(cells)
+
+  xgb_pliv_weight_table <- do.call(rbind, lapply(names(cells), function(cell_name) {
+    cell <- cells[[cell_name]]
+    R <- results[[cell_name]]
+    W <- xgb_pliv_omega_vectors[[cell_name]]
+    rbind(
+      one_xgb_diag_row(cell_name, "PLR-IV XGB untuned",
+                       R$untuned, cell, W$untuned),
+      one_xgb_diag_row(cell_name, "PLR-IV XGB tuned",
+                       R$tuned, cell, W$tuned)
+    )
+  }))
+} else {
+  xgb_pliv_omega_vectors <- stored_export$omega_vectors
+  xgb_pliv_weight_table <- stored_export$weight_diagnostics
+}
+
+xgb_pliv_audit_display <- do.call(rbind, lapply(
+  seq_len(nrow(xgb_pliv_weight_table)),
+  function(i) {
+    row <- xgb_pliv_weight_table[i, , drop = FALSE]
+    cell_name <- as.character(row$Cell)
+    variant <- if (grepl("untuned", row$Learner, fixed = TRUE)) {
+      "untuned"
+    } else {
+      "tuned"
+    }
+    w <- tryCatch(xgb_pliv_omega_vectors[[cell_name]][[variant]],
+                  error = function(e) NULL)
+    d <- cells[[cell_name]]$D
+    estimate <- as.numeric(row$Estimate)
+    data.frame(
+      Cell = recode(cell_name,
+                    "Labor (workedm)" = "Work Status",
+                    "Income (lincomem)" = "Maternal Log Income"),
+      Variant = if (variant == "untuned") "Untuned XGBoost" else "Tuned XGBoost",
+      Estimate = estimate,
+      `Overall sum` = if (is.null(w)) NA_real_ else sum(w),
+      `Treated sum` = if (is.null(w)) NA_real_ else sum(w[d == 1]),
+      `Control sum` = if (is.null(w)) NA_real_ else -sum(w[d == 0]),
+      `ω′Y reproduces τ̂` = if (is.null(w) || !is.finite(estimate)) NA else
+        check_weight_identity(w, cells[[cell_name]]$Y, estimate),
+      check.names = FALSE
+    )
+  }
+))
+
+xgb_pliv_audit_display %>%
+  kbl(digits = 4,
+      caption = "Angrist–Evans PLR-IV: Reconstructed XGBoost weight audit") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE, font_size = 12) %>%
+  row_spec(which(xgb_pliv_audit_display$Variant == "Tuned XGBoost"),
+           background = "#eef6ff") %>%
+  footnote(general = paste(
+    "The sums describe reconstructed outcome-weight vectors; control weights are reported with reversed sign.",
+    "A normalized contrast has overall, treated, and control sums of 0, 1, and 1.",
+    "Reproduction is assessed from the unrounded vectors and estimates using all.equal() with R's default tolerance.",
+    "Failed vectors are excluded from further outcome-weight diagnostics."
+  ))
+```
+
+---
+
+### Export for child_test.Rmd
+
+```{r xgb-pliv-identity-checks, include=FALSE}
+if (RERUN_TUNING && isTRUE(EXTRACT_WEIGHTS)) {
+  xgb_pliv_identity_checks <- lapply(names(cells), function(cell_name) {
+    cell <- cells[[cell_name]]
+    list(
+      untuned = tryCatch(
+        if (is.null(xgb_pliv_omega_vectors[[cell_name]]$untuned) || is.null(results[[cell_name]]$untuned)) NA else
+          check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$untuned, cell$Y, results[[cell_name]]$untuned$coef),
+        error = function(e) NA
+      ),
+      tuned = tryCatch(
+        if (is.null(xgb_pliv_omega_vectors[[cell_name]]$tuned) || is.null(results[[cell_name]]$tuned)) NA else
+          check_weight_identity(xgb_pliv_omega_vectors[[cell_name]]$tuned, cell$Y, results[[cell_name]]$tuned$coef),
+        error = function(e) NA
+      )
+    )
+  })
+  names(xgb_pliv_identity_checks) <- names(cells)
+} else if (RERUN_TUNING) {
+  xgb_pliv_identity_checks <- lapply(
+    names(cells), function(x) list(untuned = NA, tuned = NA)
+  )
+  names(xgb_pliv_identity_checks) <- names(cells)
+} else {
+  xgb_pliv_identity_checks <- stored_export$identity_checks
+}
+```
+
+```{r xgb-pliv-export, cache=FALSE, include=FALSE}
+if (RERUN_TUNING) {
+xgb_pliv_export <- list(
+  estimate_comparison = rows,
+  fit_summaries = lapply(results, function(x) list(
+    untuned = if (is.null(x$untuned)) {
+      list(coef = NA_real_, se = NA_real_)
+    } else {
+      list(coef = x$untuned$coef, se = x$untuned$se)
+    },
+    tuned = if (is.null(x$tuned)) {
+      list(coef = NA_real_, se = NA_real_)
+    } else {
+      list(coef = x$tuned$coef, se = x$tuned$se)
+    }
+  )),
+  coefficients = lapply(results, function(x) list(
+    untuned = if (is.null(x$untuned)) NA_real_ else x$untuned$coef,
+    tuned = if (is.null(x$tuned)) NA_real_ else x$tuned$coef
+  )),
+  nuisance_losses     = loss_rows,
+  hyperparameters     = if (exists("hp_summary")) hp_summary else NULL,
+  weight_diagnostics  = xgb_pliv_weight_table,
+  omega_vectors       = xgb_pliv_omega_vectors,
+  identity_checks     = xgb_pliv_identity_checks,
+  settings = list(
+    seed          = SEED,
+    n_cf          = N_CF,
+    tune_evals    = TUNE_EVALS,
+    inner_folds   = INNER_FOLDS,
+    tune_on_folds = TRUE,
+    learner       = "xgboost",
+    dml_class     = "DoubleMLPLIV",
+    score         = "partialling out",
+    covariates    = colnames(X_dml_labor),
+    untuned_base  = list(alpha = 0, subsample = 1, max_delta_step = 0, base_score = 0),
+    extract_weights = EXTRACT_WEIGHTS
+  ),
+  sample_info = list(
+    labor_n       = nrow(ae98_labor_sub),
+    income_n      = nrow(ae98_income_sub),
+    labor_mean_Z  = mean(Z_labor),
+    labor_mean_D  = mean(D_labor),
+    income_mean_Z = mean(Z_income),
+    income_mean_D = mean(D_income)
+  )
+)
+
+saveRDS(xgb_pliv_export, EXPORT_PATH)
+}
+```
