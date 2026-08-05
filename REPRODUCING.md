@@ -9,15 +9,40 @@ must remain in the project.
 
 The analysis was validated with R 4.5.3. RStudio is convenient but not
 required. The exact package versions currently used are listed in `README.md`.
-The project does not yet contain an `renv.lock`, so `renv::restore()` is not yet
-an available installation route. Until the lockfile is added, install the
-listed package versions manually, including the development version of
-`OutcomeWeights` from commit
-`0c94f940b04c14d0247b46842af37752e306b79e`.
+Pandoc is also required to render the R Markdown files; RStudio includes a
+compatible copy.
 
-The lockfile will be added as a separate reproducibility step after the current
-notebook workflow is stable. When present, there will be one `renv.lock` at the
-repository root, not one in every application folder.
+The current working folder does not yet contain a complete `renv` environment,
+so `renv::restore()` is not yet available here. This is a release blocker, not
+an instruction for the professor to install the package table manually. After
+the final repository has been assembled, the author must start R in its root
+and run:
+
+```r
+install.packages("renv")
+renv::init()
+renv::snapshot()
+renv::status()
+```
+
+There must be one environment at the repository root, not one in each
+application folder. For RStudio, create and commit one `.Rproj` file at the
+repository root and omit the old application-level `repro.Rproj` files. Commit
+all of the following environment files together:
+
+```text
+.Rprofile
+renv.lock
+renv/activate.R
+renv/settings.json    # when created by renv
+```
+
+Do not commit `renv/library/`. Do not copy a stand-alone `.Rprofile` from an
+older folder: if it sources `renv/activate.R`, that activation file must also
+exist. Before release, `renv::status()` must report that the project is in a
+consistent state. The lockfile must record `OutcomeWeights` version
+`0.2.0.9000` from GitHub commit
+`0c94f940b04c14d0247b46842af37752e306b79e`.
 
 ## 2. Required data layout
 
@@ -43,6 +68,24 @@ the regenerated row identifiers differ.
 Do not change the notebooks to point to a personal Dropbox or home-directory
 path. Download the datasets from the authorized location and place them in the
 folders above.
+
+The validated files have these SHA-256 checksums:
+
+| File | SHA-256 |
+|---|---|
+| `vietnam_final/sipp.dta` | `5714022bed00410598a8baa386c343dd8590bc11d04c6fba36111d74561ea239` |
+| `card_final/card.dta` | `c38bac713b40d5e1322d9c9a8f7f609f68790516097ab964430bafd3e75f1015` |
+| `child/ae98.dta` | `932cf59fece691ebd3373c141ea57932f105c18179e06a5c05877109b122017a` |
+| `child/ae98_sub.rds` | `e3cc9d9ccd4ebfabd328eeed3ac864aff131f7dd362c304502e2adcfb259e8b3` |
+
+On macOS or Linux, verify a file with, for example:
+
+```sh
+shasum -a 256 vietnam_final/sipp.dta
+```
+
+A different checksum means the input is not the file used for the validated
+results and must be resolved before comparing estimates.
 
 ## 3. Required verified exports
 
@@ -79,7 +122,46 @@ These files are small and should be distributed with the code. Knitr cache
 folders such as `*_cache/` and `child/cache/` are large local speed-ups and
 should not be distributed.
 
-## 4. Default switches
+Also retain these supplementary audit outputs because they are small and
+document the completed checks, although ordinary headline rendering does not
+read them:
+
+```text
+card_final/card_smoother_condition_results.rds
+child/ae98_smoother_condition_results.rds
+child/ae98_income_four_unit_translation_results.rds
+child/ae98_income_four_unit_xgb_export.rds
+```
+
+The files `card_final/card_translation_xgb_method_a_export.rds` and
+`child/ae98_translation_xgb_method_a_export.rds` are legacy artifacts. No
+current script reads them. Omit them from the final repository; the active
+files use the name `*_translation_xgb_rerun_export.rds`.
+
+## 4. First run on the professor's computer
+
+The final repository must already contain the complete root `renv` files
+listed in Section 1. The professor then follows these steps:
+
+1. Install R 4.5.3 and, if desired, RStudio.
+2. Clone or download the complete repository.
+3. Obtain the restricted data files and place them at the exact paths in
+   Section 2. Do not change paths inside the notebooks.
+4. Start a fresh R session with the repository root as the working directory.
+5. Run the following commands:
+
+```r
+install.packages("renv")  # once for this R installation, if needed
+renv::restore(prompt = FALSE)
+renv::status()
+```
+
+The root `.Rprofile` activates the project environment automatically. The
+professor does not source `.Rprofile`, `renv/activate.R`, or `renv.lock`
+manually. `renv::restore()` installs packages; it does not run any analysis.
+If `renv::status()` is clean, proceed with the ordinary render below.
+
+## 5. Default switches
 
 The six original-outcome XGBoost tuning notebooks use:
 
@@ -107,7 +189,7 @@ XGBoost models. The XGBoost chunk has caching disabled, so `TRUE` means a fresh
 rerun. After schema and setting checks pass, the notebook replaces both its
 XGBoost translation export and its complete combined translation result.
 
-## 5. Ordinary translation render without caches
+## 6. Ordinary translation render without caches
 
 From the repository root, start a fresh R session and run:
 
@@ -126,7 +208,7 @@ from the verified exports. Official result exports remain unchanged.
 The first uncached render can therefore take longer than later renders even
 though XGBoost is not retuned.
 
-## 6. Deliberate XGBoost translation rebuild
+## 7. Deliberate XGBoost translation rebuild
 
 Before rebuilding, preserve the committed reference files. Then change only
 the relevant translation notebook to:
@@ -146,7 +228,7 @@ After inspecting the new results, return the switch to:
 RUN_XGB_RERUN <- FALSE
 ```
 
-## 7. Child four-unit diagnostic
+## 8. Child four-unit diagnostic
 
 `child/child_income_translation_four_units.Rmd` is a separate strict diagnostic.
 It constructs cents, thousands, and hundred-thousands as exact additive shifts
@@ -165,7 +247,7 @@ child/ae98_income_four_unit_translation_results.rds
 child/ae98_income_four_unit_xgb_export.rds
 ```
 
-## 8. Recommended application order
+## 9. Recommended application order
 
 Vietnam:
 
@@ -196,7 +278,7 @@ Child:
 7. Run the strict four-unit notebook only when that additional diagnostic is
    deliberately requested.
 
-## 9. What reproduction means
+## 10. What reproduction means
 
 The replication target is agreement of samples, reported estimates, standard
 errors, and translation classifications at the precision used in the thesis.
@@ -209,7 +291,7 @@ without their relevant caches. Their newly fitted non-XGBoost rows reproduced
 the stored references exactly. This local result does not replace the final
 fresh-clone test on a second machine.
 
-## 10. GitHub and external data storage
+## 11. GitHub and external data storage
 
 Commit the source code, documentation, environment files, and small verified
 pipeline exports to GitHub. In particular, keep the `.Rmd` and `.R` files,
@@ -232,7 +314,33 @@ and checksums. A general personal Dropbox link is not a substitute for stable
 data provenance, but it can be used as a restricted delivery mechanism when
 the repository documents the expected filenames and checksums.
 
-## 11. Common errors
+## 12. Final release checklist
+
+Before giving access to the professor, verify all of the following from the
+final repository rather than from the larger working thesis folder:
+
+- `renv.lock`, `.Rprofile`, and `renv/activate.R` are present together;
+- one root `.Rproj` is present and the three application-level `repro.Rproj`
+  files have been omitted;
+- `renv::status()` is clean under R 4.5.3;
+- the lockfile records the documented `OutcomeWeights` GitHub commit;
+- the three data files and `ae98_sub.rds` match the checksums in Section 2;
+- every required verified export in Section 3 is present;
+- `RERUN_TUNING` and `RUN_XGB_RERUN` remain `FALSE` in the committed ordinary
+  workflow;
+- one headline notebook from each application renders in a fresh session
+  without a pre-existing knitr cache;
+- the three translation notebooks reproduce their stored references at the
+  reported precision;
+- no absolute local paths, credentials, access tokens, `.RData`, `.Rhistory`,
+  knitr caches, or `renv/library/` files are committed; and
+- the restricted data link has been tested using the professor's permitted
+  account.
+
+Only after this checklist passes should the repository be described as a
+clean-machine replication package.
+
+## 13. Common errors
 
 `Missing verified ... export` means that a required `.rds` file was not copied
 with the repository. Restore that file or deliberately rebuild it using the
@@ -246,3 +354,9 @@ An error after changing shared functions can be caused by a stale local knitr
 cache. Preserve the current project first, restart R, and move aside only the
 affected notebook cache. Never delete the verified `.rds` exports merely to
 clear a cache.
+
+An immediate startup error saying that `renv/activate.R` cannot be opened means
+that `.Rprofile` was copied without the rest of the environment. Restore the
+matching `renv/activate.R` and `renv.lock`, or reinitialize `renv` in the final
+repository before distribution. Do not ask the professor to work around a
+partially copied environment.

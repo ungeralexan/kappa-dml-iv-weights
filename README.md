@@ -30,15 +30,17 @@ default switches, ordinary rendering, and deliberate rebuilds is provided in
 ```text
 .
 ├── functions_all.R       # canonical shared estimator/diagnostic library
-├── REPRODUCING.md        # fresh-checkout and rerun instructions
+├── README.md             # project overview
+├── IMPLEMENTATION.md     # estimator and diagnostic details
+├── REPRODUCING.md        # clean-checkout and rerun instructions
 ├── vietnam_final/        # Vietnam application
 ├── card_final/           # Card application
-├── child/                # Angrist–Evans application
-├── draft_of_13.tex       # thesis source
-├── references.bib
-├── pics/                 # figures used by the thesis
-└── output/pdf/           # compiled thesis output
+└── child/                # Angrist–Evans application
 ```
+
+The working thesis directory may additionally contain the LaTeX source,
+bibliography, figures, and compiled PDF. They are not required in the empirical
+replication repository unless the thesis itself is also being distributed.
 
 `functions_all.R` is the only active shared function file. Application
 notebooks load it with:
@@ -86,9 +88,10 @@ The installed `OutcomeWeights` version came from
 `MCKnaus/OutcomeWeights` at commit
 `0c94f940b04c14d0247b46842af37752e306b79e`.
 
-The project does not yet contain an `renv.lock`. Until one is created, the
-table above documents the validated environment but does not automatically
-restore it. To initialize `renv` from the repository root:
+The current working folder does not yet contain a complete `renv` environment.
+Until one is created, the table above documents the validated environment but
+does not automatically restore it. After the final repository has been
+assembled, initialize `renv` once from that repository's root:
 
 ```r
 install.packages("renv")
@@ -98,6 +101,10 @@ renv::snapshot()
 
 Commit `renv.lock`, `.Rprofile`, `renv/activate.R`, and
 `renv/settings.json` if it is created. Do not commit `renv/library/`.
+These files form one repository-level environment; the three application
+folders do not need separate lockfiles. Never distribute an `.Rprofile` that
+refers to `renv/activate.R` unless that activation file is present as well.
+The complete author and professor workflows are given in `REPRODUCING.md`.
 
 ## Data inputs
 
@@ -166,15 +173,17 @@ vietnam_xgb_tuning_export.rds
 vietnam_xgb_pliv_tuning_export.rds
 ```
 
-The translation notebook performs a complete shifted-outcome rerun and writes:
+The translation notebook combines newly fitted non-XGBoost rows with its
+verified XGBoost rows in:
 
 ```text
 vietnam_translation_rerun_results.rds
 vietnam_translation_xgb_rerun_export.rds
 ```
 
-With the default `RUN_XGB_RERUN = FALSE`, these are treated as verified
-reference exports and are not replaced.
+With the default `RUN_XGB_RERUN = FALSE`, both files are treated as verified
+references and are not replaced. With `TRUE`, the shifted-outcome XGBoost
+branch is rebuilt and the validated files are replaced.
 
 ### Card
 
@@ -184,7 +193,10 @@ reference exports and are not replaced.
 4. `card_translation_invariance_method_a_2.Rmd`
 5. `card_xgb_sensitivity.Rmd`
 6. `card_descriptives_1.Rmd`
-7. Run `card_final/export_thesis_figures.R` from the repository root
+7. `card_smoother_conditions.Rmd`, when the additional smoother audit is
+   required
+8. Run `card_final/export_thesis_figures.R` from the repository root when the
+   thesis figures must be refreshed
 
 The Card tuning notebooks read or rebuild
 `card_xgb_tuning_export.rds` and `card_xgb_pliv_tuning_export.rds`. The
@@ -199,10 +211,11 @@ translation notebook writes `card_translation_rerun_results.rds` and
 3. `child_xgb_pliv_tuning.Rmd`
 4. `child_test.Rmd`
 5. `child_translation_invariance_method_a.Rmd`
-6. `child_income_translation_four_units.Rmd`, for the supplementary strict
-   unit-change diagnostic
-7. `child_smoother_conditions.Rmd`, for the smoother-condition audit
-8. `ae98_descriptives.Rmd`
+6. `ae98_descriptives.Rmd`
+7. `child_smoother_conditions.Rmd`, when the smoother-condition audit is
+   required
+8. `child_income_translation_four_units.Rmd`, only for the supplementary
+   strict unit-change diagnostic
 
 The sample-construction notebook writes `ae98_sub.rds`. The two tuning
 notebooks read or rebuild `ae98_xgb_tuning_export.rds` and
@@ -264,6 +277,13 @@ Child four-unit diagnostic applies its separate $10^{-8}$ rule explicitly.
 The `.rds` exports are small, intentional pipeline artifacts. Downstream
 notebooks read them, and they avoid repeating the most expensive fits.
 
+Two older files,
+`card_final/card_translation_xgb_method_a_export.rds` and
+`child/ae98_translation_xgb_method_a_export.rds`, are not read by the current
+pipeline. They are superseded by the corresponding
+`*_translation_xgb_rerun_export.rds` files and should be omitted from the final
+replication repository.
+
 Knitr directories such as `*_cache/`, `cache/`, and `*_files/` are generated
 locally. They are ignored by Git. Deleting a cache does not delete the source
 analysis, but it forces the affected chunks to be recomputed. Figure folders
@@ -299,9 +319,10 @@ The stored exports make the present results inspectable and avoid accidental
 retuning, but the repository is not yet a fully restorable clean-machine
 package. It currently has no `renv.lock`, the fitted forest and XGBoost
 learners do not impose a common explicit single-thread setting, and result
-exports do not yet record checksums of the raw data, notebook, and shared
-helper. The final external test must therefore use a fresh clone on a second
-machine after the environment lockfile has been added.
+exports do not embed checksums of the raw data, notebook, and shared helper.
+The validated raw-data checksums are now recorded in `REPRODUCING.md`. The final
+external test must use a fresh clone on a second machine after the environment
+lockfile has been added.
 
 The earlier supplementary Child discrepancy has been resolved. The four-unit
 notebook now constructs every unit as an exact additive shift of the same
@@ -329,6 +350,9 @@ At the 4 August 2026 static audit:
   and 28 Child stored rows, with no numerical or classification discrepancies;
 - the cache-free Child four-unit diagnostic reproduced all 28 corresponding
   Method A dollar/cent rows and generated all 56 four-unit rows;
+- the Child smoother-condition notebook produced its 18 Condition 3 and 18
+  Condition 5 assessments, and every included outcome-weight vector reproduced
+  its fitted estimate;
 - the refreshed translation estimates agreed with the thesis at the reported
   precision.
 
@@ -339,14 +363,27 @@ weight-based and balance diagnostics.
 
 ## Suggested GitHub workflow
 
-Use the repository root as the R project root and preserve the directory
-structure shown above. A collaborator can then:
+Use one R project and one `renv` environment at the repository root, and
+preserve the directory structure shown above. After the final lockfile and
+authorized data have been supplied, a collaborator can start a fresh R session
+in that root and run:
 
 ```r
 install.packages("renv")
-renv::restore()  # after renv.lock has been committed
+renv::restore(prompt = FALSE)
+renv::status()
 rmarkdown::render("vietnam_final/vietnam_presentation_4.Rmd")
 ```
+
+The committed root `.Rprofile` loads `renv/activate.R` automatically when R is
+started in the repository. The collaborator does not source the lockfile or
+activation script manually. `renv::restore()` installs the versions recorded
+in `renv.lock`; it does not run the empirical notebooks.
+
+For the clearest RStudio workflow, include one `.Rproj` file in the repository
+root and omit the three old application-level `repro.Rproj` files. Opening an
+application-level project would make that subfolder the project root and would
+not activate the repository-level environment in the intended way.
 
 Do not upload local knitr caches or `renv/library/`. Do upload the source
 notebooks, `functions_all.R`, documentation, the lockfile, and any datasets or

@@ -391,10 +391,20 @@ point evaluation order.
 The repository-level `README.md` records the validated R and package versions,
 required data files, notebook execution order, stored tuning exports, and cache
 policy. `REPRODUCING.md` provides the corresponding step-by-step instructions
-for a fresh checkout without local caches. For a public replication repository, retain the canonical
-`functions_all.R`, the application notebooks, the verified `.rds` exports, and
-an `renv.lock` once it has been created. Do not distribute duplicate helper
-files inside the application folders.
+for a fresh checkout without local caches. For the final replication
+repository, retain the canonical `functions_all.R`, the application notebooks,
+the verified `.rds` exports, and a repository-level `renv.lock`. Do not
+distribute duplicate helper files inside the application folders.
+
+The stored artifacts have distinct roles. The six `*_xgb*_tuning_export.rds`
+files supply the original-outcome XGBoost fits and extracted weights. The three
+`*_translation_xgb_rerun_export.rds` files supply verified shifted-outcome
+XGBoost rows during an ordinary translation render. The three
+`*_translation_rerun_results.rds` files are the combined translation
+references. Knitr caches are disposable runtime accelerators, not replication
+inputs. The older Card and Child `*_translation_xgb_method_a_export.rds` files
+are not read by the current pipeline and are superseded by the corresponding
+`*_translation_xgb_rerun_export.rds` files.
 
 Seeds, fold counts, and stored exports control the current analysis, but exact
 cross-machine equality of forest and XGBoost reruns is not yet guaranteed.
