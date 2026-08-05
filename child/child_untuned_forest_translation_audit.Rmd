@@ -1,0 +1,750 @@
+---
+title: "Child Untuned Honest-Forest Translation Audit"
+subtitle: "Internal paired check with a strict 10^-8 tolerance"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    code_folding: show
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size: 15px; color: #2c2c2c; }
+h1 { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; }
+h2 { color: #2c7bb6; }
+.note-box {
+  background: #eaf4ff;
+  border-left: 4px solid #2c7bb6;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+.warn-box {
+  background: #fff3e0;
+  border-left: 4px solid #fb8c00;
+  padding: 10px 16px;
+  border-radius: 4px;
+  margin: 14px 0;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  cache = FALSE
+)
+```
+
+# Purpose
+
+This is a standalone internal audit of complete-pipeline translation invariance
+for the **untuned honest-forest** implementations of PLR-IV and Wald-AIPW in the
+Child application. It is intended to be run from the `child` R project by
+clicking **Run All** or **Knit**.
+
+The audit is a paired computational experiment, not a change designed to obtain
+a particular result. Within each pair, the sample, (D), (Z), (X),
+observation ordering, learner defaults, five-fold cross-fitting rule, and
+initial random-number state are held fixed. Only the outcome changes from
+(mathbf Y) to (mathbf Y+kmathbf 1). The forest structures and predictions
+are allowed to change; detecting whether they change is the purpose of the
+exercise.
+
+<div class="note-box">
+The original-outcome calls deliberately reproduce the untuned specification in
+<code>child_test.Rmd</code>: seed 42, five cross-fitting folds, and
+<code>tune.parameters = "none"</code>. No active result export is read,
+overwritten, or replaced.
+</div>
+
+<div class="warn-box">
+This notebook performs six honest-forest fits. It keeps at most two large fitted
+objects in memory simultaneously and does not use a knitr cache.
+</div>
+
+# Setup and fixed Child samples
+
+```{r packages-and-settings}
+library(OutcomeWeights)
+library(knitr)
+library(kableExtra)
+
+source(file.path("..", "functions_all.R"))
+
+SEED <- 42L
+N_CF <- 5L
+RERUN_TOLERANCE <- 1e-8
+SMOOTHER_TOLERANCE <- 1e-12
+SMOOTHER_BLOCK_ROWS <- 100L
+DISPLAY_DIGITS <- 12L
+SAVE_RESULTS <- FALSE
+```
+
+```{r data-and-design}
+if (!file.exists("ae98_sub.rds")) {
+  stop("Missing ae98_sub.rds. Rebuild the fixed Child subsamples first.")
+}
+
+obj <- readRDS("ae98_sub.rds")
+required_samples <- c("ae98_labor_sub", "ae98_income_sub")
+if (!all(required_samples %in% names(obj))) {
+  stop("ae98_sub.rds must contain ae98_labor_sub and ae98_income_sub.")
+}
+
+ae98_labor_sub <- obj$ae98_labor_sub
+ae98_income_sub <- obj$ae98_income_sub
+
+ae98_labor_sub$workedm <- as.integer(ae98_labor_sub$workedm)
+ae98_labor_sub$morekids <- as.integer(ae98_labor_sub$morekids)
+ae98_labor_sub$samesex <- as.integer(ae98_labor_sub$samesex)
+
+ae98_income_sub$morekids <- as.integer(ae98_income_sub$morekids)
+ae98_income_sub$samesex <- as.integer(ae98_income_sub$samesex)
+
+if (any(!is.finite(ae98_income_sub$incomem)) ||
+    any(ae98_income_sub$incomem <= 0)) {
+  stop("The income sample must contain strictly positive finite income.")
+}
+
+CHILD_COVARIATES <- c(
+  "agem", "agefstm", "sexk", "blackm", "hispm", "othracem"
+)
+RHS_DML_FORMULA <- reformulate(CHILD_COVARIATES, intercept = FALSE)
+
+X_labor <- make_X(RHS_DML_FORMULA, data = ae98_labor_sub)
+X_income <- make_X(RHS_DML_FORMULA, data = ae98_income_sub)
+
+D_labor <- ae98_labor_sub$morekids
+Z_labor <- ae98_labor_sub$samesex
+D_income <- ae98_income_sub$morekids
+Z_income <- ae98_income_sub$samesex
+
+Y_labor <- ae98_labor_sub$workedm
+Y_income_dollars <- log(ae98_income_sub$incomem)
+
+income_units <- list(
+  Cents = list(Y = Y_income_dollars + log(100), k = log(100)),
+  Thousands = list(Y = Y_income_dollars - log(1000), k = -log(1000)),
+  `Hundred-thousands` = list(
+    Y = Y_income_dollars - log(100000),
+    k = -log(100000)
+  )
+)
+
+# These separately evaluated expressions verify the economic interpretation.
+# They are not supplied to the forest learners.
+direct_income_units <- list(
+  Cents = log(100 * ae98_income_sub$incomem),
+  Thousands = log(ae98_income_sub$incomem / 1000),
+  `Hundred-thousands` = log(ae98_income_sub$incomem / 100000)
+)
+unit_coding_max_deviation <- vapply(
+  names(income_units),
+  function(unit) {
+    max(abs(income_units[[unit]]$Y - direct_income_units[[unit]]))
+  },
+  numeric(1)
+)
+stopifnot(all(unit_coding_max_deviation < 1e-10))
+```
+
+# Audit functions
+
+```{r audit-functions}
+fit_untuned <- function(Y, D, X, Z) {
+  # This call matches the untuned honest-forest calls in child_test.Rmd.
+  set.seed(SEED)
+  dml_with_smoother(
+    Y, D, X, Z,
+    n_cf_folds = N_CF,
+    tune.parameters = "none"
+  )
+}
+
+max_abs <- function(x) {
+  x <- as.numeric(x)
+  if (!length(x)) return(NA_real_)
+  max(abs(x))
+}
+
+rmse <- function(x) {
+  x <- as.numeric(x)
+  if (!length(x)) return(NA_real_)
+  sqrt(mean(x^2))
+}
+
+prediction_diagnostic <- function(pred_original, pred_shifted, expected_shift,
+                                  outcome, unit, nuisance) {
+  error <- as.numeric(pred_shifted) -
+    as.numeric(pred_original) - expected_shift
+  data.frame(
+    Outcome = outcome,
+    Unit = unit,
+    Nuisance = nuisance,
+    Expected_shift = expected_shift,
+    Maximum_absolute_error = max_abs(error),
+    RMSE = rmse(error),
+    Median_absolute_error = median(abs(error)),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+}
+
+smoother_diagnostic <- function(
+    smoother_original, smoother_shifted,
+    Y_original, prediction_original, prediction_shifted, k,
+    outcome, unit, estimator, smoother_name,
+    tolerance = SMOOTHER_TOLERANCE,
+    block_rows = SMOOTHER_BLOCK_ROWS) {
+
+  if (!identical(dim(smoother_original), dim(smoother_shifted))) {
+    stop(sprintf(
+      "Smoother dimensions differ for %s / %s / %s.",
+      outcome, unit, smoother_name
+    ))
+  }
+
+  smoother_dim <- dim(smoother_original)
+  if (length(smoother_dim) != 3L || smoother_dim[1L] != 1L ||
+      smoother_dim[2L] != smoother_dim[3L]) {
+    stop(sprintf(
+      paste0(
+        "Expected a 1 x N x N smoother array for %s / %s / %s; ",
+        "found dimensions %s."
+      ),
+      outcome, unit, smoother_name,
+      paste(smoother_dim, collapse = " x ")
+    ))
+  }
+
+  N <- smoother_dim[2L]
+  if (length(Y_original) != N ||
+      length(prediction_original) != N ||
+      length(prediction_shifted) != N) {
+    stop(sprintf(
+      paste0(
+        "Outcome, prediction, and smoother dimensions do not match for ",
+        "%s / %s / %s."
+      ),
+      outcome, unit, smoother_name
+    ))
+  }
+
+  # Store only N-length summaries. Difference matrices are formed one row block
+  # at a time and discarded immediately.
+  row_l1_change <- numeric(N)
+  row_max_change <- numeric(N)
+  smoother_component <- numeric(N)
+  normalization_component <- numeric(N)
+  reconstructed_original <- numeric(N)
+  reconstructed_shifted <- numeric(N)
+
+  maximum_element_change <- 0
+  squared_element_change <- 0
+  changed_elements <- 0
+  maximum_row_sum_deviation_original <- 0
+  maximum_row_sum_deviation_shifted <- 0
+
+  block_starts <- seq.int(1L, N, by = block_rows)
+  for (block_start in block_starts) {
+    rows <- block_start:min(block_start + block_rows - 1L, N)
+    n_block <- length(rows)
+
+    S_original_block <- matrix(
+      smoother_original[1L, rows, , drop = FALSE],
+      nrow = n_block,
+      ncol = N
+    )
+    S_shifted_block <- matrix(
+      smoother_shifted[1L, rows, , drop = FALSE],
+      nrow = n_block,
+      ncol = N
+    )
+    difference_block <- S_shifted_block - S_original_block
+    absolute_difference_block <- abs(difference_block)
+
+    row_l1_change[rows] <- rowSums(absolute_difference_block)
+    row_max_change[rows] <- apply(absolute_difference_block, 1L, max)
+    maximum_element_change <- max(
+      maximum_element_change,
+      absolute_difference_block
+    )
+    squared_element_change <- squared_element_change +
+      sum(difference_block^2)
+    changed_elements <- changed_elements +
+      sum(absolute_difference_block > tolerance)
+
+    row_sums_original <- rowSums(S_original_block)
+    row_sums_shifted <- rowSums(S_shifted_block)
+    maximum_row_sum_deviation_original <- max(
+      maximum_row_sum_deviation_original,
+      abs(row_sums_original - 1)
+    )
+    maximum_row_sum_deviation_shifted <- max(
+      maximum_row_sum_deviation_shifted,
+      abs(row_sums_shifted - 1)
+    )
+
+    smoother_component[rows] <- as.vector(
+      difference_block %*% Y_original
+    )
+    normalization_component[rows] <- k * (row_sums_shifted - 1)
+    reconstructed_original[rows] <- as.vector(
+      S_original_block %*% Y_original
+    )
+    reconstructed_shifted[rows] <- as.vector(
+      S_shifted_block %*% (Y_original + k)
+    )
+
+    rm(
+      S_original_block, S_shifted_block, difference_block,
+      absolute_difference_block
+    )
+  }
+
+  observed_residual <- as.numeric(prediction_shifted) -
+    as.numeric(prediction_original) - k
+  decomposition_residual <- observed_residual -
+    smoother_component - normalization_component
+  reconstruction_error_original <- as.numeric(prediction_original) -
+    reconstructed_original
+  reconstruction_error_shifted <- as.numeric(prediction_shifted) -
+    reconstructed_shifted
+
+  matrix_row <- data.frame(
+    Outcome = outcome,
+    Unit = unit,
+    Estimator = estimator,
+    Smoother = smoother_name,
+    Exactly_identical = identical(smoother_original, smoother_shifted),
+    Maximum_element_change = maximum_element_change,
+    Element_RMSE = sqrt(squared_element_change / (N * N)),
+    Median_row_L1_change = median(row_l1_change),
+    Maximum_row_L1_change = max(row_l1_change),
+    Share_rows_changed = mean(row_max_change > tolerance),
+    Share_elements_changed = changed_elements / (N * N),
+    Maximum_row_sum_deviation_original =
+      maximum_row_sum_deviation_original,
+    Maximum_row_sum_deviation_shifted =
+      maximum_row_sum_deviation_shifted,
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+
+  decomposition_row <- data.frame(
+    Outcome = outcome,
+    Unit = unit,
+    Estimator = estimator,
+    Smoother = smoother_name,
+    Observed_residual_RMSE = rmse(observed_residual),
+    Observed_residual_maximum = max_abs(observed_residual),
+    Smoother_component_RMSE = rmse(smoother_component),
+    Smoother_component_maximum = max_abs(smoother_component),
+    Normalization_component_RMSE = rmse(normalization_component),
+    Normalization_component_maximum = max_abs(normalization_component),
+    Maximum_decomposition_residual = max_abs(decomposition_residual),
+    Maximum_reconstruction_error_original =
+      max_abs(reconstruction_error_original),
+    Maximum_reconstruction_error_shifted =
+      max_abs(reconstruction_error_shifted),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+
+  list(matrix = matrix_row, decomposition = decomposition_row)
+}
+
+compare_fits <- function(fit_original, fit_shifted, outcome, unit, k) {
+  folds_identical <- identical(
+    fit_original$NuPa.hat$cf_mat,
+    fit_shifted$NuPa.hat$cf_mat
+  )
+  if (!folds_identical) {
+    stop(sprintf(
+      paste0(
+        "Cross-fitting matrices differ for %s / %s; ",
+        "the paired comparison is not interpreted."
+      ),
+      outcome, unit
+    ))
+  }
+
+  summary_original <- summary(fit_original)
+  summary_shifted <- summary(fit_shifted)
+  estimators <- c("PLR-IV", "Wald-AIPW")
+
+  estimate_rows <- do.call(rbind, lapply(estimators, function(estimator) {
+    tau_original <- get_estimate(summary_original, estimator)
+    tau_shifted <- get_estimate(summary_shifted, estimator)
+    difference <- tau_shifted - tau_original
+    data.frame(
+      Outcome = outcome,
+      Estimator = estimator,
+      Unit = unit,
+      Shift_k = k,
+      tau_original = tau_original,
+      tau_shifted = tau_shifted,
+      rerun_difference = difference,
+      absolute_difference = abs(difference),
+      invariant_1e_8 = is.finite(difference) &&
+        abs(difference) <= RERUN_TOLERANCE,
+      folds_identical = folds_identical,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  }))
+
+  p_o <- fit_original$NuPa.hat$predictions
+  p_s <- fit_shifted$NuPa.hat$predictions
+  s_o <- fit_original$NuPa.hat$smoothers
+  s_s <- fit_shifted$NuPa.hat$smoothers
+
+  prediction_rows <- do.call(rbind, list(
+    # Outcome nuisances should shift by k under location equivariance.
+    prediction_diagnostic(
+      p_o$Y.hat, p_s$Y.hat, k,
+      outcome, unit, "Y.hat (PLR-IV outcome)"
+    ),
+    prediction_diagnostic(
+      p_o$Y.hat.z0, p_s$Y.hat.z0, k,
+      outcome, unit, "Y.hat.z0 (Wald outcome)"
+    ),
+    prediction_diagnostic(
+      p_o$Y.hat.z1, p_s$Y.hat.z1, k,
+      outcome, unit, "Y.hat.z1 (Wald outcome)"
+    ),
+    # These nuisances do not use Y and should not shift.
+    prediction_diagnostic(
+      p_o$D.hat, p_s$D.hat, 0,
+      outcome, unit, "D.hat (PLR-IV treatment)"
+    ),
+    prediction_diagnostic(
+      p_o$D.hat.z0, p_s$D.hat.z0, 0,
+      outcome, unit, "D.hat.z0 (Wald treatment)"
+    ),
+    prediction_diagnostic(
+      p_o$D.hat.z1, p_s$D.hat.z1, 0,
+      outcome, unit, "D.hat.z1 (Wald treatment)"
+    ),
+    prediction_diagnostic(
+      p_o$Z.hat, p_s$Z.hat, 0,
+      outcome, unit, "Z.hat (instrument)"
+    )
+  ))
+
+  smoother_checks <- list(
+    smoother_diagnostic(
+      s_o$S, s_s$S,
+      fit_original$data$Y, p_o$Y.hat, p_s$Y.hat, k,
+      outcome, unit, "PLR-IV", "S"
+    ),
+    smoother_diagnostic(
+      s_o$S.z0, s_s$S.z0,
+      fit_original$data$Y, p_o$Y.hat.z0, p_s$Y.hat.z0, k,
+      outcome, unit, "Wald-AIPW", "S.z0"
+    ),
+    smoother_diagnostic(
+      s_o$S.z1, s_s$S.z1,
+      fit_original$data$Y, p_o$Y.hat.z1, p_s$Y.hat.z1, k,
+      outcome, unit, "Wald-AIPW", "S.z1"
+    )
+  )
+
+  smoother_matrix_rows <- do.call(
+    rbind,
+    lapply(smoother_checks, `[[`, "matrix")
+  )
+  smoother_decomposition_rows <- do.call(
+    rbind,
+    lapply(smoother_checks, `[[`, "decomposition")
+  )
+
+  list(
+    estimates = estimate_rows,
+    predictions = prediction_rows,
+    smoother_matrices = smoother_matrix_rows,
+    smoother_decompositions = smoother_decomposition_rows
+  )
+}
+
+fmt_fixed <- function(x, digits = DISPLAY_DIGITS) {
+  x <- as.numeric(x)
+  x[abs(x) < 0.5 * 10^(-digits)] <- 0
+  formatC(x, format = "f", digits = digits)
+}
+
+fmt_scientific <- function(x, digits = 5L) {
+  formatC(as.numeric(x), format = "e", digits = digits)
+}
+```
+
+# Run the paired untuned-forest fits
+
+```{r run-audit}
+estimate_results <- list()
+prediction_results <- list()
+smoother_matrix_results <- list()
+smoother_decomposition_results <- list()
+result_index <- 1L
+
+# Work status: binary 0/1 coding versus the exact +1 translation.
+fit_labor_original <- fit_untuned(
+  Y_labor, D_labor, X_labor, Z_labor
+)
+fit_labor_shifted <- fit_untuned(
+  Y_labor + 1, D_labor, X_labor, Z_labor
+)
+
+labor_comparison <- compare_fits(
+  fit_labor_original,
+  fit_labor_shifted,
+  outcome = "Work status",
+  unit = "0/1 to 1/2",
+  k = 1
+)
+estimate_results[[result_index]] <- labor_comparison$estimates
+prediction_results[[result_index]] <- labor_comparison$predictions
+smoother_matrix_results[[result_index]] <-
+  labor_comparison$smoother_matrices
+smoother_decomposition_results[[result_index]] <-
+  labor_comparison$smoother_decompositions
+result_index <- result_index + 1L
+
+rm(fit_labor_original, fit_labor_shifted, labor_comparison)
+invisible(gc())
+
+# Maternal income: retain one dollar reference fit and compare the three exact
+# additive unit transformations with that common reference.
+fit_income_dollars <- fit_untuned(
+  Y_income_dollars, D_income, X_income, Z_income
+)
+
+for (unit in names(income_units)) {
+  fit_income_shifted <- fit_untuned(
+    income_units[[unit]]$Y,
+    D_income,
+    X_income,
+    Z_income
+  )
+
+  comparison <- compare_fits(
+    fit_income_dollars,
+    fit_income_shifted,
+    outcome = "Maternal log income",
+    unit = unit,
+    k = income_units[[unit]]$k
+  )
+  estimate_results[[result_index]] <- comparison$estimates
+  prediction_results[[result_index]] <- comparison$predictions
+  smoother_matrix_results[[result_index]] <-
+    comparison$smoother_matrices
+  smoother_decomposition_results[[result_index]] <-
+    comparison$smoother_decompositions
+  result_index <- result_index + 1L
+
+  rm(fit_income_shifted, comparison)
+  invisible(gc())
+}
+
+rm(fit_income_dollars)
+invisible(gc())
+
+estimate_results <- do.call(rbind, estimate_results)
+prediction_results <- do.call(rbind, prediction_results)
+smoother_matrix_results <- do.call(rbind, smoother_matrix_results)
+smoother_decomposition_results <- do.call(
+  rbind,
+  smoother_decomposition_results
+)
+```
+
+# Estimate-level results
+
+The (10^{-8}) classification below uses the unrounded rerun difference.
+Formatting is applied only for display.
+
+```{r estimate-table, echo=FALSE}
+estimate_display <- estimate_results
+numeric_columns <- c(
+  "Shift_k", "tau_original", "tau_shifted",
+  "rerun_difference", "absolute_difference"
+)
+estimate_display[numeric_columns] <- lapply(
+  estimate_display[numeric_columns], fmt_fixed
+)
+
+estimate_display |>
+  kbl(
+    caption = "Untuned honest-forest complete-pipeline translation results",
+    row.names = FALSE,
+    align = c("l", "l", "l", rep("r", 5), "c", "c")
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 12
+  ) |>
+  row_spec(
+    which(!estimate_results$invariant_1e_8),
+    background = "#fffbf0"
+  ) |>
+  footnote(general = paste0(
+    "Invariant means that the absolute unrounded rerun difference is at most ",
+    format(RERUN_TOLERANCE, scientific = TRUE),
+    ". Every interpreted pair has an identical realized cross-fitting matrix."
+  ))
+```
+
+# Nuisance-prediction diagnostics
+
+For outcome nuisances, the expected prediction change is (k). For treatment
+and instrument nuisances, which do not use (Y), the expected change is zero.
+
+```{r prediction-table, echo=FALSE}
+prediction_display <- prediction_results
+prediction_numeric_columns <- c(
+  "Expected_shift", "Maximum_absolute_error", "RMSE",
+  "Median_absolute_error"
+)
+prediction_display[prediction_numeric_columns] <- lapply(
+  prediction_display[prediction_numeric_columns], fmt_fixed
+)
+
+prediction_display |>
+  kbl(
+    caption = "Nuisance-prediction translation residuals",
+    row.names = FALSE
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 11
+  )
+```
+
+# Realized smoother-matrix diagnostics
+
+The first table compares the original and translated realized outcome smoother
+matrices. `Exactly_identical` is a bit-for-bit comparison. The numerical change
+statistics use the matrix difference \(S^k-S\). A row is classified as changed
+when at least one of its weights differs by more than
+`r format(SMOOTHER_TOLERANCE, scientific = TRUE)`.
+
+```{r smoother-matrix-table, echo=FALSE}
+smoother_matrix_display <- smoother_matrix_results
+smoother_matrix_numeric_columns <- c(
+  "Maximum_element_change", "Element_RMSE",
+  "Median_row_L1_change", "Maximum_row_L1_change",
+  "Share_rows_changed", "Share_elements_changed",
+  "Maximum_row_sum_deviation_original",
+  "Maximum_row_sum_deviation_shifted"
+)
+smoother_matrix_display[smoother_matrix_numeric_columns] <- lapply(
+  smoother_matrix_display[smoother_matrix_numeric_columns],
+  fmt_scientific
+)
+
+smoother_matrix_display |>
+  kbl(
+    caption = "Original versus translated realized smoother matrices",
+    row.names = FALSE
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 10
+  ) |>
+  footnote(general = paste0(
+    "Rows and elements are classified as numerically changed at an absolute ",
+    "weight tolerance of ",
+    format(SMOOTHER_TOLERANCE, scientific = TRUE), "."
+  ))
+```
+
+The second table verifies the observation-level identity
+
+\[
+\widehat{\mathbf g}^{\,k}-\widehat{\mathbf g}-k\mathbf 1
+=
+(S^k-S)\mathbf Y+k(S^k\mathbf 1-\mathbf 1).
+\]
+
+The first term on the right is the **smoother-change component**. The second is
+the **normalization component**. The decomposition residual also incorporates
+any discrepancy between the stored forest predictions and their reconstruction
+from the returned smoother weights.
+
+```{r smoother-decomposition-table, echo=FALSE}
+smoother_decomposition_display <- smoother_decomposition_results
+smoother_decomposition_numeric_columns <- setdiff(
+  names(smoother_decomposition_display),
+  c("Outcome", "Unit", "Estimator", "Smoother")
+)
+smoother_decomposition_display[smoother_decomposition_numeric_columns] <-
+  lapply(
+    smoother_decomposition_display[smoother_decomposition_numeric_columns],
+    fmt_scientific
+  )
+
+smoother_decomposition_display |>
+  kbl(
+    caption = paste0(
+      "Decomposition of the outcome-nuisance translation residual: ",
+      "observed = smoother change + normalization"
+    ),
+    row.names = FALSE
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 9
+  )
+```
+
+# Optional internal export
+
+No output file is written under the default setting. Change `SAVE_RESULTS` to
+`TRUE` only if the internal diagnostic results should be retained.
+
+```{r optional-save}
+settings <- list(
+  seed = SEED,
+  n_cf = N_CF,
+  tuning = "none",
+  tolerance = RERUN_TOLERANCE,
+  smoother_tolerance = SMOOTHER_TOLERANCE,
+  smoother_block_rows = SMOOTHER_BLOCK_ROWS,
+  display_digits = DISPLAY_DIGITS,
+  covariates = CHILD_COVARIATES,
+  labor_n = nrow(ae98_labor_sub),
+  income_n = nrow(ae98_income_sub),
+  input_file = "ae98_sub.rds",
+  OutcomeWeights_version = as.character(packageVersion("OutcomeWeights")),
+  grf_version = as.character(packageVersion("grf"))
+)
+
+if (SAVE_RESULTS) {
+  saveRDS(
+    list(
+      estimates = estimate_results,
+      prediction_diagnostics = prediction_results,
+      smoother_matrix_diagnostics = smoother_matrix_results,
+      smoother_decomposition_diagnostics =
+        smoother_decomposition_results,
+      unit_coding_max_deviation = unit_coding_max_deviation,
+      settings = settings
+    ),
+    "child_untuned_forest_translation_audit_results.rds"
+  )
+  message("Saved child_untuned_forest_translation_audit_results.rds")
+} else {
+  message("SAVE_RESULTS is FALSE; no result file was written.")
+}
+```
