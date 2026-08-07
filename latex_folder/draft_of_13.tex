@@ -9,7 +9,6 @@
 \usepackage[T1]{fontenc}
 \usepackage[english]{babel}
 \usepackage{lmodern}
-% \usepackage{microtype}
 
 % ------------------------------------------------------------------------------
 % FONTS  — matches standard econometrics journals (Times-like serif)
@@ -212,6 +211,8 @@ The empirical analysis examines whether normalization is reflected in
 translation invariance and whether outcome-weight diagnostics reveal differences
 in effective support, concentration, negative weights, and covariate balance that
 are not visible from point estimates alone.
+
+This thesis documents implementation- and design-specific departures from translation invariance when complete adaptive DML procedures are re-estimated after an outcome translation and localizes one such departure to changes in the realized outcome smoother.
 
 \bigskip
 \noindent\textbf{Keywords:} local average treatment effect, instrumental variables,
@@ -463,8 +464,7 @@ effect of $Z_i$ on $Y_i$ and on $D_i$:
     \label{eq:tau_u}
 \end{equation}
 Thus, the inverse-probability weights are normalized within each instrument
-group before either contrast is formed. Appendix~\ref{app:normalization_estimators}
-shows the normalization algebra.\\
+group before either contrast is formed. \\
 The second normalized estimator, $\hat\tau_{a,10}$, instead normalizes the
 $\hat\kappa_1$- and $\hat\kappa_0$-weighted outcome means separately:
 \begin{equation}
@@ -566,9 +566,7 @@ kappa specifications. Three specifications are based on the two normalized
 forms, $\hat\tau_u$ and $\hat\tau_{a,10}$, while three are based on the
 unnormalized forms, $\hat\tau_a$, $\hat\tau_t$, and $\hat\tau_{a,0}$. In the
 empirical sections, the term \emph{specification} refers to a reported
-combination of estimator form and propensity-score implementation. The
-normalization classes introduced below refer instead to the realized outcome
-weights in a particular empirical specification.
+combination of estimator form and propensity-score implementation. 
 
 
 
@@ -576,14 +574,14 @@ weights in a particular empirical specification.
 \subsection{DML-based IV estimators}
 
 The empirical analysis considers two IV estimators constructed within the
-double machine learning framework of \citet{chernozhukov2018double}: a
-partially linear IV estimator and a Wald augmented inverse-probability-weighted
-(Wald-AIPW) estimator. These are the two IV procedures compared with the six
+double machine learning framework of \citet{chernozhukov2018double}.
+The
+partially linear IV estimator and the Wald augmented inverse-probability-weighted
+(Wald-AIPW) estimator. These will be compared with the six
 reported kappa specifications. Linear and logistic regression, honest forests,
 Ranger, and XGBoost enter as alternative learners for the nuisance functions
 required by the two scores. The choice of learner therefore changes how the
-nuisance functions are estimated, but not the definition of the underlying
-estimator.
+nuisance functions are estimated.
 Following \citet[Sections~2--3]{chernozhukov2018double}, let $W_i$ collect the observed variables, let $\theta_0$ denote a low-dimensional target parameter, and let $\eta_0$ collect the nuisance functions. The target parameter is characterized by the population moment condition
 \begin{equation}
     E\!\left[\psi(W_i;\theta_0,\eta_0)\right]=0,
@@ -601,9 +599,7 @@ The score is Neyman orthogonal at $(\theta_0,\eta_0)$ if
     =0
     \label{eq:neyman_orthogonality}
 \end{equation}
-for admissible perturbations $\eta-\eta_0$. This condition makes the population moment locally insensitive to small first-order perturbations of the nuisance functions. Under the appropriate rate and regularity conditions, nuisance-estimation errors consequently enter through higher-order remainder terms rather than affecting the target moment at first order \citep{chernozhukov2018double}. Orthogonality is a local robustness property and does not eliminate problems
-caused by weak instruments, limited overlap, severe nuisance misspecification,
-or inaccurate nuisance predictions.
+for admissible perturbations $\eta-\eta_0$. This condition makes the population moment locally insensitive to small first-order perturbations of the nuisance functions. Under the appropriate rate and regularity conditions, nuisance-estimation errors consequently enter through higher-order remainder terms rather than affecting the target moment at first order \citep{chernozhukov2018double}. 
 Cross-fitting separates nuisance estimation from score evaluation
 \citep[Section~3]{chernozhukov2018double}. Let
 $I_1,\ldots,I_K$ denote a partition of the sample into $K$ folds and let
@@ -670,9 +666,7 @@ above. The orthogonal score is
 At the true nuisance functions, this score satisfies both the identifying
 moment condition and the Neyman-orthogonality condition. Identification
 additionally requires the residualized first stage
-$E[(Z_i-m_0(X_i))(D_i-r_0(X_i))]$ to be nonzero. Orthogonality reduces
-sensitivity to nuisance-estimation error but does not resolve weak-instrument
-problems.\\
+$E[(Z_i-m_0(X_i))(D_i-r_0(X_i))]$ to be nonzero. \\
 Replacing the nuisance functions with the cross-fitted predictions introduced
 above gives
 \begin{equation}
@@ -701,7 +695,7 @@ proportional to $\Delta_D(X)$, where $\Delta_D(X)$ denotes the conditional
 first stage. The two parameters therefore need not coincide when the
 instrument propensity and the conditional complier effect vary across
 covariate values. Appendix~\ref{app:pliv_late_aggregation} provides the
-corresponding derivation. In the empirical analysis, PLR-IV is consequently
+corresponding derivation. In the empirical analysis, PLR-IV is 
 treated as a flexible residualized-IV benchmark rather than as a direct
 estimator of the same LATE targeted by the kappa and Wald-AIPW estimators.
 
@@ -709,7 +703,7 @@ estimator of the same LATE targeted by the kappa and Wald-AIPW estimators.
 
 \subsubsection{The Wald-AIPW estimator}
 
-The second DML procedure is the Wald augmented inverse-probability-weighted
+The other DML based estimator considered is the Wald augmented inverse-probability-weighted
 (Wald-AIPW) estimator. Unlike PLR-IV, it does not impose a constant treatment
 coefficient. Instead, it estimates the covariate-adjusted effects of the
 instrument on the outcome and treatment and forms their ratio. The construction
@@ -819,18 +813,15 @@ accordingly combines linear outcome regressions with logistic instrument and
 treatment models.\\
 The headline outcome-weight specifications use honest regression forests from
 the generalized-random-forest framework
-\citep{athey2019generalized,knaus2024treatment}. These models are fitted
-through \texttt{dml\_with\_smoother()}, which also provides the smoother
-representations required to recover the corresponding outcome weights.
+\citep{athey2019generalized,knaus2024treatment}.
 The alternative learner comparison is implemented through
 \textsc{DoubleML} \citep{bach2022doubleml}. It includes fixed parametric and
 \texttt{ranger} specifications together with tuned XGBoost specifications
 \citep{wright2017ranger,chen2016xgboost}.
 The parametric and \texttt{ranger} learners retain their package defaults and
 are not subjected to a separate hyperparameter search.\\
-For the headline honest forests, setting
-\texttt{tune.parameters = "all"} invokes the internal GRF tuning procedure
-separately within each outer training sample. The procedure uses out-of-bag
+For the honest forests the internal GRF tuning procedure
+separately within each outer training sample is invoked. The procedure uses out-of-bag
 prediction error to select the subsample fraction, number of candidate
 variables per split, minimum node size, honesty fraction, honesty pruning rule,
 split-balance parameter, and imbalance penalty. Because tuning is conducted
@@ -854,10 +845,7 @@ depth from 2 to 5, learning rate from 0.02 to 0.20, and minimum child weight
 from 1 to 8.\\
 Root mean squared error is used for every PLR-IV nuisance function and for the
 Wald-AIPW outcome regressions. Bernoulli log-loss is used for the Wald-AIPW
-instrument propensity and treatment regressions. Tuning is performed with
-\texttt{tune\_on\_folds = TRUE}, so the selected parameters may differ across
-outer folds. The tuned estimator therefore does not generally have one global
-hyperparameter vector. Additional software settings, stored-result conventions,
+instrument propensity and treatment regressions.  Additional software settings, stored-result conventions,
 and execution instructions are documented in
 \texttt{IMPLEMENTATION.md}.
 
@@ -1448,45 +1436,42 @@ The veteran rate is \(40.4\%\) among eligible men and \(26.5\%\) among ineligibl
 
 \subsection{Point Estimates across Age Specifications}
 
-This subsection reports the point estimates obtained using the original log-wage outcome. Appendix Table~\ref{tab:vietnam_point_estimates_age} reports the estimates across the three age specifications. The estimates from the three normalized-form kappa specifications range from \(0.202\) to \(0.234\) under linear and cubic age adjustment. By contrast, the estimates from the three unnormalized-form specifications are close to zero under the linear specification, between \(0.014\) and \(0.016\), but range from \(0.302\) to \(0.317\) under cubic adjustment. Under saturated adjustment, all six reported kappa specifications coincide at \(0.241\). The standard errors are large relative to these differences, so the estimates are used primarily to compare finite-sample estimator behavior rather than to draw precise substantive conclusions.
+This subsection reports the point estimates obtained using log-wage outcome. Appendix Table~\ref{tab:vietnam_point_estimates_age} reports the estimates across the three age specifications. The estimates from the three normalized-form kappa specifications range from \(0.202\) to \(0.234\) under linear and cubic age adjustment. By contrast, the estimates from the three unnormalized-form specifications are close to zero under the linear specification, between \(0.014\) and \(0.016\), but range from \(0.302\) to \(0.317\) under cubic adjustment. Under saturated adjustment, all six reported kappa specifications coincide at \(0.241\). The standard errors are large relative to these differences, so the estimates are used primarily to compare finite-sample estimator behavior.
 The DML comparison focuses on the cubic and saturated specifications. Under cubic age adjustment, tuned honest-forest PLR-IV and Wald-AIPW produce estimates of \(0.243\) and \(0.229\), respectively, placing them between the estimates from the normalized- and unnormalized-form kappa specifications. Under saturated adjustment, both DML estimates are close to the common kappa estimate of \(0.241\). Alternative nuisance learners shift the DML estimates only modestly and do not change this general pattern. Appendix Table~\ref{tab:vietnam_dml_learners} reports the complete learner comparison.
 
 
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:vietnam_translation}
 
-The Vietnam translation-invariance test converts hourly wages from dollars to cents before taking logarithms, which adds \(\log(100)\) to every observed outcome. Following the procedure defined in Section~\ref{subsec:full_pipeline_invariance}, each estimator is then re-estimated using the transformed outcome.
-Appendix
-Table~\ref{tab:vietnam_translation_appendix} reports the underlying estimates,
-while Table~\ref{tab:vietnam_translation} summarizes the rerun changes.
-The kappa specifications reproduce the main result. Under cubic age
-adjustment, the three normalized-form specifications are translation invariant,
-whereas the three unnormalized-form specifications are not. For the latter group,
-recoding wages in cents changes the estimates by approximately \(0.21\) to
-\(0.22\) log points. Under saturated age adjustment, all six reported kappa specifications
-are invariant and coincide at approximately \(0.241\) under both outcome
-codings. This agreement is specific to the saturated age-cell specification
-in this sample.
-The DML exercise focuses on the cubic and saturated specifications used in
-the learner comparison. PLR-IV and Wald-AIPW with tuned honest-forest
-nuisances are classified as translation invariant under both specifications.
-The same result is obtained with regression and \texttt{ranger} nuisance
-learners. Thus, for these implementations, re-estimating the complete
-procedure after the outcome translation leaves the reported treatment-effect
-estimates unchanged under the empirical classification rule.
-Tuned XGBoost is the exception. None of the four tuned-XGBoost implementations satisfies the empirical translation-invariance criterion.
-The result applies to both PLR-IV and
-Wald-AIPW under cubic and saturated age adjustment. The largest rerun change,
-approximately \(0.003\), occurs for cubic PLR-IV.
-The remaining changes are
-smaller and are reported in
-Table~\ref{tab:vietnam_translation}. Although these differences are small
-relative to the corresponding point estimates, they show that the complete
-tuned XGBoost procedures respond to the economically irrelevant change in
-the outcome unit.
-Overall, the Vietnam results reproduce the distinction between normalized and
-unnormalized kappa forms and show that the same invariance property holds
-for most of the implemented DML procedures. The tuned-XGBoost rerun differences are therefore the main exception to the otherwise stable DML results in this application.
+To assess translation invariance, hourly wages are converted from dollars to
+cents before taking logarithms, thereby adding \(\log(100)\) to every observed
+outcome. Following the procedure defined in
+Section~\ref{subsec:full_pipeline_invariance}, each estimator is then
+re-estimated using the transformed outcome. Table~\ref{tab:vietnam_translation}
+reports the signed rerun differences.
+The kappa results reproduce the distinction emphasized by \citet{sloczynski2025abadie}. Under cubic age adjustment, the normalized-form estimators do not change, whereas the three unnormalized-form estimates change by approximately \(0.21\)–\(0.22\) log points. Under saturated adjustment, all six kappa estimates coincide at approximately \(0.241\).
+This is a design specific numerical equivalence in the present sample and does not turn the generally unnormalized estimator forms into algebraically normalized estimators.
+
+The OLS/logit and Ranger implementations do not show rerun differences under both age specifications. The same result is obtained for tuned
+honest-forest PLR-IV and for tuned honest-forest Wald-AIPW under cubic age
+adjustment.
+ Saturated honest-forest Wald-AIPW instead changes by
+\(0.0000177\). This change is negligible relative to its point estimate of
+\(0.244\), but it is appreciably larger than the floating-point discrepancies
+observed in the remaining forest comparisons.
+Appendix Table~\ref{tab:vietnam_forest_smoother_translation} localizes this
+departure. The original and transformed cross-fitting folds and all treatment and instrument nuisance predictions are identical. The PLR-IV smoother and every Ranger smoother are also identical across outcome codings. 
+Only the two instrument-specific outcome smoothers used by saturated honest-forest Wald-AIPW change. Their rows continue to sum to one up to numerical precision, and the smoother-change component reproduces the outcome-prediction departure, while the normalization component is negligible.
+The evidence therefore attributes the rerun difference to a changed allocation of outcome-smoother weights, not to failed row normalization. 
+The diagnostic does not identify which internal forest or tuning operation caused the smoother structures to change.
+Tuned XGBoost produces the largest DML rerun differences, ranging in absolute
+value from approximately \(0.000310\) to \(0.002917\).
+ Because an exact
+smoother representation is not recovered for these implementations, their
+departures cannot be decomposed in the same way.
+ Overall, the Vietnam application exhibits three distinct cases.
+The algebraically explained kappa sensitivity, numerical stability for most DML implementations, and design-specific changes in adaptive outcome-nuisance fitting.
+
 
 
 
@@ -1560,8 +1545,7 @@ Wald-AIPW, tuned XGBoost
 \(\widehat{\tau}_{\mathrm{cents}}
 -\widehat{\tau}_{\mathrm{dollars}}\)
 after repeating the complete estimation procedure using the transformed
-outcome. An estimate is classified as unchanged when the absolute unrounded
-rerun change does not exceed \(10^{-4}\). Bold entries exceed this tolerance.
+outcome.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
@@ -1570,9 +1554,11 @@ rerun change does not exceed \(10^{-4}\). Bold entries exceed this tolerance.
 
 \subsection{Outcome-Weight Diagnostics}
 \label{subsec:vietnam_weights}
-The outcome-weight analysis is restricted to vectors that reproduce their corresponding estimates numerically. The XGBoost reconstructions are therefore excluded, as is the cubic PLR-IV reconstruction with OLS nuisances. The latter is a borderline numerical-conditioning case, while all XGBoost vectors fail the estimator-specific reproduction check.
+The outcome-weight analysis is restricted to vectors that reproduce their corresponding estimates numerically. 
 Table~\ref{tab:vietnam_weight_normalization} summarizes the normalization properties of the remaining representations. Under cubic age adjustment, the three normalized-form kappa specifications have fully normalized realized outcome weights, while the three unnormalized-form specifications reproduce their expected classes. The verified DML representations are generally scale-normalized.
-Their treated and sign-oriented control masses are equal but differ slightly from one. Under saturated adjustment, all six reported kappa specifications become numerically equivalent and have fully normalized realized outcome weights. Linear PLR-IV and linear/logit Wald-AIPW are also fully normalized, whereas the forest implementations remain scale-normalized.\\
+Their treated and sign-oriented control masses are equal but differ slightly from one. Under saturated adjustment, all six reported kappa specifications become numerically equivalent and have fully normalized realized outcome weights. Linear PLR-IV and linear/logit Wald-AIPW are also fully normalized, whereas the forest implementations remain scale-normalized.
+XGBoost is excluded from the realized outcome-weight classification because the recovered vectors do not reproduce the corresponding estimates. This prevents an empirical classification of their realized weight masses. Nevertheless, Condition 3 need not hold for boosted-tree outcome smoothers \citep{knaus2024treatment,curth2024randomforests}, and Knaus classifies standard DoubleML XGBoost implementations as non-affine. 
+\\
 The concentration diagnostics describe a separate property of the weights. Across both age specifications, modified ESS ratios remain above \(0.89\), while approximately \(43\%\)–\(44\%\) of treated and \(46\%\)–\(47\%\) of control absolute weight mass has the opposite orientation. The weights are therefore broadly distributed but contain substantial sign cancellation. Unlike normalization, these patterns vary little across the two age specifications. Appendix Table~\ref{tab:vietnam_weight_concentration_appendix} reports the complete results.
 Appendix Figure~\ref{fig:vietnam_love_cubic} examines covariate balance under cubic age adjustment. The unadjusted age differences range from approximately \(0.52\) to \(0.56\). CBPS and the eligible linear/logit and \texttt{ranger} implementations reduce these differences to numerical or near-numerical zero. Tuned-forest Wald-AIPW also remains below the \(0.1\) reference line, while tuned-forest PLR-IV and the two MLE specifications based on normalized kappa forms retain differences close to \(0.1\). Under saturated adjustment, all eligible weighted differences remain below approximately \(0.03\), and the corresponding plot is therefore omitted.
 Overall, the age specification changes the normalization properties more strongly than it changes effective support or sign composition. The balance results additionally show that full normalization does not guarantee exact covariate balance, as the CBPS construction balances age more closely than several fully normalized MLE-based representations.
@@ -1652,12 +1638,9 @@ $\widehat{\tau}_{a,0}$
 \item \textit{Notes:} The table classifies outcome-weight vectors that
 reproduce their corresponding fitted estimates. Mass T/C reports the treated
 mass, \(\sum_{i:D_i=1}\omega_i\), and the sign-oriented control mass,
-\(-\sum_{i:D_i=0}\omega_i\). Full normalization requires both masses to equal
-one. The difference between the reported masses equals the
+\(-\sum_{i:D_i=0}\omega_i\). The difference between the reported masses equals the
 total weight mass. The cubic PLR-IV representation with OLS nuisances is not
 interpreted because it does not pass the estimator-reproduction check.
-XGBoost is omitted because none of its reconstructed weight vectors passes
-this check.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
@@ -1687,18 +1670,22 @@ The 2SLS estimates for schooling beyond high school are \(0.661\) under the Card
 Moreover, because the treatment definitions represent different schooling margins, their magnitudes should not be interpreted as evidence that one education level has a larger return. \citet{sloczynski2025abadie} additionally caution that exclusion or monotonicity may fail in this application. The estimates are consequently interpreted primarily as evidence on estimator behavior.
 The estimates from the normalized-form kappa specifications are comparatively stable across conditioning sets. For schooling beyond high school, they range from \(0.293\) to \(0.376\), while at the sixteen-year margin they range from \(0.586\) to \(0.853\). The unnormalized-form specifications are considerably more sensitive. For example, \(\widehat{\tau}^{ml}_{t}\) changes from \(0.171\) under the Card specification to \(0.769\) under Kitagawa for schooling beyond high school, and from \(0.319\) to \(1.367\) at the sixteen-year margin. The conditioning-set sensitivity is therefore concentrated primarily among the unnormalized-form kappa specifications.
 The DML estimates cluster more clearly by score than by nuisance learner. PLR-IV generally lies closer to 2SLS, whereas Wald-AIPW lies closer to the normalized-form kappa estimates. This comparison is descriptive because PLR-IV need not target the same unconditional LATE. The separation between the scores is most visible at the weaker sixteen-year margin.
-XGBoost provides the clearest tuning sensitivity. The untuned Wald-AIPW estimates are negative in all four design cells and lie far from the remaining results. After fold-specific tuning, they range from \(0.238\) to \(0.730\), placing them within the broader range of the other DML and normalized-form kappa estimates. Tuning changes PLR-IV less strongly. Appendix Table~\ref{tab:card_xgb_tuning_appendix} reports the complete comparison.
+Furtheremore, for this application XGBoost provides clear  tuning sensitivity. The untuned Wald-AIPW estimates are negative in all four design cells and lie far from the remaining results. After fold-specific tuning, they range from \(0.238\) to \(0.730\), placing them within the broader range of the other DML and normalized-form kappa estimates. Tuning changes PLR-IV less strongly. Appendix Table~\ref{tab:card_xgb_tuning_appendix} reports the complete comparison.
 
 
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:card_translation}
 
-The CARD translation-invariance test converts hourly wages from dollars to cents before taking logarithms and repeats the complete estimation procedure in all four design cells.
-Table~\ref{tab:card_translation} reports the resulting estimate changes, while Appendix Tables~\ref{tab:card_translation_kappa_appendix} and~\ref{tab:card_translation_dml_appendix} provide the underlying estimates.
-The kappa results reproduce the normalization distinction. All three normalized-form specifications remain unchanged, whereas the three unnormalized-form specifications change substantially in every design cell. Their absolute changes range from approximately \(0.44\) to \(0.92\) under the Card specification and from \(1.28\) to \(4.53\) under Kitagawa. The direction and size of the change therefore depend on the realized normalization failure and conditioning set, but the invariance classification is common across the four cells.\\
-Among the DML estimators, linear PLR-IV and linear/logit Wald-AIPW satisfy the \(10^{-4}\) criterion under both conditioning sets and treatment definitions. The forest implementations show a systematic conditioning-set pattern. Honest forest and \texttt{ranger} exceed the tolerance under the richer Card specification but remain within it under Kitagawa. Because this result appears across both DML scores and forest implementations, it is consistent with greater numerical sensitivity under the richer conditioning set, although it does not identify which component of that specification produces the difference.
-Tuned XGBoost exceeds the tolerance in all eight comparisons. PLR-IV changes more under the Card specification, whereas Wald-AIPW changes more under Kitagawa. The largest DML change is \(0.0218\), obtained for Card PLR-IV at the sixteen-year margin. More generally, the nonparametric implementations produce larger changes at the weaker sixteen-year margin, although this does not alter their classifications.
-Overall, the parametric DML implementations satisfy the empirical invariance criterion in all four design cells. Forest-based invariance depends on the conditioning set, while tuned XGBoost exceeds the tolerance throughout. The DML changes nevertheless remain considerably smaller than those of the unnormalized-form kappa specifications.
+Hourly wages are converted from dollars to cents before taking logarithms, after which the complete estimation procedure is repeated in all four design cells.
+Table~\ref{tab:card_translation} reports the signed difference between the estimates obtained under the two outcome codings, while Appendix Tables~\ref{tab:card_translation_kappa_appendix} and~\ref{tab:card_translation_dml_appendix} provide the underlying estimates.
+The kappa results reproduce the algebraic normalization distinction. The three normalized-form specifications remain unchanged, whereas all three unnormalized-form specifications change substantially.
+Their absolute changes range from approximately \(0.44\) to \(0.92\) under the Card conditioning set and from \(1.28\) to \(4.53\) under Kitagawa. These changes are several orders of magnitude larger than the rerun differences observed for the DML implementations.
+Linear PLR-IV and linear/logit Wald-AIPW remain unchanged to the displayed precision in all four design cells. Their behavior follows from the location equivariance of the OLS outcome regression with an intercept, as its smoother matrix depends on the covariates but not on the level of the outcome.
+Because the treatment and instrument outcomes are not transformed, their nuisance fits remain unchanged.
+The forest implementations produce small but nonzero rerun differences. For tuned honest forest and \texttt{ranger}, the absolute changes are between \(0.00035\) and \(0.00324\) under the richer Card conditioning set, but no larger than \(0.000091\) under Kitagawa. This pattern is consistent with greater response-dependent sensitivity under the richer specification, although the present analysis does not isolate the underlying computational channel.
+Tuned XGBoost shows a different pattern.
+PLR-IV changes more under the Card specification, whereas Wald-AIPW changes more under Kitagawa. The largest DML difference is \(0.021826\), obtained for Card PLR-IV at the sixteen-year treatment margin.
+Overall, the normalized-form kappa and parametric DML procedures are unchanged under complete re-estimation. The adaptive DML procedures exhibit small implementation- and design-specific departures, but these remain considerably smaller than the changes generated by algebraic non-normalization of the unnormalized kappa estimators.
 \begin{table}[H]
 \centering
 \caption{Translation invariance under complete re-estimation}
@@ -1730,50 +1717,24 @@ Estimator
 & \textbf{[2.2834,4.5290]} \\[4pt]
 
 \multicolumn{5}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
-
 PLR-IV
-& \textbf{$-0.0006$}
-& \textbf{$-0.0009$}
-& 0.0000
-& 0.0000 \\
-
+& -0.000556 & -0.000931 & 0.000014 & 0.000025 \\
 Wald-AIPW
-& \textbf{$-0.0017$}
-& \textbf{$-0.0032$}
-& 0.0000
-& 0.0001 \\[4pt]
+& -0.001706 & -0.003239 & 0.000050 & 0.000091 \\[4pt]
 
 \multicolumn{5}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
-
 PLR-IV, linear
-& 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-
+& 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
 Wald-AIPW, linear/logit
-& 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-
+& 0.000000 & 0.000000 & 0.000000 & 0.000000 \\
 PLR-IV, \texttt{ranger}
-& \textbf{$-0.0006$}
-& \textbf{$-0.0010$}
-& 0.0000
-& 0.0000 \\
-
+& -0.000608 & -0.000987 & 0.000010 & 0.000017 \\
 Wald-AIPW, \texttt{ranger}
-& \textbf{$-0.0004$}
-& \textbf{$-0.0007$}
-& 0.0000
-& 0.0000 \\
-
+& -0.000351 & -0.000659 & 0.000003 & 0.000005 \\
 PLR-IV, tuned XGBoost
-& \textbf{$-0.0132$}
-& \textbf{$-0.0218$}
-& \textbf{0.0003}
-& \textbf{0.0005} \\
-
+& -0.013188 & -0.021826 & 0.000319 & 0.000527 \\
 Wald-AIPW, tuned XGBoost
-& \textbf{$-0.0002$}
-& \textbf{$-0.0004$}
-& \textbf{0.0042}
-& \textbf{0.0084} \\
+& -0.000229 & -0.000438 & 0.004216 & 0.008437 \\
 
 \bottomrule
 \end{tabular}
@@ -1781,10 +1742,10 @@ Wald-AIPW, tuned XGBoost
 \begin{tablenotes}
 \footnotesize
 \item \textit{Notes:} Entries report
-\(\widehat{\tau}_{\mathrm{cents}}-\widehat{\tau}_{\mathrm{dollars}}\)
-after repeating the complete estimation procedure.  An estimate is classified as unchanged when
-the absolute rerun change does not exceed \(10^{-4}\). Bold entries exceed
-this threshold.
+\(\widehat{\tau}_{\mathrm{cents}}-
+\widehat{\tau}_{\mathrm{dollars}}\)
+after repeating the complete estimation procedure.  DML changes are displayed
+to six decimal places
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
@@ -1796,8 +1757,8 @@ this threshold.
 \subsection{Outcome-Weight Normalization and Concentration}
 \label{subsec:card_weight_diagnostics}
 
-The outcome-weight analysis is restricted to vectors that reproduce their corresponding fitted estimates. All eligible DML representations pass this check, while XGBoost is excluded because its reconstructed weights do not reproduce the estimates.
-Across all four design cells, linear PLR-IV is fully normalized, whereas linear/logit Wald-AIPW and both forest implementations are scale-normalized. The classification is therefore stable across treatment definitions and conditioning sets. The common treated and sign-oriented control mass nevertheless varies across cells. For tuned-forest Wald-AIPW at the sixteen-year margin, for example, it equals \(0.9442\) under the Card covariates and \(1.0072\) under Kitagawa.\\
+The normalization classes are stable across all four Card design cells. The three normalized-form kappa specifications and linear PLR-IV are fully normalized. Among the unnormalized-form kappa specifications, \(\widehat\tau_a\) is fully unnormalized, \(\widehat\tau_t\) has a normalized treated component but an unnormalized control component, and \(\widehat\tau_{a,0}\) has the reverse pattern. Linear/logit Wald-AIPW and both forest implementations are scale-normalized: their total outcome-weight mass is zero and their treated and sign-oriented control masses coincide, but the common mass differs from one.
+The smoother-condition diagnostics explain this DML pattern. Condition 3 holds for all eligible outcome smoothers, producing zero total weight mass. Condition 5a holds only for linear PLR-IV. For the remaining implementations, applying the outcome smoother to the treatment does not reproduce the separately fitted treatment nuisance. Consequently, their treated and control masses remain equal but do not generally equal one. This concerns the normalization of the realized original-fit weights and is distinct from whether the smoother changes after an outcome translation.
 The concentration diagnostics reveal a stronger difference between PLR-IV and Wald-AIPW. Within each design cell and nuisance specification, Wald-AIPW has a lower modified ESS and a larger maximum absolute weight than the corresponding PLR-IV estimator.
 This difference is largest under the Card covariates at the sixteen-year margin. For the tuned honest forest, the treated and control ESS ratios are \(0.398\) and \(0.466\) for Wald-AIPW, compared with \(0.578\) and \(0.615\) for PLR-IV. The maximum absolute weight simultaneously rises from \(0.055\) to \(0.277\). The Wald-AIPW outcome contrast is therefore more concentrated among influential observations in this design cell. Opposite-sign mass remains comparatively stable, indicating that concentration rather than sign composition accounts for the main difference between the two representations. Appendix Tables~\ref{tab:card_weights_card_somecol}--\ref{tab:card_weights_kit_educ16} report the complete diagnostics.
 Appendix Figures~\ref{fig:card_balance_card} and~\ref{fig:card_balance_kitagawa} examine covariate balance. The CBPS-based kappa representation removes the included covariate differences in all four cells, consistent with the balancing restrictions imposed during propensity-score estimation. The forest and MLE-kappa weights substantially reduce the large initial differences in experience and experience squared under the Card specification, although residual imbalance is generally greater at the sixteen-year margin. Adjustment does not improve every covariate separately: some initially small differences in regional indicators move away from zero after weighting. The normalized and unnormalized MLE-kappa variants have essentially identical balance profiles because group-specific rescaling changes their aggregate masses but not the corresponding weighted covariate means.
@@ -1843,7 +1804,7 @@ Two outcomes are examined. Work status indicates whether the woman worked for pa
  Second-child sex is not included because,
 together with first-child sex, it deterministically reveals the instrument and
 creates exact collinearity within the instrument-specific nuisance regressions.
-This restriction is unlikely to drive the conventional IV results.
+The taken restriction is unlikely to drive the conventional IV results, as 
 \citet{angrist1996children} for instance report that their principal female labor-supply
 coefficients change by no more than approximately two percent when the additive
 child-sex controls are excluded. Appendix~\ref{app:child_covariate_design} provides the complete variable definitions and specification details.\\
@@ -1861,10 +1822,10 @@ After adjustment for the common covariates, the first stages are \(0.0648\) and 
 
 
 Appendix Table~\ref{tab:ae_child_estimates_appendix} reports the conventional IV, kappa, and DML estimates. For work status, 2SLS and all six reported kappa specifications produce estimates of approximately \(-0.095\).
-Normalization therefore has almost no numerical effect at the original outcome coding. The DML estimates have the same negative direction but range from approximately \(-0.101\) to \(-0.163\) across nuisance learners. Their standard errors range from approximately \(0.26\) to \(0.28\), which is large relative to the differences between the point estimates.
+The DML estimates have the same negative direction but range from approximately \(-0.101\) to \(-0.163\) across nuisance learners. Their standard errors range from approximately \(0.26\) to \(0.28\), which is large relative to the differences between the point estimates.
 The variation is therefore interpreted as learner sensitivity rather than as evidence of substantively different effects.
 For maternal log income, 2SLS and the normalized-form kappa specifications produce estimates of approximately \(-0.182\), while the unnormalized-form specifications produce estimates close to \(-0.177\). Most DML estimates lie between \(-0.214\) and \(-0.263\). The main exception is tuned-XGBoost Wald-AIPW at \(-0.341\). Standard errors range from approximately \(0.72\) to \(0.79\), again making the estimates too imprecise to support strong substantive comparisons.
-XGBoost displays the clearest tuning sensitivity. The untuned Wald-AIPW estimates are \(1.177\) for work status and \(4.386\) for maternal log income, with standard errors of \(2.291\) and \(9.650\). After fold-specific tuning, the estimates become \(-0.117\) and \(-0.341\), placing them substantially closer to the remaining DML estimates. Tuning also moves PLR-IV closer to the other results, although less dramatically. Appendix Table~\ref{tab:ae_child_xgb_tuning_appendix} reports the complete comparison.
+When assessing the effect of tuning, XGBoost displays the clearest tuning sensitivity. The untuned Wald-AIPW estimates are \(1.177\) for work status and \(4.386\) for maternal log income, with standard errors of \(2.291\) and \(9.650\). After fold-specific tuning, the estimates become \(-0.117\) and \(-0.341\), placing them substantially closer to the remaining DML estimates. Tuning also moves PLR-IV closer to the other results, although less dramatically. Appendix Table~\ref{tab:ae_child_xgb_tuning_appendix} reports the complete comparison.
 
 
 
@@ -1876,20 +1837,40 @@ XGBoost displays the clearest tuning sensitivity. The untuned Wald-AIPW estimate
 \subsection{Translation Invariance under Complete Re-estimation}
 \label{subsec:child_translation}
 
-The translation-invariance exercise shifts work status from \(0/1\) to \(1/2\) and converts maternal income from log dollars to log cents. These are the transformations defined in Section~\ref{sec:translation_invariance}. Each estimator is then re-estimated using the transformed outcome. Table~\ref{tab:child_translation} reports the resulting changes.
-The kappa specifications reproduce the theoretical normalization distinction. The 2SLS benchmark and all three normalized-form kappa specifications remain unchanged for both outcomes, whereas the three unnormalized-form specifications change. The changes are small in these diagnostic samples, amounting to approximately \(0.0004\) for work status and \(0.0025\) for maternal log income. Normalization consequently has little effect on the original point estimates but determines whether the estimates remain unchanged after the additive outcome transformation.
-Among the DML implementations, linear PLR-IV and linear/logit Wald-AIPW remain unchanged to numerical precision. The \texttt{ranger} implementations produce only small departures. For work status, PLR-IV lies slightly above the \(10^{-4}\) tolerance, while Wald-AIPW remains within it. Both maternal-income implementations exceed the tolerance, but their absolute changes remain below \(0.001\).
-The tuned honest-forest implementations show clearer departures, with absolute changes between approximately \(0.0023\) and \(0.0061\).
-Tuned XGBoost produces the largest DML changes. PLR-IV changes by approximately \(-0.016\) for work status and \(-0.010\) for maternal log income, while Wald-AIPW changes by approximately \(-0.024\) and \(0.031\). Although tuning moves the XGBoost point estimates closer to the remaining estimates, it does not make the complete estimation pipeline translation invariant.
-Overall, the normalized-form kappa specifications and parametric DML implementations satisfy the empirical invariance criterion for both outcomes. The \texttt{ranger} departures remain small, while tuned honest forest and XGBoost show greater implementation sensitivity under complete re-estimation.
+This rerunning design shifts work status from \(0/1\) to \(1/2\) and converts maternal income from log dollars to log cents. These are the transformations defined in Section~\ref{sec:translation_invariance}. Each estimator is then re-estimated using the transformed outcome. Table~\ref{tab:child_translation} reports the resulting changes.
+The kappa results reproduce the algebraic normalization distinction. The
+2SLS benchmark and all three normalized-form kappa specifications remain
+unchanged. The three unnormalized-form specifications instead change by
+approximately \(0.000449\) for work status and between \(0.002483\) and
+\(0.002484\) for maternal log income. These departures are small in the
+fixed diagnostic subsamples, consistent with the close agreement between
+the normalized- and unnormalized-form point estimates under the original
+outcome coding.
+Among the DML implementations, linear PLR-IV and linear/logit Wald-AIPW
+remain unchanged for both outcomes. 
+The \texttt{ranger} implementations show small nonzero changes.
+For work status, the changes are \(0.000134\) for PLR-IV and \(0.000041\)
+for Wald-AIPW; the latter was hidden when results were displayed to only four
+decimal places. For maternal log income, the corresponding changes are
+\(-0.000489\) and \(-0.000792\).
+The tuned honest-forest implementations exhibit larger departures. Their
+absolute rerun changes range from \(0.002268\) to \(0.006127\) across the two
+outcomes and scores. Tuned XGBoost produces the largest DML changes for PLR-IV and for Wald-AIPW.
+Overall, the normalized-form kappa specifications and the parametric DML
+implementations remain unchanged under complete re-estimation. The adaptive
+DML implementations produce nonzero, learner-specific departures. Most are
+small relative to the corresponding point estimates, while tuned XGBoost
+shows the clearest sensitivity to the outcome transformation.
+
+
 
 \begin{table}[H]
 \centering
-\caption{Translation invariance under complete re-estimation}
+\caption{Signed estimate changes after complete re-estimation}
 \label{tab:child_translation}
 \footnotesize
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{0.98}
+\setlength{\tabcolsep}{7pt}
+\renewcommand{\arraystretch}{1.02}
 \begin{threeparttable}
 \begin{tabular}{@{}lrr@{}}
 \toprule
@@ -1898,55 +1879,55 @@ Estimator
 & Maternal log income \\
 \midrule
 
-\multicolumn{3}{l}{\textit{Panel A: Classical benchmarks}} \\[2pt]
+\multicolumn{3}{l}{\textit{Panel A: Classical and kappa benchmarks}} \\[2pt]
 
 2SLS
-& 0.0000
-& 0.0000 \\
+& 0.000000
+& 0.000000 \\
 
 \shortstack[l]{Normalized-form kappa,\\three specifications}
-& 0.0000
-& 0.0000 \\
+& 0.000000
+& 0.000000 \\
 
-\shortstack[l]{Unnormalized-form kappa,\\three specifications}
-& \textbf{0.0004}
-& \textbf{0.0025} \\[4pt]
+\shortstack[l]{Unnormalized-form kappa,\\range over three specifications}
+& 0.000449
+& [0.002483,\,0.002484] \\[4pt]
 
 \multicolumn{3}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
 
 PLR-IV
-& \textbf{0.0054}
-& \textbf{$-0.0023$} \\
+& 0.005404
+& $-0.002268$ \\
 
 Wald-AIPW
-& \textbf{0.0035}
-& \textbf{0.0061} \\[4pt]
+& 0.003532
+& 0.006127 \\[4pt]
 
 \multicolumn{3}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
 
 PLR-IV, linear
-& 0.0000
-& 0.0000 \\
+& 0.000000
+& 0.000000 \\
 
 Wald-AIPW, linear/logit
-& 0.0000
-& 0.0000 \\
+& 0.000000
+& 0.000000 \\
 
 PLR-IV, \texttt{ranger}
-& \textbf{0.0001}
-& \textbf{$-0.0005$} \\
+& 0.000134
+& $-0.000489$ \\
 
 Wald-AIPW, \texttt{ranger}
-& 0.0000
-& \textbf{$-0.0008$} \\
+& 0.000041
+& $-0.000792$ \\
 
 PLR-IV, tuned XGBoost
-& \textbf{$-0.0157$}
-& \textbf{$-0.0103$} \\
+& $-0.015744$
+& $-0.010344$ \\
 
 Wald-AIPW, tuned XGBoost
-& \textbf{$-0.0238$}
-& \textbf{0.0305} \\
+& $-0.023762$
+& 0.030535 \\
 
 \bottomrule
 \end{tabular}
@@ -1954,16 +1935,11 @@ Wald-AIPW, tuned XGBoost
 \begin{tablenotes}
 \footnotesize
 \item \textit{Notes:} Entries report the estimate obtained from the
-transformed outcome minus the estimate obtained from the original outcome,
-after repeating the complete estimation procedure. An estimate is classified
-as unchanged when the absolute unrounded rerun change does not exceed
-\(10^{-4}\). Bold entries exceed this tolerance. The grouped kappa changes
-are identical at the reported precision.
+transformed outcome minus the estimate obtained from the original outcome
+after repeating the complete estimation procedure. 
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
-
-
 
 
 
@@ -1977,7 +1953,12 @@ They do not imply precise estimation and do not contradict the large standard er
 Appendix Figures~\ref{fig:child_balance_work} and~\ref{fig:child_balance_income} examine covariate balance. The kappa and linear DML representations balance all six covariates numerically for both outcomes. For work status, the largest remaining honest-forest difference concerns maternal age and equals \(0.105\) for PLR-IV and \(0.096\) for Wald-AIPW. Only the PLR-IV value lies marginally above the \(0.1\) reference value. The corresponding \texttt{ranger} differences remain below \(0.043\).
 The maternal-income results reveal a more pronounced learner difference. Honest-forest PLR-IV and Wald-AIPW retain standardized differences of \(0.509\) and \(0.461\) in age at first birth, while all remaining covariate differences are below \(0.063\).
 This pattern is not shared by \texttt{ranger}, for which every difference remains below \(0.071\). The imbalance is therefore specific to the examined honest-forest implementations in the maternal-income subsample and should not be interpreted as a general property of forest-based nuisance estimation.
-Overall, the Angrist–Evans application combines strong instrument-propensity overlap and broadly distributed weights with substantial sign cancellation and considerable statistical imprecision. Its main diagnostic result is that high effective support does not guarantee close covariate balance: the honest-forest income representations have ESS ratios close to one but retain substantial imbalance in age at first birth.
+The comparison also shows that favorable overlap and broadly distributed
+outcome weights do not by themselves guarantee covariate balance for every
+learner. Conversely, \texttt{ranger} achieves smaller residual differences
+despite its slightly lower modified ESS, illustrating that balance and weight
+concentration provide complementary rather than interchangeable diagnostics.
+Overall, the Angrist–Evans application combines strong instrument-propensity overlap and broadly distributed weights with substantial sign cancellation and considerable statistical imprecision. 
 
 
 
@@ -2060,86 +2041,112 @@ Wald-AIPW, \texttt{ranger}
 % ==============================================================================
 \section{Discussion}
 \label{sec:discussion}
+To fully evaluate the practical robustness of the estimators, it is necessary to compare their performance across
+the three design settings.
+Therefore in the following section,
+the three empirical designs are cross-compared to showcase how different the different design characteristics influence finite-sample behavior.
+After the comparative analysis, the broader limitations of the research design are addressed.
 
 \subsection{Empirical Designs and Cross-Application Evidence}
 \label{subsec:cross_application}
 
-The three applications provide distinct empirical settings for examining the
-finite-sample behavior of the estimators. In the Vietnam application, draft
-eligibility is generated by the lottery conditional on age, and the relevant
-conditioning problem is limited to alternative representations of a single
-design variable. Together with its comparatively informative first stage,
-this provides the most transparent setting in the analysis. The Card design
-is more demanding because college proximity is observational, instrument
+The three applications selected for this study provide highly distinct empirical environments, making them highly valuable for testing the estimators under varying structural conditions.
+In the Vietnam application, draft eligibility is generated by a lottery conditional on age,
+and the conditioning problem is limited to alternative representations of a single design variable.
+Combined with its (comparatively) informative first stage, this provides the most transparent setting in the analysis.
+The Card design on the other hand. 
+is more demanding because college proximity is observational.
+Also instrument
 validity depends on a richer set of individual and regional characteristics,
 and the results can be examined under two conditioning sets and two treatment
 margins. First-stage information is particularly limited at the sixteen-year
-margin. The Angrist--Evans application presents a different configuration.
+margin.
+The last application presents a different configuration.
 The fitted instrument propensities indicate strong overlap, but the first
 stage remains modest and the computational analysis relies on two fixed
-diagnostic subsamples. The applications therefore differ in instrument
-assignment, first-stage strength, covariate complexity, and sample
-construction. These differences provide complementary settings in which to
-assess whether the finite-sample behavior of the estimators remains stable
-when the empirical design becomes more demanding in different dimensions.
+diagnostic subsamples. The applications therefore differ in characteristics such as instrument
+assignment, first-stage strength and covariate complexity. 
+These complementary settings showcase differences that help to assess  
+whether the finite-sample behavior of the estimators remains stable
+when a design becomes more demanding in different dimensions.
 The point estimates already reveal that estimator sensitivity is not uniform
 across these settings. In the Vietnam application, the estimates become
-comparatively stable under the richer cubic and saturated age specifications,
-with only limited differences across the main DML implementations. In the
-Card application, the estimates separate more clearly by DML score: PLR-IV
+comparatively stable under the richer cubic and saturated age specifications. On the other hand, in Card the estimates are separated more clearly by DML score. PLR-IV
 generally remains closer to the conventional IV benchmark, whereas Wald-AIPW
-is closer to the normalized-form kappa estimates. These differences are most
-visible at the sixteen-year treatment margin, which also contains the least
-first-stage information, although this correspondence does not establish that
-the weaker first stage causes the divergence. In the Angrist--Evans
-application, the normalized- and unnormalized-form kappa specifications produce very
+is closer to the normalized-form kappa estimates. 
+In the Angrist--Evans
+application, the normalized and unnormalized-form kappa specifications produce very
 similar estimates under the original outcome coding, while the DML results
-display moderate variation across nuisance learners. XGBoost provides the
-clearest implementation sensitivity in the Card and Angrist--Evans
-applications: its default specifications produce estimates far from the
-remaining results, whereas tuning moves them substantially closer to the
-other DML estimates. Taken together, the applications show that agreement in
+display moderate variation across nuisance learners. 
+Taken together, the applications show that agreement in
 the reported point estimates can arise under quite different empirical
-conditions and does not imply that the estimators share the same
-finite-sample weighting behavior.
+conditions even though they share differnet parametric an d weighting constructions.
+
+
 
 
 \subsection{Normalization, Invariance, and Outcome-Weight Diagnostics}
 \label{subsec:diagnostic_synthesis}
 
-The comparison of point estimates does not reveal whether the estimators
-construct the same finite-sample outcome contrast. The normalization and
-translation-invariance results provide the first distinction. The three
-normalized-form kappa specifications are invariant under every outcome transformation
-considered in the applications. Whenever the realized weights of the
-unnormalized-form kappa specifications remain unnormalized, their estimates change
-after the outcome translation. The saturated Vietnam specification is an
-important exception: its age-cell structure makes all six reported kappa specifications
-numerically equivalent and fully normalized, so that the nominally
-unnormalized-form specifications are also invariant in that specification. Outside
-this special case, the magnitude of non-invariance differs considerably
-across applications. The changes are pronounced under the cubic Vietnam and
-Card specifications but much smaller in the Angrist--Evans samples. The small
-Angrist--Evans changes do not alter the formal classification; they show
-instead that the practical magnitude of non-invariance depends on the
-realized empirical design.
-The DML results add a distinction that is not visible from the kappa
-specifications alone. Among the eligible representations, linear PLR-IV provides the
-clearest case of full normalization. It is fully normalized in the Card and
-Angrist--Evans applications and under saturated age adjustment in Vietnam.
-Most of the remaining verified DML representations are scale-normalized. Parametric DML is nevertheless the most consistently
-translation-invariant implementation when the complete procedure is
-re-estimated. The forest results depend more strongly on the empirical
-setting. Honest forests and \texttt{ranger} are invariant in Vietnam, become
-sensitive under the Card conditioning set, and show learner-specific
-departures in the Angrist--Evans application. Tuned XGBoost is the least
-stable implementation across the complete-pipeline reruns. These findings
-show why normalization and translation invariance should not be treated as
-interchangeable properties for data-adaptive estimators. Algebraic
-normalization describes the realized outcome-weight representation, whereas
-complete-pipeline invariance additionally reflects how nuisance estimation,
-cross-fitting, and tuning respond to the transformed outcome.\\
-The effective-support diagnostics reveal a second cross-application
+Similar point estimates do not imply that estimators construct the same
+finite-sample outcome comparison. The normalization and
+translation-invariance results provide a first distinction.
+The kappa results follow the theoretical pattern described by
+\citet{sloczynski2025abadie}. The three normalized-form specifications,
+including the estimator proposed by \citet{uysal2011three}, remain unchanged
+under all additive outcome transformations considered. The three
+unnormalized-form specifications generally change, but the magnitude differs
+substantially across designs. The changes are pronounced under cubic age
+adjustment in Vietnam and in the Card application, but much smaller in the
+Angrist--Evans diagnostic subsamples. 
+The saturated Vietnam specification provides an important exception. Its
+age-cell structure makes all six reported kappa specifications numerically
+equivalent in the realized sample. 
+ This
+design-specific result should not be generalized to the estimator formulas.
+The DML results show why outcome-weight normalization and complete-pipeline
+translation invariance must be distinguished. Linear PLR-IV provides the
+clearest case of full normalization. Its OLS outcome and treatment regressions
+use the same covariate design and training folds, so the required smoother
+alignment holds. Linear/logit Wald-AIPW and the forest implementations are
+generally only scale-normalized because their outcome and treatment nuisances
+are fitted separately. As emphasized by
+\citet[Sections~4.2.2 and~4.2.4]{knaus2024treatment}, using the same learner
+family or the same cross-fitting folds does not by itself guarantee the
+alignment required for full normalization.
+Despite this difference in normalization class, both linear PLR-IV and
+linear/logit Wald-AIPW remain unchanged to numerical precision in every rerun.
+Their OLS outcome regressions are
+location-equivariant, meaning adding a constant to the outcome shifts the fitted
+outcome predictions by the same constant. 
+Linear/logit Wald-AIPW can
+therefore be scale-normalized and nevertheless remain invariant under
+complete re-estimation. This is the clearest example why there are differences between the full normalization property defined in \citet{knaus2024treatment} and the rerun changes presented here.
+The adaptive DML results vary more across learners and designs. In Vietnam,
+the honest-forest and \texttt{ranger} changes are zero at the displayed
+precision except for a small saturated Wald-AIPW departure. Under the richer
+Card conditioning set, both forest implementations produce small nonzero
+changes, whereas the corresponding Kitagawa changes are considerably smaller.
+In the Angrist--Evans application, tuned honest forest shows clearer
+departures, while the \texttt{ranger} changes appear mainly at later decimal
+places. Tuned XGBoost produces the most persistent and generally largest DML
+rerun changes.
+The paired honest-forest audits provide a mechanism for the design cells
+examined in greater detail. Their smoother rows continue to sum to one after
+the translation, but the allocation of weights within the rows can change
+when the outcome model is refitted. These smoother changes account for the
+observed prediction departures in the audited cells. The analysis does not
+identify whether they arise from split selection, finite-precision
+comparisons, tuning, or another response-dependent implementation detail.
+Overall, algebraic normalization describes the aggregate masses of a realized
+outcome-weight vector. Complete rerun invariance additionally
+depends on how the fitted nuisance learners and tuning procedure respond to
+the transformed outcome.
+The two properties are closely connected for the
+kappa estimators because their fitted weights do not depend on the outcome.
+For the data adaptive DML procedures they can though differ. 
+\\
+The effective-support diagnostics reveal another cross-application
 difference. The Vietnam and Angrist--Evans weights are distributed across a
 large proportion of their respective treatment groups. The Card application
 produces substantially greater concentration, particularly for Wald-AIPW at
@@ -2148,13 +2155,12 @@ honest-forest Wald-AIPW representation has treated and control ESS ratios of
 \(0.398\) and \(0.466\), compared with \(0.578\) and \(0.615\) for
 honest-forest PLR-IV. Its maximum absolute weight is also considerably larger.
 The Wald-AIPW estimate in this cell consequently depends more strongly on a
-smaller set of influential observations.  Effective support therefore adds information
-that neither the point estimate nor the normalization class provides.\\
+smaller set of influential observations.\\
 Covariate balance identifies a further dimension of the realized comparison.
 The CBPS-based kappa estimator produces the most systematic exact balance of
 the included covariates, reflecting the moment conditions used to estimate
-its instrument propensity score. Full normalization alone does not produce
-the same result. In Vietnam, for example, some fully normalized MLE-kappa
+its instrument propensity score. 
+This does not hold for the maximum likelihood based estimator. In Vietnam, for example, some fully normalized MLE-kappa
 representations retain larger age differences than the CBPS representation.
 Conversely, a high effective sample size does not guarantee close balance.
 The clearest example is maternal log income in the Angrist--Evans
@@ -2167,17 +2173,6 @@ absolute weight more evenly need not construct the more closely balanced
 covariate comparison. Concentration and covariate balance describe distinct
 properties of the outcome weights and need not rank estimators in the same
 order.
-Finally, opposite-sign mass is substantial in all three applications but
-generally varies less across estimators than effective support and maximum
-weight magnitude. It therefore explains comparatively little of the
-cross-estimator differences found in the Card and Angrist--Evans
-applications. The diagnostic remains informative because a weight vector can
-be broadly distributed while still containing considerable offsetting
-between positive and negative coefficients. This is particularly visible in
-the Angrist--Evans application, where ESS ratios close to one coexist with
-opposite-sign shares close to one half. These shares should not be interpreted
-as a ranking of estimator quality. They describe the degree of internal sign
-cancellation accompanying the realized outcome contrast.
 
 \subsection{Nuisance Learning and Practical Implications}
 \label{subsec:learner_implications}
@@ -2314,157 +2309,7 @@ data-adaptive IV estimators in finite samples.
 \appendix
 \renewcommand{\thesection}{\Alph{section}}
 
-\section{Normalization of the Weighting Estimators}
-\label{app:normalization_estimators}
 
-\subsection{Normalization of \texorpdfstring{$\widehat{\tau}_u$}{tau-u}}
-Define the normalized inverse-probability weights for observations with $Z_i=1$ and $Z_i=0$, respectively, as
-\begin{equation}
-h_{1i}
-=
-\frac{Z_i/p(X_i)}
-{\sum_{j=1}^N Z_j/p(X_j)},
-\qquad
-h_{0i}
-=
-\frac{(1-Z_i)/(1-p(X_i))}
-{\sum_{j=1}^N (1-Z_j)/(1-p(X_j))}.
-\label{eq:hajek_weights}
-\end{equation}
-By construction,
-\begin{equation}
-\sum_{i=1}^N h_{1i}
-=
-\frac{\sum_{i=1}^N Z_i/p(X_i)}
-{\sum_{j=1}^N Z_j/p(X_j)}
-=1,
-\end{equation}
-and
-\begin{equation}
-\sum_{i=1}^N h_{0i}
-=
-\frac{\sum_{i=1}^N (1-Z_i)/(1-p(X_i))}
-{\sum_{j=1}^N (1-Z_j)/(1-p(X_j))}
-=1.
-\end{equation}
-Using these weights, define the normalized weighted means
-\begin{align}
-\widehat{\mu}_{Y,1}
-&=
-\sum_{i=1}^N h_{1i}Y_i,
-&
-\widehat{\mu}_{Y,0}
-&=
-\sum_{i=1}^N h_{0i}Y_i, \\
-\widehat{\mu}_{D,1}
-&=
-\sum_{i=1}^N h_{1i}D_i,
-&
-\widehat{\mu}_{D,0}
-&=
-\sum_{i=1}^N h_{0i}D_i.
-\end{align}
-The estimator in Equation~\eqref{eq:tau_u} can therefore be written compactly as
-\begin{equation}
-\widehat{\tau}_u
-=
-\frac{
-\widehat{\mu}_{Y,1}-\widehat{\mu}_{Y,0}
-}{
-\widehat{\mu}_{D,1}-\widehat{\mu}_{D,0}
-}.
-\label{eq:tau_u_compact}
-\end{equation}
-Thus, $\widehat{\tau}_u$ is a weighted Wald estimator in which both the reduced-form contrast and the first-stage contrast are constructed from separately normalized inverse-probability-weighted means.
-The reduced-form numerator may also be written as a single weighted sum:
-\begin{equation}
-\widehat{\mu}_{Y,1}-\widehat{\mu}_{Y,0}
-=
-\sum_{i=1}^N (h_{1i}-h_{0i})Y_i.
-\end{equation}
-The corresponding signed outcome weights sum to zero:
-\begin{equation}
-\sum_{i=1}^N(h_{1i}-h_{0i})
-=
-\sum_{i=1}^N h_{1i}
--
-\sum_{i=1}^N h_{0i}
-=
-1-1=0.
-\label{eq:tau_u_zero_sum}
-\end{equation}
-Hence, although the weights within each component sum to one, the signed weights entering their difference sum to zero.
-
-
-\subsection{Normalization of \texorpdfstring{$\widehat{\tau}_{a,10}$}{tau-a10}}
-The estimator $\widehat{\tau}_{a,10}$ is given by
-\begin{equation}
-\widehat{\tau}_{a,10}
-=
-\frac{\sum_{i=1}^N\kappa_{1i}Y_i}
-{\sum_{i=1}^N\kappa_{1i}}
--
-\frac{\sum_{i=1}^N\kappa_{0i}Y_i}
-{\sum_{i=1}^N\kappa_{0i}}.
-\end{equation}
-Define the normalized component weights
-\begin{equation}
-a_i
-=
-\frac{\kappa_{1i}}
-{\sum_{j=1}^N\kappa_{1j}},
-\qquad
-b_i
-=
-\frac{\kappa_{0i}}
-{\sum_{j=1}^N\kappa_{0j}}.
-\label{eq:kappa_normalized_weights}
-\end{equation}
-Provided that the respective denominators are nonzero, these weights satisfy
-\begin{equation}
-\sum_{i=1}^N a_i
-=
-\frac{\sum_{i=1}^N\kappa_{1i}}
-{\sum_{j=1}^N\kappa_{1j}}
-=1,
-\qquad
-\sum_{i=1}^N b_i
-=
-\frac{\sum_{i=1}^N\kappa_{0i}}
-{\sum_{j=1}^N\kappa_{0j}}
-=1.
-\end{equation}
-Accordingly,
-\begin{equation}
-\widehat{\tau}_{a,10}
-=
-\sum_{i=1}^N a_iY_i
--
-\sum_{i=1}^N b_iY_i.
-\label{eq:tau_a10_weighted_means}
-\end{equation}
-The estimator can equivalently be expressed as a single signed weighted sum:
-\begin{equation}
-\widehat{\tau}_{a,10}
-=
-\sum_{i=1}^N(a_i-b_i)Y_i.
-\end{equation}
-Defining
-\begin{equation}
-\omega_i=a_i-b_i,
-\end{equation}
-the signed outcome weights satisfy
-\begin{equation}
-\sum_{i=1}^N\omega_i
-=
-\sum_{i=1}^N a_i
--
-\sum_{i=1}^N b_i
-=
-1-1=0.
-\label{eq:tau_a10_zero_sum}
-\end{equation}
-It is therefore important to distinguish between two statements. First, the weights used in each component of $\widehat{\tau}_{a,10}$ sum separately to one. Second, once the two components are combined into a treatment-effect contrast, the resulting signed outcome weights sum to zero. 
 
 \section{PLR-IV as an aggregation of conditional Wald estimands}
 \label{app:pliv_late_aggregation}
@@ -2734,153 +2579,6 @@ Appendix~\ref{app:omega_a1}, Remark~\ref{rem:hajek_contrast}.
 
 
 
-
-\subsection{Outcome Weights of \texorpdfstring{$\hat\tau_{a,1}$}{tau(a,1)}}
-\label{app:omega_a1}
-
-This section derives the outcome weights of $\hat\tau_{a,1}$ (also written $\hat\tau_t$
-in \citealt{sloczynski2025abadie}) in the PIVE framework of
-\citet{knaus2024treatment}. For a generic propensity-score estimate that does
-not impose the required balancing equality, the estimator is
-untreated-unnormalized.
-
-\paragraph{Setup.}
-Define the raw instrument IPW contrast for observation $i$ as
-\begin{equation}
-  r_i = \frac{Z_i}{\hat{p}_i} - \frac{1-Z_i}{1-\hat{p}_i}
-      = \frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)}.
-  \label{eq:a1_ri}
-\end{equation}
-The two kappa components $\kappa_{i1}$ and $\kappa_{i0}$ decompose $r_i$ as follows:
-\begin{equation}
-  \kappa_{i1} = D_i \frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)} = D_i r_i,
-  \qquad
-  \kappa_{i0} = (1-D_i)\frac{(1-Z_i)-(1-\hat{p}_i)}{\hat{p}_i(1-\hat{p}_i)}
-              = -(1-D_i)r_i.
-  \label{eq:a1_kappa_decomp}
-\end{equation}
-Equation~\eqref{eq:a1_kappa_decomp} is the central identity: the treated part of $r_i$
-is $\kappa_{i1}$ and the untreated part is $-\kappa_{i0}$.
-
-\paragraph{PIVE representation.}\mbox{}\\
-Define the diagonal transformation matrix
-$\mathbf{T}^{a,1} = \mathrm{diag}(r_1, \ldots, r_N)$.
-Using \eqref{eq:a1_kappa_decomp}, the pseudo-treatment is
-$\mathbf{T}^{a,1}\mathbf{D} = \boldsymbol{\kappa}_1$,
-and the estimator can be written as
-\begin{equation}
-  \hat\tau_{a,1}
-  = \frac{N^{-1}\mathbf{1}_N'\mathbf{T}^{a,1}\mathbf{Y}}
-         {N^{-1}\mathbf{1}_N'\mathbf{T}^{a,1}\mathbf{D}}
-  = \frac{N^{-1}\sum_i r_i Y_i}{N^{-1}\sum_i \kappa_{i1}},
-  \label{eq:a1_wald}
-\end{equation}
-which is a PIVE with $\widetilde{\mathbf{Z}} = \mathbf{1}_N$,
-$\widetilde{\mathbf{D}} = \boldsymbol{\kappa}_1$,
-$\widetilde{\mathbf{Z}}'\widetilde{\mathbf{D}} = \sum_i\kappa_{i1}$.
-Applying Equation~\eqref{eq:pive_outcome_weights_thesis}, the outcome weights are
-\begin{equation}
-  \boldsymbol{\omega}^{a,1\prime}
-  = \left(\sum_i\kappa_{i1}\right)^{-1} \mathbf{1}_N' \mathbf{T}^{a,1},
-  \label{eq:a1_omega_vec}
-\end{equation}
-so that the weight of observation $i$ is
-\begin{equation}
-  \boxed{
-    \omega_i^{a,1} = \frac{r_i}{\sum_j \kappa_{j1}}
-    = \frac{1}{\sum_j \kappa_{j1}}
-      \cdot\frac{Z_i - \hat{p}_i}{\hat{p}_i(1-\hat{p}_i)}.
-  }
-  \label{eq:a1_omega_scalar}
-\end{equation}
-
-\paragraph{Normalization properties.}
-
-\noindent\textit{(i) Total weight sum.}
-Let $s_1 = \sum_i Z_i/\hat{p}_i$ and $s_0 = \sum_i(1-Z_i)/(1-\hat{p}_i)$.
-Then $\sum_i r_i = s_1 - s_0$, so
-\begin{equation}
-  \sum_{i=1}^N \omega_i^{a,1}
-  = \frac{\sum_i r_i}{\sum_j\kappa_{j1}}
-  = \frac{s_1 - s_0}{\sum_j\kappa_{j1}},
-  \label{eq:a1_sum}
-\end{equation}
-Thus, $\sum_i\omega_i^{a,1}=0$ if and only if $s_1=s_0$. This equality is
-not imposed by a generic propensity-score estimator, so
-$\sum_i\omega_i^{a,1}\neq0$ in general. The CBPS exception relevant for this
-thesis is stated in Remark~\ref{rem:hajek_contrast} below.
-\noindent\textit{(ii) Treated weight sum.}
-Using $D_i r_i = \kappa_{i1}$ from \eqref{eq:a1_kappa_decomp}:
-\begin{equation}
-  \sum_{i=1}^N \omega_i^{a,1} D_i
-  = \frac{\sum_i D_i r_i}{\sum_j\kappa_{j1}}
-  = \frac{\sum_i \kappa_{i1}}{\sum_j\kappa_{j1}}
-  = 1. \qquad\checkmark
-  \label{eq:a1_treated}
-\end{equation}
-The treated weights sum to one exactly, because the denominator of $\hat\tau_{a,1}$
-is $\sum_i\kappa_{i1}$ — precisely the treated-side kappa total.
-
-\noindent\textit{(iii) Untreated weight sum.}
-Using $(1-D_i)r_i = -\kappa_{i0}$ from \eqref{eq:a1_kappa_decomp}:
-\begin{equation}
-  \sum_{i=1}^N \omega_i^{a,1}(1-D_i)
-  = \frac{\sum_i (1-D_i) r_i}{\sum_j\kappa_{j1}}
-  = \frac{-\sum_i \kappa_{i0}}{\sum_j\kappa_{j1}},
-  \label{eq:a1_untreated}
-\end{equation}
-which equals $-1$ only if $\sum_i\kappa_{i0}=\sum_i\kappa_{i1}$. A generic
-propensity-score estimate does not enforce this finite-sample equality, and
-therefore $\sum_i\omega_i^{a,1}(1-D_i)\neq-1$ in general.
-
-\paragraph{Classification.}
-Collecting the three results:
-\begin{equation}
-  \sum_{i=1}^N \omega_i^{a,1} \neq 0,
-  \qquad
-  \sum_{i=1}^N \omega_i^{a,1} D_i = 1,
-  \qquad
-  \sum_{i=1}^N \omega_i^{a,1}(1-D_i) = -\frac{\sum_i\kappa_{i0}}{\sum_i\kappa_{i1}} \neq -1.
-  \label{eq:a1_classification}
-\end{equation}
-Therefore, in the generic case, $\hat\tau_{a,1}$ is
-\emph{untreated-unnormalized} in the sense of
-\citet[Table~4]{knaus2024treatment}: the treated side is normalized by
-construction, but the untreated side is not. The contrast with
-$\hat\tau_{a,10}$ is instructive. The normalized estimator uses separate
-denominators $\sum_i\kappa_{i1}$ and $\sum_i\kappa_{i0}$ for the two sides,
-forcing both to sum to their target values. $\hat\tau_{a,1}$ uses only the
-treated-side denominator, leaving the untreated side without its own
-rescaling.
-
-\begin{remark}[Role of the separate H\'ajek normalization]
-\label{rem:hajek_contrast}
-Equation~\eqref{eq:a1_sum} shows that the total outcome-weight mass of
-\(\widehat\tau_{a,1}\) remains proportional to the difference
-\(s_1-s_0\). By contrast, \(\widehat\tau_u\) normalizes the two instrument
-groups separately, so Equation~\eqref{eq:u_omega_sum} reduces its total mass
-to \((\widehat\Delta_D^u)^{-1}(1-1)=0\). For this pair of Wald-IPW
-estimators, separate H\'ajek normalization is therefore the algebraic step that
-guarantees translation invariance without requiring an additional balancing
-restriction.
-
-This comparison changes when the propensity-score procedure itself imposes
-that restriction. With an intercept included in the CBPS balancing equation
-\eqref{eq:cbps_moment},
-\begin{equation}
-    s_1-s_0
-    =\sum_{i=1}^{N}
-      \frac{Z_i-\widehat p_i}
-           {\widehat p_i(1-\widehat p_i)}
-    =0
-    \label{eq:cbps_equal_ipw_masses}
-\end{equation}
-up to numerical tolerance. In this case,
-\(\widehat\tau_{a,1}^{cb}\) also has zero total outcome-weight mass and
-coincides with \(\widehat\tau_u^{cb}\), consistently with the finite-sample
-equivalence discussed in Chapter~3.
-\end{remark}
-
 \clearpage
 
 \section{Vietnam Application: Additional diagnostics}
@@ -3067,98 +2765,73 @@ dollars. All specifications use five-fold cross-fitting.
 \end{threeparttable}
 \end{table}
 
-\subsection{Complete Translation-Invariance Results}
+\begin{samepage}
+\subsection{Forest-Smoother Translation Diagnostic}
+\label{subsec:vietnam_forest_smoother_diagnostic}
+
 \begin{table}[H]
 \centering
-\caption{Translation invariance under complete re-estimation: underlying estimates}
-\label{tab:vietnam_translation_appendix}
-\scriptsize
-\setlength{\tabcolsep}{4pt}
+\caption{Changes in the Vietnam outcome-smoother matrices}
+\label{tab:vietnam_forest_smoother_translation}
+\footnotesize
 \begin{threeparttable}
-\begin{tabular}{@{}l rrr rrr@{}}
+\begin{tabular}{@{}llrr@{}}
 \toprule
-& \multicolumn{3}{c}{Cubic age}
-& \multicolumn{3}{c}{Saturated age} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-7}
 Estimator
-& Dollars & Cents & Change
-& Dollars & Cents & Change \\
+& Smoother
+& Cubic age
+& Saturated age \\
 \midrule
 
-\multicolumn{7}{l}{\textit{Panel A: Kappa estimators}} \\[2pt]
-
-$\hat{\tau}_{u}^{cb}$
-& 0.210 & 0.210 & 0.0000
-& 0.241 & 0.241 & 0.0000 \\
-
-$\hat{\tau}_{u}^{ml}$
-& 0.202 & 0.202 & 0.0000
-& 0.241 & 0.241 & 0.0000 \\
-
-$\hat{\tau}_{a,10}$
-& 0.204 & 0.204 & 0.0000
-& 0.241 & 0.241 & 0.0000 \\
-
-$\hat{\tau}_{a}$
-& 0.314 & 0.537 & \textbf{0.2222}
-& 0.241 & 0.241 & 0.0000 \\
-
-$\hat{\tau}_{t}$
-& 0.302 & 0.515 & \textbf{0.2134}
-& 0.241 & 0.241 & 0.0000 \\
-
-$\hat{\tau}_{a,0}$
-& 0.317 & 0.540 & \textbf{0.2238}
-& 0.241 & 0.241 & 0.0000 \\[4pt]
-
-\multicolumn{7}{l}{\textit{Panel B: Tuned honest forest}} \\[2pt]
+\multicolumn{4}{l}{\textit{Panel A: Tuned honest forest}} \\[2pt]
 
 PLR-IV
-& 0.243 & 0.243 & 0.0000
-& 0.242 & 0.242 & 0.0000 \\
+& \(S\)
+& 0
+& 0 \\
 
 Wald-AIPW
-& 0.229 & 0.229 & 0.0000
-& 0.244 & 0.244 & 0.0000 \\[4pt]
+& \(S_0^z\)
+& 0
+& 0.000229 \\
 
-\multicolumn{7}{l}{\textit{Panel C: Alternative nuisance learners}} \\[2pt]
+Wald-AIPW
+& \(S_1^z\)
+& 0
+& 0.000505 \\[4pt]
 
-PLR-IV, OLS
-& 0.239 & 0.239 & 0.0000
-& 0.270 & 0.270 & 0.0000 \\
+\multicolumn{4}{l}{\textit{Panel B: Ranger}} \\[2pt]
 
-Wald-AIPW, OLS/logit
-& 0.218 & 0.218 & 0.0000
-& 0.247 & 0.247 & 0.0000 \\
+PLR-IV
+& \(S\)
+& 0
+& 0 \\
 
-PLR-IV, \texttt{ranger}
-& 0.270 & 0.270 & 0.0000
-& 0.283 & 0.283 & 0.0000 \\
+Wald-AIPW
+& \(S_0^z\)
+& 0
+& 0 \\
 
-Wald-AIPW, \texttt{ranger}
-& 0.246 & 0.246 & 0.0000
-& 0.261 & 0.261 & 0.0000 \\
-
-PLR-IV, tuned XGBoost
-& 0.265 & 0.268 & \textbf{0.0029}
-& 0.281 & 0.280 & $\mathbf{-0.0005}$ \\
-
-Wald-AIPW, tuned XGBoost
-& 0.238 & 0.238 & $\mathbf{-0.0003}$
-& 0.253 & 0.252 & $\mathbf{-0.0015}$ \\
+Wald-AIPW
+& \(S_1^z\)
+& 0
+& 0 \\
 
 \bottomrule
 \end{tabular}
 
 \begin{tablenotes}
-\scriptsize
-\item \textit{Notes:} Change is the estimate obtained after recoding log wages
-from dollars to cents minus the original estimate. An estimate is classified
-as unchanged when the absolute rerun change does not exceed \(10^{-4}\).
-Bold values exceed this threshold.
+\footnotesize
+\item \textit{Notes:} Entries report the 
+difference between the outcome-smoother matrices recovered from the
+translated and original fits, .
+ For the two changed smoothers, the decomposition in
+Equation~\eqref{eq:smoother_translation_decomposition} closes up to numerical
+precision.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
+\end{samepage}
 
 
 \subsection{Numerical difference in the cubic CBPS replication}
@@ -3284,7 +2957,20 @@ The forest rows use the tuned specifications.
 \label{fig:vietnam_love_cubic}
 \end{center}
 
-% Here is where I start the Card application 
+ 
+
+\begin{center}
+\includegraphics[
+  width=0.96\textwidth,
+  height=0.72\textheight,
+  keepaspectratio
+]{pics/linear_cubic.png}
+\captionof{figure}{Covariate balance under cubic age adjustment}
+\label{fig:vietnam_love_cubic_linear}
+\end{center}
+
+
+% Here is where I start the Card Application
 
 
 
