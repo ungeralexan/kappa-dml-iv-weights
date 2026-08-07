@@ -2085,13 +2085,13 @@ conditions even though they share differnet parametric an d weighting constructi
 
 
 
-\subsection{Normalization, Invariance, and Outcome-Weight Diagnostics}
+\subsection{ Invariance and Outcome-Weight normalization}
 \label{subsec:diagnostic_synthesis}
 
 Similar point estimates do not imply that estimators construct the same
 finite-sample outcome comparison. The normalization and
 translation-invariance results provide a first distinction.
-The kappa results follow the theoretical pattern described by
+In all the empirical designs kappa results follow the theoretical pattern described by
 \citet{sloczynski2025abadie}. The three normalized-form specifications,
 including the estimator proposed by \citet{uysal2011three}, remain unchanged
 under all additive outcome transformations considered. The three
@@ -2101,14 +2101,13 @@ adjustment in Vietnam and in the Card application, but much smaller in the
 Angrist--Evans diagnostic subsamples. 
 The saturated Vietnam specification provides an important exception. Its
 age-cell structure makes all six reported kappa specifications numerically
-equivalent in the realized sample. 
+equivalent in the specific sample. 
  This
 design-specific result should not be generalized to the estimator formulas.
-The DML results show why outcome-weight normalization and complete-pipeline
-translation invariance must be distinguished. Linear PLR-IV provides the
+The DML results show why outcome-weight normalization and the complete rerun invariance test must be distinguished. Linear PLR-IV provides the
 clearest case of full normalization. Its OLS outcome and treatment regressions
 use the same covariate design and training folds, so the required smoother
-alignment holds. Linear/logit Wald-AIPW and the forest implementations are
+alignment holds. Linear (logit) Wald-AIPW and the forest implementations are
 generally only scale-normalized because their outcome and treatment nuisances
 are fitted separately. As emphasized by
 \citet[Sections~4.2.2 and~4.2.4]{knaus2024treatment}, using the same learner
@@ -2116,9 +2115,6 @@ family or the same cross-fitting folds does not by itself guarantee the
 alignment required for full normalization.
 Despite this difference in normalization class, both linear PLR-IV and
 linear/logit Wald-AIPW remain unchanged to numerical precision in every rerun.
-Their OLS outcome regressions are
-location-equivariant, meaning adding a constant to the outcome shifts the fitted
-outcome predictions by the same constant. 
 Linear/logit Wald-AIPW can
 therefore be scale-normalized and nevertheless remain invariant under
 complete re-estimation. This is the clearest example why there are differences between the full normalization property defined in \citet{knaus2024treatment} and the rerun changes presented here.
@@ -2147,7 +2143,7 @@ kappa estimators because their fitted weights do not depend on the outcome.
 For the data adaptive DML procedures they can though differ. 
 \\
 The effective-support diagnostics reveal another cross-application
-difference. The Vietnam and Angrist--Evans weights are distributed across a
+difference. The Vietnam and Angrist-Evans weights are distributed across a
 large proportion of their respective treatment groups. The Card application
 produces substantially greater concentration, particularly for Wald-AIPW at
 the weaker sixteen-year treatment margin. Under the Card covariates, the
@@ -2156,7 +2152,7 @@ honest-forest Wald-AIPW representation has treated and control ESS ratios of
 honest-forest PLR-IV. Its maximum absolute weight is also considerably larger.
 The Wald-AIPW estimate in this cell consequently depends more strongly on a
 smaller set of influential observations.\\
-Covariate balance identifies a further dimension of the realized comparison.
+Another dimension of the realized comparison is identified by covariate balance.
 The CBPS-based kappa estimator produces the most systematic exact balance of
 the included covariates, reflecting the moment conditions used to estimate
 its instrument propensity score. 
@@ -2174,64 +2170,45 @@ covariate comparison. Concentration and covariate balance describe distinct
 properties of the outcome weights and need not rank estimators in the same
 order.
 
-\subsection{Nuisance Learning and Practical Implications}
+
+\subsection{Nuisance Learners, Tuning, and Practical Implications}
 \label{subsec:learner_implications}
 
-The cross-application evidence also illustrates how nuisance-learning choices
-enter the finite-sample behavior of DML estimators. Linear PLR-IV and
-linear/logit Wald-AIPW are the most numerically stable implementations in the
-translation exercises. Their estimates remain unchanged when the complete
-procedure is repeated after transforming the outcome. This stability is
-particularly valuable in low-dimensional settings where a parametric
-description of the nuisance functions is plausible. It does not, however,
-establish that the underlying linear and logistic models are correctly
-specified. Parametric stability should therefore be interpreted as an
-implementation advantage rather than as evidence that parametric nuisance
-models are universally preferable to more flexible alternatives.
-The two forest implementations must also be distinguished. Honest forests
-serve as the headline outcome-weight specification because their fitted
-smoother matrices permit a direct examination of the conditions underlying
-the recovered weights. The \texttt{ranger} specifications instead provide an
-alternative random-forest implementation through \textsc{DoubleML}. Although
-both approaches use tree-based nuisance learning, their finite-sample
-behavior is not interchangeable. In the Card application, both forest
-families are sensitive to the richer Card conditioning set but remain close to
-invariant under the more parsimonious Kitagawa specification. The
-Angrist--Evans income results reveal a different distinction. The
-honest-forest representations distribute their weights very broadly but
-retain substantial imbalance in age at first birth. The \texttt{ranger}
-representations achieve better balance in the same sample, although their
-weights are slightly more concentrated. This does not establish a general
-ranking in favor of \texttt{ranger}. Instead, it shows that changing a
-prediction-oriented nuisance learner can improve one property of the realized
-outcome contrast while weakening another.
-XGBoost displays the strongest implementation sensitivity. In the Card and
-Angrist--Evans applications, the default Wald-AIPW specifications produce
-estimates far from the remaining results, while the default PLR-IV estimates
-also show notable departures in the Angrist--Evans samples. Fold-specific
-tuning moves these estimates substantially closer to the other DML and kappa
-results. Nevertheless, the tuned procedures remain comparatively sensitive
-when the complete estimation pipeline is repeated after translating the
-outcome. Moreover, the extracted XGBoost weight vectors do not reproduce the
-corresponding fitted estimates under the numerical identity check. They
-therefore cannot support conclusions about normalization, effective support,
-sign cancellation, or covariate balance. In this thesis, XGBoost provides
-evidence on point-estimate and tuning sensitivity, but not a validated
-outcome-weight representation.
-These findings suggest a diagnostic procedure rather than a universally
-preferred estimator. Estimates from normalized-form kappa specifications provide a transparent
-invariance benchmark, while alternative DML scores and nuisance learners show
-whether the empirical conclusions depend on a particular implementation.
-Normalization, complete-pipeline invariance, concentration, sign cancellation,
-and covariate balance should then be evaluated separately because success in
-one dimension does not imply success in the others. Hyperparameter tuning
-must likewise be treated as part of the implemented estimator rather than as
-an incidental computational choice. Within this comparison,
-\(\widehat{\tau}^{CB}_{u}\) provides the most transparent finite-sample
-benchmark because it combines full normalization, translation invariance, and
-systematic balance of the included covariates. These properties do not make it
-universally superior, nor do they establish instrument validity, but they make
-its realized outcome comparison particularly transparent.
+The learner comparisons serve different purposes in the empirical analysis.
+The linear and logistic specifications provide transparent parametric
+benchmarks. Their stability under complete re-estimation nevertheless does not establish a correct specification of the nuisance models. Honest forests provide the principal flexible
+outcome-weight specification because their smoother matrices allow the
+resulting weights and the conditions described by
+\citet{knaus2024treatment} to be examined directly. The \texttt{ranger}
+specifications instead serve as an implementation check. They show that
+different forest algorithms can generate different finite-sample weight
+properties even when they are used within the same PLR-IV or Wald-AIPW score.
+A central finding is that tuning has no uniform effect across learners and applications. For the honest
+forests, tuning generally does not overturn the qualitative conclusions,
+although it produces noticeable changes in some Wald-AIPW specifications.
+Moreover, the selected untuned-forest audits still exhibit changes in the
+outcome smoothers after the outcome translation. Tuning is therefore not a
+necessary cause of the observed rerun translation departures.
+Rather, the results indicate that the fitted forest itself can respond to the
+translated outcome even when the remaining inputs are held fixed.
+Tuning is more consequential for XGBoost. In the Card and Angrist--Evans
+applications, some default XGBoost estimates differ substantially from the
+main group of DML and kappa results, whereas fold-specific tuning generally
+moves them closer to that range. This should not be interpreted as evidence
+that tuning makes the estimator normalized. It instead demonstrates that the
+choice and tuning of the nuisance learner form part of the implemented DML
+procedure. In addition, the reconstructed XGBoost weight vectors do not pass
+the numerical reproduction check in this analysis.
+The practical implication is not that one nuisance learner is uniformly
+preferable. Parametric learners offer a stable benchmark, honest forests
+permit the most complete examination of flexible outcome weights,
+\texttt{ranger} assesses sensitivity to an alternative forest
+implementation, and XGBoost illustrates the potential importance of tuning.
+
+
+
+
+
 
 \subsection{Limitations}
 \label{subsec:limitations}
@@ -2253,8 +2230,7 @@ splits or tuning searches. The results should therefore be interpreted as
 evidence on the implemented procedures rather than as general properties of
 PLR-IV, Wald-AIPW, or the respective learner classes.\\
 Third, the Angrist--Evans analysis is based on one fixed diagnostic subsample
-of \(3{,}000\) observations for each outcome rather than on the complete
-Census samples or repeated subsamples. Proportional stratification preserves
+of \(3{,}000\) observations for each outcome rather than on repeated subsamples. Proportional stratification preserves
 the principal characteristics of the parent samples, but the reported DML and
 outcome-weight patterns may still depend on the realized draws. In addition,
 the maternal-income analysis is restricted to women with positive reported
@@ -2265,10 +2241,7 @@ corresponding fitted estimates under the numerical identity check. This
 prevents the XGBoost specifications from entering the normalization,
 concentration, sign-cancellation, and covariate-balance analysis. The failure
 concerns the weight extraction available for the particular implementations
-used here. It should not be interpreted as a general theoretical failure of
-boosting methods or as evidence that XGBoost estimators cannot possess valid
-outcome-weight representations under a different implementation.
-
+used here. 
 
 
 
