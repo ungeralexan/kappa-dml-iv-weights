@@ -158,6 +158,9 @@ validated, and saved together with the complete translation result.
 
 ### Vietnam
 
+See [`vietnam_final/NOTEBOOKS.md`](vietnam_final/NOTEBOOKS.md) for a per-script
+map of the Vietnam notebooks and the thesis section each one produces.
+
 1. `vietnam_xgb_tuning.Rmd`
 2. `vietnam_xgb_pliv_tuning.Rmd`
 3. `vietnam_presentation_4.Rmd`
