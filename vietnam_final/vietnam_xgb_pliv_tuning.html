@@ -11,9 +11,9 @@
 
 <meta name="author" content="Alexander Unger" />
 
-<meta name="date" content="2026-07-30" />
+<meta name="date" content="2026-08-08" />
 
-<title>The Vietnam Draft Lottery — XGBoost Tuning for PLR-IV</title>
+<title>The Vietnam Draft Lottery: XGBoost Tuning for PLR-IV</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1896,12 +1896,12 @@ font-size: 0.95em;
 
 
 
-<h1 class="title toc-ignore">The Vietnam Draft Lottery — XGBoost Tuning
+<h1 class="title toc-ignore">The Vietnam Draft Lottery: XGBoost Tuning
 for PLR-IV</h1>
 <h3 class="subtitle">Nested nuisance tuning within the cross-fitting
-design</h3>
+design for PLR IV</h3>
 <h4 class="author">Alexander Unger</h4>
-<h4 class="date">30 July 2026</h4>
+<h4 class="date">08 August 2026</h4>
 
 </div>
 
@@ -1910,25 +1910,19 @@ design</h3>
 body { font-size:15px; color:#2c2c2c; }
 h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
 h2 { color:#2c7bb6; margin-top:28px; }
-.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size:13px; }
 </style>
-<div class="note-box">
 <p><strong>Purpose.</strong> This notebook compares untuned and
 fold-specifically tuned XGBoost nuisance learners for PLR-IV under the
 cubic- and saturated-age specifications. Tuning is performed within each
 outer training fold. The estimates, nuisance losses, tuning records, and
 outcome-weight reproduction audit are exported to the main Vietnam
 notebook.</p>
-</div>
-<div class="warn-box">
 <p><strong>Runtime.</strong> A full rerun tunes three nuisance models
 using five outer folds, three inner folds, and 15 random-search
 evaluations per nuisance and outer fold. With
 <code>RERUN_TUNING = FALSE</code>, the notebook reads the existing
 export and does not refit XGBoost.</p>
-</div>
 <div id="setup" class="section level1">
 <h1>Setup</h1>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">file.exists</span>(<span class="st">&quot;sipp.dta&quot;</span>))</span>
@@ -2245,10 +2239,6 @@ PLR-IV XGB tuned
 </div>
 <div id="tuning-protocol" class="section level2">
 <h2>3. Tuning protocol</h2>
-<p>The tuned estimator does not use a single global hyperparameter
-vector. Parameters are selected inside each outer training fold and used
-to predict its held-out observations. Reproducibility therefore depends
-on the prespecified search design and fold-specific selections.</p>
 <div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">data.frame</span>(</span>
 <span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>  <span class="at">Component=</span><span class="fu">c</span>(</span>
 <span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>    <span class="st">&quot;Outer cross-fitting&quot;</span>,<span class="st">&quot;Inner validation&quot;</span>,<span class="st">&quot;Search algorithm&quot;</span>,<span class="st">&quot;Budget&quot;</span>,</span>
@@ -2435,7 +2425,7 @@ RMSE
 <span id="cb7-41"><a href="#cb7-41" tabindex="-1"></a>  <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">FALSE</span>)<span class="sc">%&gt;%</span></span>
 <span id="cb7-42"><a href="#cb7-42" tabindex="-1"></a>  <span class="fu">collapse_rows</span>(<span class="at">columns=</span><span class="dv">1</span>,<span class="at">valign=</span><span class="st">&quot;middle&quot;</span>)<span class="sc">%&gt;%</span></span>
 <span id="cb7-43"><a href="#cb7-43" tabindex="-1"></a>  <span class="fu">row_spec</span>(<span class="fu">which</span>(xgb_pliv_weight_display<span class="sc">$</span>Variant<span class="sc">==</span><span class="st">&quot;Tuned XGBoost&quot;</span>),<span class="at">background=</span><span class="st">&quot;#eef6ff&quot;</span>)<span class="sc">%&gt;%</span></span>
-<span id="cb7-44"><a href="#cb7-44" tabindex="-1"></a>  <span class="fu">footnote</span>(<span class="at">general=</span><span class="st">&quot;The sums describe reconstructed outcome-weight vectors. Control weights are reported with reversed sign. A normalized contrast has overall, treated, and control sums of 0, 1, and 1. Reproduction follows all.equal() check with R&#39;s default tolerance. Failed vectors are excluded from further outcome-weight diagnostics.&quot;</span>)</span></code></pre></div>
+<span id="cb7-44"><a href="#cb7-44" tabindex="-1"></a>  <span class="fu">footnote</span>(<span class="at">general=</span><span class="st">&quot;The sums describe reconstructed outcome-weight vectors. Control weights are reported with reversed sign.Reproduction follows all.equal() check with R&#39;s default tolerance.&quot;</span>)</span></code></pre></div>
 <table class="table table-striped table-hover table-condensed" style="color: black; width: auto !important; margin-left: auto; margin-right: auto;border-bottom: 0;">
 <caption>
 Vietnam PLR-IV — reconstructed XGBoost weight audit
@@ -2547,10 +2537,8 @@ FALSE
 <tr>
 <td style="padding: 0; " colspan="100%">
 <sup></sup> The sums describe reconstructed outcome-weight vectors.
-Control weights are reported with reversed sign. A normalized contrast
-has overall, treated, and control sums of 0, 1, and 1. Reproduction
-follows all.equal() check with R’s default tolerance. Failed vectors are
-excluded from further outcome-weight diagnostics.
+Control weights are reported with reversed sign.Reproduction follows
+all.equal() check with R’s default tolerance.
 </td>
 </tr>
 </tfoot>

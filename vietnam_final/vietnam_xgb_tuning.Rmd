@@ -1,6 +1,6 @@
 ---
-title: "The Vietnam Draft Lottery — XGBoost Tuning for Wald-AIPW"
-subtitle: "Nested nuisance tuning within the cross-fitting design"
+title: "The Vietnam Draft Lottery: XGBoost Tuning for Wald-AIPW"
+subtitle: "Nested nuisance tuning within the cross-fitting design for Wald AIPW"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 output:
@@ -19,8 +19,6 @@ output:
 body { font-size: 15px; color: #2c2c2c; }
 h1 { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
 h2 { color: #2c7bb6; margin-top: 28px; }
-.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size: 13px; }
 ```
 
@@ -52,21 +50,15 @@ RERUN_TUNING <- FALSE
 EXPORT_PATH <- "vietnam_xgb_tuning_export.rds"
 ```
 
-<div class="note-box">
 **Purpose.** This notebook compares untuned and fold-specifically tuned
 XGBoost nuisance learners for Wald-AIPW under the cubic- and saturated-age
-specifications. Tuning is performed within each outer training fold. The
-estimates, nuisance losses, tuning records, and outcome-weight reproduction
-audit are exported to the main Vietnam notebook.
-</div>
+specifications. Tuning is performed samed to the PLR IV script.
 
-<div class="warn-box">
 **Runtime.** A full rerun tunes the instrument, treatment, and arm-specific
 outcome nuisance models using five outer folds, three inner folds, and 15
 random-search evaluations per nuisance and outer fold. With
 `RERUN_TUNING = FALSE`, the notebook reads the existing export and does not
-refit XGBoost.
-</div>
+refit XGBoost (Recommended).
 
 # Setup
 
@@ -290,11 +282,6 @@ loss_rows %>% kbl(digits=4,caption="Wald-AIPW nuisance losses: untuned vs. tuned
 
 ## 3. Tuning protocol
 
-The tuned estimator does not use a single global hyperparameter vector.
-Parameters are selected inside each outer training fold and used to predict
-its held-out observations. Reproducibility therefore depends on the
-prespecified search design and fold-specific selections; the medians below
-are descriptive summaries.
 
 ```{r tuning-protocol}
 data.frame(
@@ -426,7 +413,7 @@ xgb_weight_display %>%
   kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=FALSE) %>%
   collapse_rows(columns=1,valign="middle") %>%
   row_spec(which(xgb_weight_display$Variant=="Tuned XGBoost"),background="#eef6ff") %>%
-  footnote(general="The sums describe reconstructed outcome-weight vectors; control weights are reported with reversed sign. A normalized contrast has overall, treated, and control sums of 0, 1, and 1. Reproduction follows Knaus's all.equal() check with R's default tolerance. Failed vectors are excluded from further outcome-weight diagnostics.")
+  footnote(general="The sums describe reconstructed outcome-weight vectors; control weights are reported with reversed sign. Reproduction follows Knaus's all.equal() check with R's default tolerance. Failed vectors are excluded from further outcome-weight diagnostics.")
 ```
 
 ```{r omega-and-identities}

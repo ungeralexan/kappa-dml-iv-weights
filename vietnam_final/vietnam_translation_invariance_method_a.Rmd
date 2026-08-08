@@ -19,8 +19,6 @@ output:
 body { font-size:15px; color:#2c2c2c; }
 h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
 h2 { color:#2c7bb6; margin-top:28px; }
-.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size:13px; }
 pre:not(.sourceCode) { display:none; }
 ```
@@ -33,7 +31,7 @@ knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,cache=TRUE,autodep=T
 # Purpose
 
 This notebook evaluates translation invariance by fitting the complete estimation
-pipeline to the original log-wage outcome and to
+rerun to the original log-wage outcome and to
 
 \[
 Y_i^{\mathrm{shift}}=Y_i+\log(100),
@@ -46,17 +44,6 @@ kappa comparison to data-adaptive estimators by allowing outcome nuisances and
 tuning choices to be re-estimated under the same cross-fitting protocol after
 the translation. 
 
-<div class="note-box">
-**Two workflows.** The same pure additive shift is applied to the cubic-age
-and saturated-age specifications. These are the two feature designs used by
-the DML and learner analyses. Repeating additional constants would not test a
-different transformation property. The complete estimator is rerun once for
-each of these two analysis specifications.
-</div>
-
-For the table classification, estimates are described as unchanged within
-\(10^{-4}\) when the absolute rerun difference does not exceed this
-pre-specified reporting tolerance. 
 
 # Setup
 
@@ -74,34 +61,35 @@ lgr::get_logger("mlr3")$set_threshold("warn")
 lgr::get_logger("bbotk")$set_threshold("warn")
 source(file.path("..", "functions_all.R"))
 
-RERUN_TOLERANCE <- 1e-4
-
 ti_vietnam_row <- function(name,tau_original,tau_shifted,k,digits=12) {
-  translation_rerun_row(
-    name,tau_original,tau_shifted,k,
-    tolerance=RERUN_TOLERANCE,digits=digits
+  difference <- as.numeric(tau_shifted) - as.numeric(tau_original)
+  data.frame(
+    Estimator = name,
+    Shift_k = round(as.numeric(k), digits),
+    tau_original = round(as.numeric(tau_original), digits),
+    tau_shifted = round(as.numeric(tau_shifted), digits),
+    rerun_difference = round(difference, digits),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
   )
 }
 
-classify_rerun_results <- function(x) {
-  x$invariant <- abs(x$rerun_difference) <= RERUN_TOLERANCE
-  x
-}
-
 display_rerun_results <- function(x) {
-  fixed_four <- function(value) {
-    value <- round(as.numeric(value), 4)
-    value[abs(value) < 0.00005] <- 0
-    formatC(value, format = "f", digits = 4)
+  fixed <- function(value,digits) {
+    formatC(as.numeric(value), format = "f", digits = digits)
+  }
+  change <- function(value) {
+    value <- as.numeric(value)
+    value[abs(value) < 0.5e-6] <- 0
+    formatC(value,format="f",digits=6)
   }
   data.frame(
     Specification = x$Specification,
     Estimator = x$Estimator,
-    Shift = fixed_four(x$Shift_k),
-    `Original estimate` = fixed_four(x$tau_original),
-    `Shifted estimate` = fixed_four(x$tau_shifted),
-    `Rerun change` = fixed_four(x$rerun_difference),
-    Invariant = x$invariant,
+    Shift = fixed(x$Shift_k,4),
+    `Original estimate` = fixed(x$tau_original,4),
+    `Shifted estimate` = fixed(x$tau_shifted,4),
+    `Rerun change` = change(x$rerun_difference),
     check.names = FALSE
   )
 }
@@ -124,14 +112,12 @@ TUNE_EVALS <- 15
 INNER_FOLDS <- 3
 ```
 
-<div class="warn-box">
 **XGBoost rule.** The default `RUN_XGB_RERUN = FALSE` loads the verified
 complete-rerun export and does not repeat nested tuning. Set it to `TRUE` only
 for a deliberate rebuild. A rebuild imports the original-outcome estimates
 from the two tuning exports and retunes the shifted outcome with the same seed,
 five outer folds, three inner folds, fifteen random-search evaluations, and
 `tune_on_folds = TRUE`.
-</div>
 
 ## Data — the exact main-analysis sample
 
@@ -194,16 +180,10 @@ if(RUN_KAPPA)kappa_ti_all<-do.call(rbind,lapply(workflows,build_kappa_rows))
 
 ```{r kappa-table}
 if(RUN_KAPPA) {
-  kappa_ti_all <- classify_rerun_results(kappa_ti_all)
   display_rerun_results(kappa_ti_all) %>%
-    kbl(caption="Kappa estimators — original versus shifted log wage",digits=4,row.names=FALSE) %>%
+    kbl(caption="Kappa estimators: original versus shifted log wage",row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
-    row_spec(which(!kappa_ti_all$invariant),background="#fffbf0") %>%
-    footnote(general=paste0(
-      "Shading marks absolute rerun differences above ",
-      "10^-4",
-      ". This occurs for the cubic unnormalized kappa variants."
-    ))
+    footnote(general=" The visible changes are concentrated in the cubic unnormalized kappa variants.")
 }
 ```
 
@@ -237,12 +217,10 @@ if(RUN_DML)dml_headline_ti_all<-do.call(rbind,lapply(workflows,build_dml_headlin
 
 ```{r dml-headline-table}
 if(RUN_DML) {
-  dml_headline_ti_all <- classify_rerun_results(dml_headline_ti_all)
   display_rerun_results(dml_headline_ti_all) %>%
-    kbl(caption="Tuned honest forest — original versus shifted log wage",digits=4,row.names=FALSE) %>%
+    kbl(caption="Tuned honest forest: original versus shifted log wage",row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
-    row_spec(which(!dml_headline_ti_all$invariant),background="#fffbf0") %>%
-    footnote(general="The exact rerun differences are shown; all four are unchanged within the stated reporting tolerance.")
+    footnote(general="The signed rerun change is displayed to six decimal places. Values that round to zero at this precision are shown uniformly as 0.000000.")
 }
 ```
 
@@ -277,12 +255,10 @@ if(RUN_LM_RF)learner_ti_all<-do.call(rbind,lapply(workflows,function(wf)rbind(
 
 ```{r learner-table}
 if(RUN_LM_RF) {
-  learner_ti_all <- classify_rerun_results(learner_ti_all)
   display_rerun_results(learner_ti_all) %>%
-    kbl(caption="DoubleML learners — original versus shifted log wage",digits=4,row.names=FALSE) %>%
+    kbl(caption="DoubleML learners — original versus shifted log wage",row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
-    row_spec(which(!learner_ti_all$invariant),background="#fffbf0") %>%
-    footnote(general="OLS/logit labels the nuisance learner class; cubic and saturated identify the feature specification. All reported rerun differences are within the numerical threshold.")
+    footnote(general="OLS/logit labels the nuisance learner class,  cubic and saturated identify the feature specification")
 }
 ```
 
@@ -295,7 +271,7 @@ validate_xgb_rerun_export <- function(export, path, required_specs) {
   if (!is.list(export) || is.null(export$results) || is.null(export$settings))
     stop(sprintf("%s has an incomplete schema.", path))
   required_columns <- c("Estimator", "Shift_k", "tau_original", "tau_shifted",
-                        "rerun_difference", "invariant", "Specification")
+                        "rerun_difference", "Specification")
   if (!all(required_columns %in% names(export$results)))
     stop(sprintf("%s is missing required result columns.", path))
   expected_settings <- c(seed=SEED,n_cf=N_CF,tune_evals=TUNE_EVALS,
@@ -317,7 +293,7 @@ validate_xgb_rerun_export <- function(export, path, required_specs) {
   if (any(!vapply(export$results[numeric_columns],
                   function(x) all(is.finite(as.numeric(x))),logical(1))))
     stop(sprintf("%s contains non-finite translation results.", path))
-  export$results
+  export$results[,required_columns,drop=FALSE]
 }
 
 if(RUN_XGB_RERUN){
@@ -382,37 +358,23 @@ if(RUN_XGB_RERUN){
   xgb_ti_all<-validate_xgb_rerun_export(
     readRDS(XGB_RERUN_EXPORT),XGB_RERUN_EXPORT,names(workflows))
 }
-xgb_ti_all<-classify_rerun_results(xgb_ti_all)
 ```
 
 ```{r xgb-table}
 if(exists("xgb_ti_all")) {
   display_rerun_results(xgb_ti_all) %>%
-    kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",digits=4,row.names=FALSE) %>%
+    kbl(caption="Tuned XGBoost — original export versus shifted nested-tuning rerun",row.names=FALSE) %>%
     kable_styling(bootstrap_options=c("striped","hover","condensed"),full_width=TRUE) %>%
-    row_spec(which(!xgb_ti_all$invariant),background="#fffbf0") %>%
     footnote(general=paste0(
       if(RUN_XGB_RERUN)
         "This render rebuilt the shifted-outcome nested-tuning results. " else
         "This render loaded the verified complete-rerun XGBoost export. ",
-      "Shading marks absolute rerun differences above ",
-      "10^-4."
+      "The signed rerun change is reported without a binary cutoff."
     ))
 }
 ```
 
-<div class="note-box">
-**Interpretation.** The normalized kappa estimators and the OLS/logit, Ranger,
-and honest-forest implementations are unchanged within the stated reporting
-tolerance after the complete rerun. The cubic unnormalized kappa results reproduce the sensitivity reported
-by SUW, while the kappa variants coincide under the saturated-age
-specification. The tuned XGBoost estimates show small but visible rerun
-differences. 
-The cubic OLS PLR-IV rerun result is not contradicted by its borderline
-reproduction check in the main presentation: that separate `FALSE` arises
-from numerical reconstruction of the raw-cubic OLS smoother, not from a
-response to the outcome translation.
-</div>
+
 
 # 5. Save reusable rerun results
 
@@ -432,7 +394,6 @@ if(RUN_XGB_RERUN){
   saveRDS(list(
     results = translation_results,
     settings = list(seed=SEED,n_cf=N_CF,shift=log(100),
-                    rerun_tolerance=RERUN_TOLERANCE,
                     grf_tuning="all",xgboost_tune_on_folds=TRUE,
                     xgboost_tune_evals=TUNE_EVALS,xgboost_inner_folds=INNER_FOLDS)
   ), "vietnam_translation_rerun_results.rds")

@@ -13,7 +13,7 @@
 
 <meta name="date" content="2026-08-08" />
 
-<title>Angrist (1990) — Translation Invariance: Complete-Pipeline Rerun</title>
+<title>Vietnam Forest Translation Audit</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1854,12 +1854,6 @@ font-size: 0.90em;
 .tocify .list-group-item {
 border-radius: 0px;
 }
-.tocify-subheader {
-display: inline;
-}
-.tocify-subheader .tocify-item {
-font-size: 0.95em;
-}
 </style>
 
 
@@ -1896,10 +1890,9 @@ font-size: 0.95em;
 
 
 
-<h1 class="title toc-ignore">Angrist (1990) — Translation Invariance:
-Complete-Pipeline Rerun</h1>
-<h3 class="subtitle">Vietnam draft lottery: kappa, honest forest,
-DoubleML learners, and nested XGBoost</h3>
+<h1 class="title toc-ignore">Vietnam Forest Translation Audit</h1>
+<h3 class="subtitle">Tuned honest forest and Ranger smoother
+matrices</h3>
 <h4 class="author">Alexander Unger</h4>
 <h4 class="date">08 August 2026</h4>
 
@@ -1908,191 +1901,439 @@ DoubleML learners, and nested XGBoost</h3>
 
 <style type="text/css">
 body { font-size:15px; color:#2c2c2c; }
-h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
-h2 { color:#2c7bb6; margin-top:28px; }
-table { font-size:13px; }
-pre:not(.sourceCode) { display:none; }
+h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; }
+h2 { color:#2c7bb6; }
+table { font-size:12px; }
 </style>
 <div id="purpose" class="section level1">
 <h1>Purpose</h1>
-<p>This notebook evaluates translation invariance by fitting the
-complete estimation rerun to the original log-wage outcome and to</p>
+<p>This internal notebook localizes the rerun translation changes for
+the two forest implementations used in the Vietnam application. It
+compares the original log-wage outcome with <span class="math inline">\(Y+\log(100)\)</span> for the cubic-age and
+saturated-age specifications.</p>
+<p>Within every original/translated pair, <span class="math inline">\(D\)</span>, <span class="math inline">\(Z\)</span>, <span class="math inline">\(X\)</span>, observation order, five-fold
+cross-fitting rule, initial random-number state, learner settings, and
+nuisance-fit order are held fixed. The honest forest uses the tuned
+headline specification (<code>tune.parameters = &quot;all&quot;</code>). Ranger
+uses the same untuned learner settings as the main translation notebook.
+Only <span class="math inline">\(Y\)</span> changes. The audit stops if
+the realized cross-fitting folds differ.</p>
+<p>For each outcome smoother, it checks whether the realized matrix
+changes and verifies</p>
 <p><span class="math display">\[
-Y_i^{\mathrm{shift}}=Y_i+\log(100),
+\widehat g^{\,k}-\widehat g-k\mathbf 1
+=
+(S^k-S)Y+k(S^k\mathbf 1-\mathbf 1).
 \]</span></p>
-<p>which is the cents recoding used in the SUW reproduction. The
-empirical check is the direct difference between the two separately
-fitted point estimates. It extends the classical kappa comparison to
-data-adaptive estimators by allowing outcome nuisances and tuning
-choices to be re-estimated under the same cross-fitting protocol after
-the translation.</p>
+<p>The first term isolates changes in the fitted smoother weights, the
+second isolates departures of the translated smoother’s row sums from
+one.</p>
 </div>
-<div id="setup" class="section level1">
-<h1>Setup</h1>
+<div id="setup-and-fixed-sample" class="section level1">
+<h1>Setup and fixed sample</h1>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(haven)</span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">library</span>(knitr)</span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="fu">library</span>(kableExtra)</span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a><span class="fu">library</span>(OutcomeWeights)</span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a><span class="fu">library</span>(DoubleML)</span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a><span class="fu">library</span>(mlr3verse)</span>
-<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a><span class="fu">library</span>(mlr3tuning)</span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a></span>
-<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>lgr<span class="sc">::</span><span class="fu">get_logger</span>(<span class="st">&quot;mlr3&quot;</span>)<span class="sc">$</span><span class="fu">set_threshold</span>(<span class="st">&quot;warn&quot;</span>)</span>
-<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>lgr<span class="sc">::</span><span class="fu">get_logger</span>(<span class="st">&quot;bbotk&quot;</span>)<span class="sc">$</span><span class="fu">set_threshold</span>(<span class="st">&quot;warn&quot;</span>)</span>
-<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a><span class="fu">source</span>(<span class="fu">file.path</span>(<span class="st">&quot;..&quot;</span>, <span class="st">&quot;functions_all.R&quot;</span>))</span>
-<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a></span>
-<span id="cb1-14"><a href="#cb1-14" tabindex="-1"></a>ti_vietnam_row <span class="ot">&lt;-</span> <span class="cf">function</span>(name,tau_original,tau_shifted,k,<span class="at">digits=</span><span class="dv">12</span>) {</span>
-<span id="cb1-15"><a href="#cb1-15" tabindex="-1"></a>  difference <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(tau_shifted) <span class="sc">-</span> <span class="fu">as.numeric</span>(tau_original)</span>
-<span id="cb1-16"><a href="#cb1-16" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
-<span id="cb1-17"><a href="#cb1-17" tabindex="-1"></a>    <span class="at">Estimator =</span> name,</span>
-<span id="cb1-18"><a href="#cb1-18" tabindex="-1"></a>    <span class="at">Shift_k =</span> <span class="fu">round</span>(<span class="fu">as.numeric</span>(k), digits),</span>
-<span id="cb1-19"><a href="#cb1-19" tabindex="-1"></a>    <span class="at">tau_original =</span> <span class="fu">round</span>(<span class="fu">as.numeric</span>(tau_original), digits),</span>
-<span id="cb1-20"><a href="#cb1-20" tabindex="-1"></a>    <span class="at">tau_shifted =</span> <span class="fu">round</span>(<span class="fu">as.numeric</span>(tau_shifted), digits),</span>
-<span id="cb1-21"><a href="#cb1-21" tabindex="-1"></a>    <span class="at">rerun_difference =</span> <span class="fu">round</span>(difference, digits),</span>
-<span id="cb1-22"><a href="#cb1-22" tabindex="-1"></a>    <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb1-23"><a href="#cb1-23" tabindex="-1"></a>    <span class="at">check.names =</span> <span class="cn">FALSE</span></span>
-<span id="cb1-24"><a href="#cb1-24" tabindex="-1"></a>  )</span>
-<span id="cb1-25"><a href="#cb1-25" tabindex="-1"></a>}</span>
-<span id="cb1-26"><a href="#cb1-26" tabindex="-1"></a></span>
-<span id="cb1-27"><a href="#cb1-27" tabindex="-1"></a>display_rerun_results <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
-<span id="cb1-28"><a href="#cb1-28" tabindex="-1"></a>  fixed <span class="ot">&lt;-</span> <span class="cf">function</span>(value,digits) {</span>
-<span id="cb1-29"><a href="#cb1-29" tabindex="-1"></a>    <span class="fu">formatC</span>(<span class="fu">as.numeric</span>(value), <span class="at">format =</span> <span class="st">&quot;f&quot;</span>, <span class="at">digits =</span> digits)</span>
-<span id="cb1-30"><a href="#cb1-30" tabindex="-1"></a>  }</span>
-<span id="cb1-31"><a href="#cb1-31" tabindex="-1"></a>  change <span class="ot">&lt;-</span> <span class="cf">function</span>(value) {</span>
-<span id="cb1-32"><a href="#cb1-32" tabindex="-1"></a>    value <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(value)</span>
-<span id="cb1-33"><a href="#cb1-33" tabindex="-1"></a>    value[<span class="fu">abs</span>(value) <span class="sc">&lt;</span> <span class="fl">0.5e-6</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
-<span id="cb1-34"><a href="#cb1-34" tabindex="-1"></a>    <span class="fu">formatC</span>(value,<span class="at">format=</span><span class="st">&quot;f&quot;</span>,<span class="at">digits=</span><span class="dv">6</span>)</span>
-<span id="cb1-35"><a href="#cb1-35" tabindex="-1"></a>  }</span>
-<span id="cb1-36"><a href="#cb1-36" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
-<span id="cb1-37"><a href="#cb1-37" tabindex="-1"></a>    <span class="at">Specification =</span> x<span class="sc">$</span>Specification,</span>
-<span id="cb1-38"><a href="#cb1-38" tabindex="-1"></a>    <span class="at">Estimator =</span> x<span class="sc">$</span>Estimator,</span>
-<span id="cb1-39"><a href="#cb1-39" tabindex="-1"></a>    <span class="at">Shift =</span> <span class="fu">fixed</span>(x<span class="sc">$</span>Shift_k,<span class="dv">4</span>),</span>
-<span id="cb1-40"><a href="#cb1-40" tabindex="-1"></a>    <span class="st">`</span><span class="at">Original estimate</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">fixed</span>(x<span class="sc">$</span>tau_original,<span class="dv">4</span>),</span>
-<span id="cb1-41"><a href="#cb1-41" tabindex="-1"></a>    <span class="st">`</span><span class="at">Shifted estimate</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">fixed</span>(x<span class="sc">$</span>tau_shifted,<span class="dv">4</span>),</span>
-<span id="cb1-42"><a href="#cb1-42" tabindex="-1"></a>    <span class="st">`</span><span class="at">Rerun change</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">change</span>(x<span class="sc">$</span>rerun_difference),</span>
-<span id="cb1-43"><a href="#cb1-43" tabindex="-1"></a>    <span class="at">check.names =</span> <span class="cn">FALSE</span></span>
-<span id="cb1-44"><a href="#cb1-44" tabindex="-1"></a>  )</span>
-<span id="cb1-45"><a href="#cb1-45" tabindex="-1"></a>}</span></code></pre></div>
-<div id="runtime-switches" class="section level2">
-<h2>Runtime switches</h2>
-<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>RUN_KAPPA <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>RUN_DML <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>RUN_LM_RF <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>RUN_XGB_RERUN <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
-<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>RUN_XGB_WALD_AIPW <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>RUN_XGB_PLIV <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>USE_XGB_ORIGINAL_EXPORT <span class="ot">&lt;-</span> <span class="cn">TRUE</span></span>
-<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a></span>
-<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>SEED <span class="ot">&lt;-</span> <span class="dv">42</span></span>
-<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>N_CF <span class="ot">&lt;-</span> <span class="dv">5</span></span>
-<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a>TUNE_EVALS <span class="ot">&lt;-</span> <span class="dv">15</span></span>
-<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>INNER_FOLDS <span class="ot">&lt;-</span> <span class="dv">3</span></span></code></pre></div>
-<p><strong>XGBoost rule.</strong> The default
-<code>RUN_XGB_RERUN = FALSE</code> loads the verified complete-rerun
-export and does not repeat nested tuning. Set it to <code>TRUE</code>
-only for a deliberate rebuild. A rebuild imports the original-outcome
-estimates from the two tuning exports and retunes the shifted outcome
-with the same seed, five outer folds, three inner folds, fifteen
-random-search evaluations, and <code>tune_on_folds = TRUE</code>.</p>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">library</span>(OutcomeWeights)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="fu">library</span>(DoubleML)</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="fu">library</span>(mlr3verse)</span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a><span class="fu">library</span>(knitr)</span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a><span class="fu">library</span>(kableExtra)</span>
+<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>lgr<span class="sc">::</span><span class="fu">get_logger</span>(<span class="st">&quot;mlr3&quot;</span>)<span class="sc">$</span><span class="fu">set_threshold</span>(<span class="st">&quot;warn&quot;</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a><span class="fu">source</span>(<span class="fu">file.path</span>(<span class="st">&quot;..&quot;</span>,<span class="st">&quot;functions_all.R&quot;</span>))</span>
+<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">exists</span>(<span class="st">&quot;get_DoubleML_smoother&quot;</span>,</span>
+<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a>            <span class="at">envir=</span><span class="fu">asNamespace</span>(<span class="st">&quot;OutcomeWeights&quot;</span>),<span class="at">inherits=</span><span class="cn">FALSE</span>)) {</span>
+<span id="cb1-14"><a href="#cb1-14" tabindex="-1"></a>  <span class="fu">stop</span>(<span class="st">&quot;The installed OutcomeWeights version does not provide get_DoubleML_smoother().&quot;</span>)</span>
+<span id="cb1-15"><a href="#cb1-15" tabindex="-1"></a>}</span>
+<span id="cb1-16"><a href="#cb1-16" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" tabindex="-1"></a>SEED<span class="ot">&lt;-</span><span class="dv">42</span><span class="dt">L</span></span>
+<span id="cb1-18"><a href="#cb1-18" tabindex="-1"></a>N_CF<span class="ot">&lt;-</span><span class="dv">5</span><span class="dt">L</span></span>
+<span id="cb1-19"><a href="#cb1-19" tabindex="-1"></a>SHIFT_K<span class="ot">&lt;-</span><span class="fu">log</span>(<span class="dv">100</span>)</span>
+<span id="cb1-20"><a href="#cb1-20" tabindex="-1"></a>WEIGHT_TOLERANCE<span class="ot">&lt;-</span><span class="fl">1e-12</span></span>
+<span id="cb1-21"><a href="#cb1-21" tabindex="-1"></a>BLOCK_ROWS<span class="ot">&lt;-</span><span class="dv">100</span><span class="dt">L</span></span>
+<span id="cb1-22"><a href="#cb1-22" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" tabindex="-1"></a>sipp<span class="ot">&lt;-</span><span class="fu">read_dta</span>(<span class="st">&quot;sipp.dta&quot;</span>)</span>
+<span id="cb1-24"><a href="#cb1-24" tabindex="-1"></a>sipp<span class="ot">&lt;-</span>sipp[</span>
+<span id="cb1-25"><a href="#cb1-25" tabindex="-1"></a>  sipp<span class="sc">$</span>rsncode<span class="sc">!=</span><span class="dv">999</span> <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(sipp<span class="sc">$</span>educ) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(sipp<span class="sc">$</span>kwage),</span>
+<span id="cb1-26"><a href="#cb1-26" tabindex="-1"></a>]</span>
+<span id="cb1-27"><a href="#cb1-27" tabindex="-1"></a>sipp<span class="sc">$</span>age<span class="ot">&lt;-</span>sipp<span class="sc">$</span>age_5</span>
+<span id="cb1-28"><a href="#cb1-28" tabindex="-1"></a>sipp<span class="sc">$</span>age_fac<span class="ot">&lt;-</span><span class="fu">factor</span>(sipp<span class="sc">$</span>age_5)</span>
+<span id="cb1-29"><a href="#cb1-29" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" tabindex="-1"></a>Y<span class="ot">&lt;-</span><span class="fu">as.numeric</span>(<span class="fu">log</span>(sipp<span class="sc">$</span>kwage))</span>
+<span id="cb1-31"><a href="#cb1-31" tabindex="-1"></a>D<span class="ot">&lt;-</span><span class="fu">as.integer</span>(sipp<span class="sc">$</span>nvstat)</span>
+<span id="cb1-32"><a href="#cb1-32" tabindex="-1"></a>Z<span class="ot">&lt;-</span><span class="fu">as.integer</span>(sipp<span class="sc">$</span>rsncode)</span>
+<span id="cb1-33"><a href="#cb1-33" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" tabindex="-1"></a>X_cubic<span class="ot">&lt;-</span><span class="fu">make_X</span>(<span class="sc">~</span><span class="dv">0</span><span class="sc">+</span>age<span class="sc">+</span><span class="fu">I</span>(age<span class="sc">^</span><span class="dv">2</span>)<span class="sc">+</span><span class="fu">I</span>(age<span class="sc">^</span><span class="dv">3</span>),<span class="at">data=</span>sipp)</span>
+<span id="cb1-35"><a href="#cb1-35" tabindex="-1"></a>X_saturated_full<span class="ot">&lt;-</span><span class="fu">make_X</span>(<span class="sc">~</span><span class="dv">0</span><span class="sc">+</span>age_fac,<span class="at">data=</span>sipp)</span>
+<span id="cb1-36"><a href="#cb1-36" tabindex="-1"></a>X_saturated<span class="ot">&lt;-</span>X_saturated_full[,<span class="sc">-</span><span class="dv">1</span>,drop<span class="ot">=</span><span class="cn">FALSE</span>]</span>
+<span id="cb1-37"><a href="#cb1-37" tabindex="-1"></a></span>
+<span id="cb1-38"><a href="#cb1-38" tabindex="-1"></a>specifications<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb1-39"><a href="#cb1-39" tabindex="-1"></a>  <span class="st">&quot;Cubic age&quot;</span><span class="ot">=</span>X_cubic,</span>
+<span id="cb1-40"><a href="#cb1-40" tabindex="-1"></a>  <span class="st">&quot;Saturated age&quot;</span><span class="ot">=</span>X_saturated</span>
+<span id="cb1-41"><a href="#cb1-41" tabindex="-1"></a>)</span>
+<span id="cb1-42"><a href="#cb1-42" tabindex="-1"></a></span>
+<span id="cb1-43"><a href="#cb1-43" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
+<span id="cb1-44"><a href="#cb1-44" tabindex="-1"></a>  <span class="fu">length</span>(Y)<span class="sc">==</span><span class="dv">3027</span><span class="dt">L</span>,</span>
+<span id="cb1-45"><a href="#cb1-45" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">vapply</span>(specifications,nrow,<span class="fu">integer</span>(<span class="dv">1</span>))<span class="sc">==</span><span class="fu">length</span>(Y))</span>
+<span id="cb1-46"><a href="#cb1-46" tabindex="-1"></a>)</span></code></pre></div>
 </div>
-<div id="data-the-exact-main-analysis-sample" class="section level2">
-<h2>Data — the exact main-analysis sample</h2>
-<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">file.exists</span>(<span class="st">&quot;sipp.dta&quot;</span>))</span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>sipp <span class="ot">&lt;-</span> <span class="fu">read_dta</span>(<span class="st">&quot;sipp.dta&quot;</span>)</span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>sipp <span class="ot">&lt;-</span> sipp[sipp<span class="sc">$</span>rsncode<span class="sc">!=</span><span class="dv">999</span> <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(sipp<span class="sc">$</span>educ) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(sipp<span class="sc">$</span>kwage),]</span>
-<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a>sipp<span class="sc">$</span>age <span class="ot">&lt;-</span> sipp<span class="sc">$</span>age_5</span>
-<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>sipp<span class="sc">$</span>age2 <span class="ot">&lt;-</span> sipp<span class="sc">$</span>age_5<span class="sc">^</span><span class="dv">2</span></span>
-<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>sipp<span class="sc">$</span>age3 <span class="ot">&lt;-</span> sipp<span class="sc">$</span>age_5<span class="sc">^</span><span class="dv">3</span></span>
-<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a>sipp<span class="sc">$</span>age_fac <span class="ot">&lt;-</span> <span class="fu">factor</span>(sipp<span class="sc">$</span>age_5)</span>
-<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a></span>
-<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>Y_orig <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">log</span>(sipp<span class="sc">$</span>kwage))</span>
-<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>k_shift <span class="ot">&lt;-</span> <span class="fu">log</span>(<span class="dv">100</span>)</span>
-<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>Y_shift <span class="ot">&lt;-</span> Y_orig<span class="sc">+</span>k_shift</span>
-<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>D <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(sipp<span class="sc">$</span>nvstat)</span>
-<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>Z <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(sipp<span class="sc">$</span>rsncode)</span>
-<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a></span>
-<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>X_kappa_cub <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(<span class="sc">~</span>age<span class="sc">+</span>age2<span class="sc">+</span>age3,<span class="at">data=</span>sipp)</span>
-<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>X_kappa_sat <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(<span class="sc">~</span>age_fac,<span class="at">data=</span>sipp)</span>
-<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>X_dml_cub <span class="ot">&lt;-</span> <span class="fu">make_X</span>(<span class="sc">~</span><span class="dv">0</span><span class="sc">+</span>age<span class="sc">+</span><span class="fu">I</span>(age<span class="sc">^</span><span class="dv">2</span>)<span class="sc">+</span><span class="fu">I</span>(age<span class="sc">^</span><span class="dv">3</span>),<span class="at">data=</span>sipp)</span>
-<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a>X_dml_sat_full <span class="ot">&lt;-</span> <span class="fu">make_X</span>(<span class="sc">~</span><span class="dv">0</span><span class="sc">+</span>age_fac,<span class="at">data=</span>sipp)</span>
-<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>X_dml_sat <span class="ot">&lt;-</span> X_dml_sat_full[,<span class="sc">-</span><span class="dv">1</span>,drop<span class="ot">=</span><span class="cn">FALSE</span>]</span>
-<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a></span>
-<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>workflows <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a>  <span class="st">&quot;Cubic age&quot;</span><span class="ot">=</span><span class="fu">list</span>(<span class="at">label=</span><span class="st">&quot;Cubic age&quot;</span>,<span class="at">Y_orig=</span>Y_orig,<span class="at">Y_shift=</span>Y_shift,<span class="at">k=</span>k_shift,</span>
-<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a>    <span class="at">D=</span>D,<span class="at">Z=</span>Z,<span class="at">X_kappa=</span>X_kappa_cub,<span class="at">X_dml=</span>X_dml_cub),</span>
-<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a>  <span class="st">&quot;Saturated age&quot;</span><span class="ot">=</span><span class="fu">list</span>(<span class="at">label=</span><span class="st">&quot;Saturated age&quot;</span>,<span class="at">Y_orig=</span>Y_orig,<span class="at">Y_shift=</span>Y_shift,<span class="at">k=</span>k_shift,</span>
-<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a>    <span class="at">D=</span>D,<span class="at">Z=</span>Z,<span class="at">X_kappa=</span>X_kappa_sat,<span class="at">X_dml=</span>X_dml_sat))</span>
-<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a></span>
-<span id="cb3-27"><a href="#cb3-27" tabindex="-1"></a><span class="fu">data.frame</span>(</span>
-<span id="cb3-28"><a href="#cb3-28" tabindex="-1"></a>  <span class="at">Sample =</span> <span class="st">&quot;Main-analysis sample&quot;</span>,</span>
-<span id="cb3-29"><a href="#cb3-29" tabindex="-1"></a>  <span class="at">N =</span> <span class="fu">nrow</span>(sipp),</span>
-<span id="cb3-30"><a href="#cb3-30" tabindex="-1"></a>  <span class="at">Translation =</span> <span class="st">&quot;log wage + log(100)&quot;</span>,</span>
-<span id="cb3-31"><a href="#cb3-31" tabindex="-1"></a>  <span class="at">Specifications =</span> <span class="fu">paste</span>(<span class="fu">names</span>(workflows),<span class="at">collapse=</span><span class="st">&quot;, &quot;</span>)</span>
-<span id="cb3-32"><a href="#cb3-32" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
-<span id="cb3-33"><a href="#cb3-33" tabindex="-1"></a>  <span class="fu">kbl</span>(<span class="at">caption=</span><span class="st">&quot;Rerun setup&quot;</span>,<span class="at">row.names=</span><span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb3-34"><a href="#cb3-34" tabindex="-1"></a>  <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">FALSE</span>)</span></code></pre></div>
-<table class="table table-striped table-condensed" style="color: black; width: auto !important; margin-left: auto; margin-right: auto;">
+<div id="audit-functions" class="section level1">
+<h1>Audit functions</h1>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>max_abs<span class="ot">&lt;-</span><span class="cf">function</span>(x) <span class="fu">max</span>(<span class="fu">abs</span>(<span class="fu">as.numeric</span>(x)))</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>rmse<span class="ot">&lt;-</span><span class="cf">function</span>(x) <span class="fu">sqrt</span>(<span class="fu">mean</span>(<span class="fu">as.numeric</span>(x)<span class="sc">^</span><span class="dv">2</span>))</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>make_dml_data<span class="ot">&lt;-</span><span class="cf">function</span>(outcome,X){</span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>  dat<span class="ot">&lt;-</span><span class="fu">as.data.frame</span>(X)</span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>  dat<span class="sc">$</span>y<span class="ot">&lt;-</span>outcome</span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>  dat<span class="sc">$</span>d<span class="ot">&lt;-</span>D</span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>  dat<span class="sc">$</span>z<span class="ot">&lt;-</span>Z</span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a>  DoubleMLData<span class="sc">$</span><span class="fu">new</span>(</span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a>    <span class="at">data=</span>dat,</span>
+<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a>    <span class="at">y_col=</span><span class="st">&quot;y&quot;</span>,</span>
+<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a>    <span class="at">d_cols=</span><span class="st">&quot;d&quot;</span>,</span>
+<span id="cb2-13"><a href="#cb2-13" tabindex="-1"></a>    <span class="at">z_cols=</span><span class="st">&quot;z&quot;</span>,</span>
+<span id="cb2-14"><a href="#cb2-14" tabindex="-1"></a>    <span class="at">x_cols=</span><span class="fu">colnames</span>(X)</span>
+<span id="cb2-15"><a href="#cb2-15" tabindex="-1"></a>  )</span>
+<span id="cb2-16"><a href="#cb2-16" tabindex="-1"></a>}</span>
+<span id="cb2-17"><a href="#cb2-17" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" tabindex="-1"></a>fit_honest_forest<span class="ot">&lt;-</span><span class="cf">function</span>(outcome,X){</span>
+<span id="cb2-19"><a href="#cb2-19" tabindex="-1"></a>  <span class="fu">set.seed</span>(SEED)</span>
+<span id="cb2-20"><a href="#cb2-20" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(</span>
+<span id="cb2-21"><a href="#cb2-21" tabindex="-1"></a>    fit<span class="ot">&lt;-</span><span class="fu">dml_with_smoother</span>(</span>
+<span id="cb2-22"><a href="#cb2-22" tabindex="-1"></a>      outcome,D,X,Z,</span>
+<span id="cb2-23"><a href="#cb2-23" tabindex="-1"></a>      <span class="at">n_cf_folds=</span>N_CF,</span>
+<span id="cb2-24"><a href="#cb2-24" tabindex="-1"></a>      <span class="at">tune.parameters=</span><span class="st">&quot;all&quot;</span></span>
+<span id="cb2-25"><a href="#cb2-25" tabindex="-1"></a>    )</span>
+<span id="cb2-26"><a href="#cb2-26" tabindex="-1"></a>  ))</span>
+<span id="cb2-27"><a href="#cb2-27" tabindex="-1"></a>  fit</span>
+<span id="cb2-28"><a href="#cb2-28" tabindex="-1"></a>}</span>
+<span id="cb2-29"><a href="#cb2-29" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" tabindex="-1"></a>fit_ranger<span class="ot">&lt;-</span><span class="cf">function</span>(outcome,X,estimator){</span>
+<span id="cb2-31"><a href="#cb2-31" tabindex="-1"></a>  dml_data<span class="ot">&lt;-</span><span class="fu">make_dml_data</span>(outcome,X)</span>
+<span id="cb2-32"><a href="#cb2-32" tabindex="-1"></a></span>
+<span id="cb2-33"><a href="#cb2-33" tabindex="-1"></a>  <span class="cf">if</span> (estimator<span class="sc">==</span><span class="st">&quot;PLR-IV&quot;</span>) {</span>
+<span id="cb2-34"><a href="#cb2-34" tabindex="-1"></a>    learners<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb2-35"><a href="#cb2-35" tabindex="-1"></a>      <span class="at">l=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),</span>
+<span id="cb2-36"><a href="#cb2-36" tabindex="-1"></a>      <span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),</span>
+<span id="cb2-37"><a href="#cb2-37" tabindex="-1"></a>      <span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>)</span>
+<span id="cb2-38"><a href="#cb2-38" tabindex="-1"></a>    )</span>
+<span id="cb2-39"><a href="#cb2-39" tabindex="-1"></a>    <span class="fu">set.seed</span>(SEED)</span>
+<span id="cb2-40"><a href="#cb2-40" tabindex="-1"></a>    object<span class="ot">&lt;-</span>DoubleMLPLIV<span class="sc">$</span><span class="fu">new</span>(</span>
+<span id="cb2-41"><a href="#cb2-41" tabindex="-1"></a>      <span class="at">data=</span>dml_data,</span>
+<span id="cb2-42"><a href="#cb2-42" tabindex="-1"></a>      <span class="at">ml_l=</span>learners<span class="sc">$</span>l,</span>
+<span id="cb2-43"><a href="#cb2-43" tabindex="-1"></a>      <span class="at">ml_m=</span>learners<span class="sc">$</span>m,</span>
+<span id="cb2-44"><a href="#cb2-44" tabindex="-1"></a>      <span class="at">ml_r=</span>learners<span class="sc">$</span>r,</span>
+<span id="cb2-45"><a href="#cb2-45" tabindex="-1"></a>      <span class="at">n_folds=</span>N_CF</span>
+<span id="cb2-46"><a href="#cb2-46" tabindex="-1"></a>    )</span>
+<span id="cb2-47"><a href="#cb2-47" tabindex="-1"></a>  } <span class="cf">else</span> <span class="cf">if</span> (estimator<span class="sc">==</span><span class="st">&quot;Wald-AIPW&quot;</span>) {</span>
+<span id="cb2-48"><a href="#cb2-48" tabindex="-1"></a>    learners<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb2-49"><a href="#cb2-49" tabindex="-1"></a>      <span class="at">g=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),</span>
+<span id="cb2-50"><a href="#cb2-50" tabindex="-1"></a>      <span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),</span>
+<span id="cb2-51"><a href="#cb2-51" tabindex="-1"></a>      <span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>)</span>
+<span id="cb2-52"><a href="#cb2-52" tabindex="-1"></a>    )</span>
+<span id="cb2-53"><a href="#cb2-53" tabindex="-1"></a>    <span class="fu">set.seed</span>(SEED)</span>
+<span id="cb2-54"><a href="#cb2-54" tabindex="-1"></a>    object<span class="ot">&lt;-</span>DoubleMLIIVM<span class="sc">$</span><span class="fu">new</span>(</span>
+<span id="cb2-55"><a href="#cb2-55" tabindex="-1"></a>      <span class="at">data=</span>dml_data,</span>
+<span id="cb2-56"><a href="#cb2-56" tabindex="-1"></a>      <span class="at">ml_g=</span>learners<span class="sc">$</span>g,</span>
+<span id="cb2-57"><a href="#cb2-57" tabindex="-1"></a>      <span class="at">ml_m=</span>learners<span class="sc">$</span>m,</span>
+<span id="cb2-58"><a href="#cb2-58" tabindex="-1"></a>      <span class="at">ml_r=</span>learners<span class="sc">$</span>r,</span>
+<span id="cb2-59"><a href="#cb2-59" tabindex="-1"></a>      <span class="at">n_folds=</span>N_CF,</span>
+<span id="cb2-60"><a href="#cb2-60" tabindex="-1"></a>      <span class="at">score=</span><span class="st">&quot;LATE&quot;</span></span>
+<span id="cb2-61"><a href="#cb2-61" tabindex="-1"></a>    )</span>
+<span id="cb2-62"><a href="#cb2-62" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb2-63"><a href="#cb2-63" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">&quot;Unsupported estimator.&quot;</span>)</span>
+<span id="cb2-64"><a href="#cb2-64" tabindex="-1"></a>  }</span>
+<span id="cb2-65"><a href="#cb2-65" tabindex="-1"></a></span>
+<span id="cb2-66"><a href="#cb2-66" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(</span>
+<span id="cb2-67"><a href="#cb2-67" tabindex="-1"></a>    object<span class="sc">$</span><span class="fu">fit</span>(<span class="at">store_models=</span><span class="cn">TRUE</span>,<span class="at">store_predictions=</span><span class="cn">TRUE</span>)</span>
+<span id="cb2-68"><a href="#cb2-68" tabindex="-1"></a>  ))</span>
+<span id="cb2-69"><a href="#cb2-69" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">object=</span>object,<span class="at">data=</span>dml_data)</span>
+<span id="cb2-70"><a href="#cb2-70" tabindex="-1"></a>}</span>
+<span id="cb2-71"><a href="#cb2-71" tabindex="-1"></a></span>
+<span id="cb2-72"><a href="#cb2-72" tabindex="-1"></a>extract_ranger_smoothers<span class="ot">&lt;-</span><span class="cf">function</span>(fit){</span>
+<span id="cb2-73"><a href="#cb2-73" tabindex="-1"></a>  object<span class="ot">&lt;-</span>fit<span class="sc">$</span>object</span>
+<span id="cb2-74"><a href="#cb2-74" tabindex="-1"></a>  dml_data<span class="ot">&lt;-</span>fit<span class="sc">$</span>data</span>
+<span id="cb2-75"><a href="#cb2-75" tabindex="-1"></a>  smoother<span class="ot">&lt;-</span><span class="fu">getFromNamespace</span>(<span class="st">&quot;get_DoubleML_smoother&quot;</span>,<span class="st">&quot;OutcomeWeights&quot;</span>)</span>
+<span id="cb2-76"><a href="#cb2-76" tabindex="-1"></a>  dat<span class="ot">&lt;-</span><span class="fu">as.matrix</span>(dml_data<span class="sc">$</span>data)</span>
+<span id="cb2-77"><a href="#cb2-77" tabindex="-1"></a>  test_ids<span class="ot">&lt;-</span>object<span class="sc">$</span>smpls[[<span class="dv">1</span>]]<span class="sc">$</span>test_ids</span>
+<span id="cb2-78"><a href="#cb2-78" tabindex="-1"></a>  train_ids<span class="ot">&lt;-</span>object<span class="sc">$</span>smpls[[<span class="dv">1</span>]]<span class="sc">$</span>train_ids</span>
+<span id="cb2-79"><a href="#cb2-79" tabindex="-1"></a></span>
+<span id="cb2-80"><a href="#cb2-80" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">inherits</span>(object,<span class="st">&quot;DoubleMLPLIV&quot;</span>)) {</span>
+<span id="cb2-81"><a href="#cb2-81" tabindex="-1"></a>    <span class="fu">return</span>(<span class="fu">list</span>(</span>
+<span id="cb2-82"><a href="#cb2-82" tabindex="-1"></a>      <span class="at">S=</span><span class="fu">smoother</span>(</span>
+<span id="cb2-83"><a href="#cb2-83" tabindex="-1"></a>        object<span class="sc">$</span>models<span class="sc">$</span>ml_l<span class="sc">$</span>d[[<span class="dv">1</span>]],</span>
+<span id="cb2-84"><a href="#cb2-84" tabindex="-1"></a>        test_ids,train_ids,dat,dml_data<span class="sc">$</span>x_cols,dml_data<span class="sc">$</span>y_col,<span class="cn">NULL</span></span>
+<span id="cb2-85"><a href="#cb2-85" tabindex="-1"></a>      )</span>
+<span id="cb2-86"><a href="#cb2-86" tabindex="-1"></a>    ))</span>
+<span id="cb2-87"><a href="#cb2-87" tabindex="-1"></a>  }</span>
+<span id="cb2-88"><a href="#cb2-88" tabindex="-1"></a></span>
+<span id="cb2-89"><a href="#cb2-89" tabindex="-1"></a>  z<span class="ot">&lt;-</span>dat[,dml_data<span class="sc">$</span>z_cols]</span>
+<span id="cb2-90"><a href="#cb2-90" tabindex="-1"></a>  <span class="fu">list</span>(</span>
+<span id="cb2-91"><a href="#cb2-91" tabindex="-1"></a>    <span class="at">S.z0=</span><span class="fu">smoother</span>(</span>
+<span id="cb2-92"><a href="#cb2-92" tabindex="-1"></a>      object<span class="sc">$</span>models<span class="sc">$</span>ml_g0<span class="sc">$</span>d[[<span class="dv">1</span>]],</span>
+<span id="cb2-93"><a href="#cb2-93" tabindex="-1"></a>      test_ids,train_ids,dat,dml_data<span class="sc">$</span>x_cols,dml_data<span class="sc">$</span>y_col,z<span class="sc">==</span><span class="dv">0</span></span>
+<span id="cb2-94"><a href="#cb2-94" tabindex="-1"></a>    ),</span>
+<span id="cb2-95"><a href="#cb2-95" tabindex="-1"></a>    <span class="at">S.z1=</span><span class="fu">smoother</span>(</span>
+<span id="cb2-96"><a href="#cb2-96" tabindex="-1"></a>      object<span class="sc">$</span>models<span class="sc">$</span>ml_g1<span class="sc">$</span>d[[<span class="dv">1</span>]],</span>
+<span id="cb2-97"><a href="#cb2-97" tabindex="-1"></a>      test_ids,train_ids,dat,dml_data<span class="sc">$</span>x_cols,dml_data<span class="sc">$</span>y_col,z<span class="sc">==</span><span class="dv">1</span></span>
+<span id="cb2-98"><a href="#cb2-98" tabindex="-1"></a>    )</span>
+<span id="cb2-99"><a href="#cb2-99" tabindex="-1"></a>  )</span>
+<span id="cb2-100"><a href="#cb2-100" tabindex="-1"></a>}</span>
+<span id="cb2-101"><a href="#cb2-101" tabindex="-1"></a></span>
+<span id="cb2-102"><a href="#cb2-102" tabindex="-1"></a>smoother_dimensions<span class="ot">&lt;-</span><span class="cf">function</span>(S){</span>
+<span id="cb2-103"><a href="#cb2-103" tabindex="-1"></a>  dimensions<span class="ot">&lt;-</span><span class="fu">dim</span>(S)</span>
+<span id="cb2-104"><a href="#cb2-104" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(dimensions)<span class="sc">==</span><span class="dv">2</span><span class="dt">L</span> <span class="sc">&amp;&amp;</span> dimensions[<span class="dv">1</span><span class="dt">L</span>]<span class="sc">==</span>dimensions[<span class="dv">2</span><span class="dt">L</span>]) {</span>
+<span id="cb2-105"><a href="#cb2-105" tabindex="-1"></a>    <span class="fu">return</span>(<span class="fu">c</span>(dimensions[<span class="dv">1</span><span class="dt">L</span>],dimensions[<span class="dv">2</span><span class="dt">L</span>]))</span>
+<span id="cb2-106"><a href="#cb2-106" tabindex="-1"></a>  }</span>
+<span id="cb2-107"><a href="#cb2-107" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(dimensions)<span class="sc">==</span><span class="dv">3</span><span class="dt">L</span> <span class="sc">&amp;&amp;</span> dimensions[<span class="dv">1</span><span class="dt">L</span>]<span class="sc">==</span><span class="dv">1</span><span class="dt">L</span> <span class="sc">&amp;&amp;</span></span>
+<span id="cb2-108"><a href="#cb2-108" tabindex="-1"></a>      dimensions[<span class="dv">2</span><span class="dt">L</span>]<span class="sc">==</span>dimensions[<span class="dv">3</span><span class="dt">L</span>]) {</span>
+<span id="cb2-109"><a href="#cb2-109" tabindex="-1"></a>    <span class="fu">return</span>(<span class="fu">c</span>(dimensions[<span class="dv">2</span><span class="dt">L</span>],dimensions[<span class="dv">3</span><span class="dt">L</span>]))</span>
+<span id="cb2-110"><a href="#cb2-110" tabindex="-1"></a>  }</span>
+<span id="cb2-111"><a href="#cb2-111" tabindex="-1"></a>  <span class="fu">stop</span>(<span class="st">&quot;Expected an N x N matrix or a 1 x N x N smoother array.&quot;</span>)</span>
+<span id="cb2-112"><a href="#cb2-112" tabindex="-1"></a>}</span>
+<span id="cb2-113"><a href="#cb2-113" tabindex="-1"></a></span>
+<span id="cb2-114"><a href="#cb2-114" tabindex="-1"></a>smoother_block<span class="ot">&lt;-</span><span class="cf">function</span>(S,rows,N){</span>
+<span id="cb2-115"><a href="#cb2-115" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(<span class="fu">dim</span>(S))<span class="sc">==</span><span class="dv">2</span><span class="dt">L</span>) <span class="fu">return</span>(S[rows,,<span class="at">drop=</span><span class="cn">FALSE</span>])</span>
+<span id="cb2-116"><a href="#cb2-116" tabindex="-1"></a>  <span class="fu">matrix</span>(S[<span class="dv">1</span><span class="dt">L</span>,rows,,<span class="at">drop=</span><span class="cn">FALSE</span>],<span class="at">nrow=</span><span class="fu">length</span>(rows),<span class="at">ncol=</span>N)</span>
+<span id="cb2-117"><a href="#cb2-117" tabindex="-1"></a>}</span>
+<span id="cb2-118"><a href="#cb2-118" tabindex="-1"></a></span>
+<span id="cb2-119"><a href="#cb2-119" tabindex="-1"></a>audit_smoother<span class="ot">&lt;-</span><span class="cf">function</span>(</span>
+<span id="cb2-120"><a href="#cb2-120" tabindex="-1"></a>    S_original,S_shifted,pred_original,pred_shifted,</span>
+<span id="cb2-121"><a href="#cb2-121" tabindex="-1"></a>    specification,learner,estimator,smoother_name){</span>
+<span id="cb2-122"><a href="#cb2-122" tabindex="-1"></a></span>
+<span id="cb2-123"><a href="#cb2-123" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">identical</span>(<span class="fu">smoother_dimensions</span>(S_original),</span>
+<span id="cb2-124"><a href="#cb2-124" tabindex="-1"></a>                 <span class="fu">smoother_dimensions</span>(S_shifted))) {</span>
+<span id="cb2-125"><a href="#cb2-125" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">&quot;Original and translated smoother dimensions differ.&quot;</span>)</span>
+<span id="cb2-126"><a href="#cb2-126" tabindex="-1"></a>  }</span>
+<span id="cb2-127"><a href="#cb2-127" tabindex="-1"></a></span>
+<span id="cb2-128"><a href="#cb2-128" tabindex="-1"></a>  N<span class="ot">&lt;-</span><span class="fu">smoother_dimensions</span>(S_original)[<span class="dv">1</span><span class="dt">L</span>]</span>
+<span id="cb2-129"><a href="#cb2-129" tabindex="-1"></a>  observed<span class="ot">&lt;-</span><span class="fu">as.numeric</span>(pred_shifted)<span class="sc">-</span><span class="fu">as.numeric</span>(pred_original)<span class="sc">-</span>SHIFT_K</span>
+<span id="cb2-130"><a href="#cb2-130" tabindex="-1"></a>  smoother_component<span class="ot">&lt;-</span><span class="fu">numeric</span>(N)</span>
+<span id="cb2-131"><a href="#cb2-131" tabindex="-1"></a>  normalization_component<span class="ot">&lt;-</span><span class="fu">numeric</span>(N)</span>
+<span id="cb2-132"><a href="#cb2-132" tabindex="-1"></a>  maximum_change<span class="ot">&lt;-</span><span class="dv">0</span></span>
+<span id="cb2-133"><a href="#cb2-133" tabindex="-1"></a>  maximum_row_sum_error<span class="ot">&lt;-</span><span class="dv">0</span></span>
+<span id="cb2-134"><a href="#cb2-134" tabindex="-1"></a>  changed_rows<span class="ot">&lt;-</span><span class="fu">logical</span>(N)</span>
+<span id="cb2-135"><a href="#cb2-135" tabindex="-1"></a></span>
+<span id="cb2-136"><a href="#cb2-136" tabindex="-1"></a>  <span class="cf">for</span> (start <span class="cf">in</span> <span class="fu">seq.int</span>(<span class="dv">1</span><span class="dt">L</span>,N,<span class="at">by=</span>BLOCK_ROWS)) {</span>
+<span id="cb2-137"><a href="#cb2-137" tabindex="-1"></a>    rows<span class="ot">&lt;-</span>start<span class="sc">:</span><span class="fu">min</span>(start<span class="sc">+</span>BLOCK_ROWS<span class="dv">-1</span><span class="dt">L</span>,N)</span>
+<span id="cb2-138"><a href="#cb2-138" tabindex="-1"></a>    S_o<span class="ot">&lt;-</span><span class="fu">smoother_block</span>(S_original,rows,N)</span>
+<span id="cb2-139"><a href="#cb2-139" tabindex="-1"></a>    S_k<span class="ot">&lt;-</span><span class="fu">smoother_block</span>(S_shifted,rows,N)</span>
+<span id="cb2-140"><a href="#cb2-140" tabindex="-1"></a>    difference<span class="ot">&lt;-</span>S_k<span class="sc">-</span>S_o</span>
+<span id="cb2-141"><a href="#cb2-141" tabindex="-1"></a>    absolute_difference<span class="ot">&lt;-</span><span class="fu">abs</span>(difference)</span>
+<span id="cb2-142"><a href="#cb2-142" tabindex="-1"></a></span>
+<span id="cb2-143"><a href="#cb2-143" tabindex="-1"></a>    maximum_change<span class="ot">&lt;-</span><span class="fu">max</span>(maximum_change,absolute_difference)</span>
+<span id="cb2-144"><a href="#cb2-144" tabindex="-1"></a>    changed_rows[rows]<span class="ot">&lt;-</span><span class="fu">apply</span>(absolute_difference,<span class="dv">1</span><span class="dt">L</span>,max)<span class="sc">&gt;</span>WEIGHT_TOLERANCE</span>
+<span id="cb2-145"><a href="#cb2-145" tabindex="-1"></a>    maximum_row_sum_error<span class="ot">&lt;-</span><span class="fu">max</span>(</span>
+<span id="cb2-146"><a href="#cb2-146" tabindex="-1"></a>      maximum_row_sum_error,</span>
+<span id="cb2-147"><a href="#cb2-147" tabindex="-1"></a>      <span class="fu">abs</span>(<span class="fu">rowSums</span>(S_o)<span class="sc">-</span><span class="dv">1</span>),</span>
+<span id="cb2-148"><a href="#cb2-148" tabindex="-1"></a>      <span class="fu">abs</span>(<span class="fu">rowSums</span>(S_k)<span class="sc">-</span><span class="dv">1</span>)</span>
+<span id="cb2-149"><a href="#cb2-149" tabindex="-1"></a>    )</span>
+<span id="cb2-150"><a href="#cb2-150" tabindex="-1"></a>    smoother_component[rows]<span class="ot">&lt;-</span><span class="fu">as.vector</span>(difference<span class="sc">%*%</span>Y)</span>
+<span id="cb2-151"><a href="#cb2-151" tabindex="-1"></a>    normalization_component[rows]<span class="ot">&lt;-</span>SHIFT_K<span class="sc">*</span>(<span class="fu">rowSums</span>(S_k)<span class="sc">-</span><span class="dv">1</span>)</span>
+<span id="cb2-152"><a href="#cb2-152" tabindex="-1"></a>  }</span>
+<span id="cb2-153"><a href="#cb2-153" tabindex="-1"></a></span>
+<span id="cb2-154"><a href="#cb2-154" tabindex="-1"></a>  closure<span class="ot">&lt;-</span>observed<span class="sc">-</span>smoother_component<span class="sc">-</span>normalization_component</span>
+<span id="cb2-155"><a href="#cb2-155" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
+<span id="cb2-156"><a href="#cb2-156" tabindex="-1"></a>    <span class="at">Specification=</span>specification,</span>
+<span id="cb2-157"><a href="#cb2-157" tabindex="-1"></a>    <span class="at">Learner=</span>learner,</span>
+<span id="cb2-158"><a href="#cb2-158" tabindex="-1"></a>    <span class="at">Estimator=</span>estimator,</span>
+<span id="cb2-159"><a href="#cb2-159" tabindex="-1"></a>    <span class="at">Smoother=</span>smoother_name,</span>
+<span id="cb2-160"><a href="#cb2-160" tabindex="-1"></a>    <span class="st">`</span><span class="at">S identical</span><span class="st">`</span><span class="ot">=</span><span class="fu">identical</span>(S_original,S_shifted),</span>
+<span id="cb2-161"><a href="#cb2-161" tabindex="-1"></a>    <span class="st">`</span><span class="at">Maximum |S^k-S|</span><span class="st">`</span><span class="ot">=</span>maximum_change,</span>
+<span id="cb2-162"><a href="#cb2-162" tabindex="-1"></a>    <span class="st">`</span><span class="at">Share rows changed</span><span class="st">`</span><span class="ot">=</span><span class="fu">mean</span>(changed_rows),</span>
+<span id="cb2-163"><a href="#cb2-163" tabindex="-1"></a>    <span class="st">`</span><span class="at">Maximum row-sum error</span><span class="st">`</span><span class="ot">=</span>maximum_row_sum_error,</span>
+<span id="cb2-164"><a href="#cb2-164" tabindex="-1"></a>    <span class="st">`</span><span class="at">Prediction residual RMSE</span><span class="st">`</span><span class="ot">=</span><span class="fu">rmse</span>(observed),</span>
+<span id="cb2-165"><a href="#cb2-165" tabindex="-1"></a>    <span class="st">`</span><span class="at">Smoother component RMSE</span><span class="st">`</span><span class="ot">=</span><span class="fu">rmse</span>(smoother_component),</span>
+<span id="cb2-166"><a href="#cb2-166" tabindex="-1"></a>    <span class="st">`</span><span class="at">Normalization component maximum</span><span class="st">`</span><span class="ot">=</span><span class="fu">max_abs</span>(normalization_component),</span>
+<span id="cb2-167"><a href="#cb2-167" tabindex="-1"></a>    <span class="st">`</span><span class="at">Closure maximum</span><span class="st">`</span><span class="ot">=</span><span class="fu">max_abs</span>(closure),</span>
+<span id="cb2-168"><a href="#cb2-168" tabindex="-1"></a>    <span class="at">check.names=</span><span class="cn">FALSE</span></span>
+<span id="cb2-169"><a href="#cb2-169" tabindex="-1"></a>  )</span>
+<span id="cb2-170"><a href="#cb2-170" tabindex="-1"></a>}</span>
+<span id="cb2-171"><a href="#cb2-171" tabindex="-1"></a></span>
+<span id="cb2-172"><a href="#cb2-172" tabindex="-1"></a>estimate_row<span class="ot">&lt;-</span><span class="cf">function</span>(</span>
+<span id="cb2-173"><a href="#cb2-173" tabindex="-1"></a>    specification,learner,estimator,tau_original,tau_shifted,</span>
+<span id="cb2-174"><a href="#cb2-174" tabindex="-1"></a>    folds_identical,nonoutcome_change){</span>
+<span id="cb2-175"><a href="#cb2-175" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
+<span id="cb2-176"><a href="#cb2-176" tabindex="-1"></a>    <span class="at">Specification=</span>specification,</span>
+<span id="cb2-177"><a href="#cb2-177" tabindex="-1"></a>    <span class="at">Learner=</span>learner,</span>
+<span id="cb2-178"><a href="#cb2-178" tabindex="-1"></a>    <span class="at">Estimator=</span>estimator,</span>
+<span id="cb2-179"><a href="#cb2-179" tabindex="-1"></a>    <span class="st">`</span><span class="at">Original estimate</span><span class="st">`</span><span class="ot">=</span>tau_original,</span>
+<span id="cb2-180"><a href="#cb2-180" tabindex="-1"></a>    <span class="st">`</span><span class="at">Shifted estimate</span><span class="st">`</span><span class="ot">=</span>tau_shifted,</span>
+<span id="cb2-181"><a href="#cb2-181" tabindex="-1"></a>    <span class="st">`</span><span class="at">Rerun change</span><span class="st">`</span><span class="ot">=</span>tau_shifted<span class="sc">-</span>tau_original,</span>
+<span id="cb2-182"><a href="#cb2-182" tabindex="-1"></a>    <span class="st">`</span><span class="at">Folds identical</span><span class="st">`</span><span class="ot">=</span>folds_identical,</span>
+<span id="cb2-183"><a href="#cb2-183" tabindex="-1"></a>    <span class="st">`</span><span class="at">Maximum non-outcome nuisance change</span><span class="st">`</span><span class="ot">=</span>nonoutcome_change,</span>
+<span id="cb2-184"><a href="#cb2-184" tabindex="-1"></a>    <span class="at">check.names=</span><span class="cn">FALSE</span></span>
+<span id="cb2-185"><a href="#cb2-185" tabindex="-1"></a>  )</span>
+<span id="cb2-186"><a href="#cb2-186" tabindex="-1"></a>}</span></code></pre></div>
+</div>
+<div id="paired-fits" class="section level1">
+<h1>Paired fits</h1>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a>estimate_parts<span class="ot">&lt;-</span><span class="fu">list</span>()</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a>smoother_parts<span class="ot">&lt;-</span><span class="fu">list</span>()</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>result_index<span class="ot">&lt;-</span><span class="dv">1</span><span class="dt">L</span></span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a><span class="cf">for</span> (specification <span class="cf">in</span> <span class="fu">names</span>(specifications)) {</span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>  X<span class="ot">&lt;-</span>specifications[[specification]]</span>
+<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a>  honest_original<span class="ot">&lt;-</span><span class="fu">fit_honest_forest</span>(Y,X)</span>
+<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>  honest_shifted<span class="ot">&lt;-</span><span class="fu">fit_honest_forest</span>(Y<span class="sc">+</span>SHIFT_K,X)</span>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a>  honest_folds_identical<span class="ot">&lt;-</span><span class="fu">identical</span>(</span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a>    honest_original<span class="sc">$</span>NuPa.hat<span class="sc">$</span>cf_mat,</span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>    honest_shifted<span class="sc">$</span>NuPa.hat<span class="sc">$</span>cf_mat</span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a>  )</span>
+<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>honest_folds_identical) {</span>
+<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;Honest-forest folds differ for %s.&quot;</span>,specification))</span>
+<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>  }</span>
+<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a></span>
+<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a>  honest_summary_original<span class="ot">&lt;-</span><span class="fu">summary</span>(honest_original)</span>
+<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a>  honest_summary_shifted<span class="ot">&lt;-</span><span class="fu">summary</span>(honest_shifted)</span>
+<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a>  p_o<span class="ot">&lt;-</span>honest_original<span class="sc">$</span>NuPa.hat<span class="sc">$</span>predictions</span>
+<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>  p_k<span class="ot">&lt;-</span>honest_shifted<span class="sc">$</span>NuPa.hat<span class="sc">$</span>predictions</span>
+<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a>  s_o<span class="ot">&lt;-</span>honest_original<span class="sc">$</span>NuPa.hat<span class="sc">$</span>smoothers</span>
+<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a>  s_k<span class="ot">&lt;-</span>honest_shifted<span class="sc">$</span>NuPa.hat<span class="sc">$</span>smoothers</span>
+<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a>  honest_nonoutcome_change<span class="ot">&lt;-</span><span class="fu">max_abs</span>(<span class="fu">c</span>(</span>
+<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a>    p_k<span class="sc">$</span>D.hat<span class="sc">-</span>p_o<span class="sc">$</span>D.hat,</span>
+<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a>    p_k<span class="sc">$</span>D.hat.z0<span class="sc">-</span>p_o<span class="sc">$</span>D.hat.z0,</span>
+<span id="cb3-27"><a href="#cb3-27" tabindex="-1"></a>    p_k<span class="sc">$</span>D.hat.z1<span class="sc">-</span>p_o<span class="sc">$</span>D.hat.z1,</span>
+<span id="cb3-28"><a href="#cb3-28" tabindex="-1"></a>    p_k<span class="sc">$</span>Z.hat<span class="sc">-</span>p_o<span class="sc">$</span>Z.hat</span>
+<span id="cb3-29"><a href="#cb3-29" tabindex="-1"></a>  ))</span>
+<span id="cb3-30"><a href="#cb3-30" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" tabindex="-1"></a>  <span class="cf">for</span> (estimator <span class="cf">in</span> <span class="fu">c</span>(<span class="st">&quot;PLR-IV&quot;</span>,<span class="st">&quot;Wald-AIPW&quot;</span>)) {</span>
+<span id="cb3-32"><a href="#cb3-32" tabindex="-1"></a>    estimate_parts[[result_index]]<span class="ot">&lt;-</span><span class="fu">estimate_row</span>(</span>
+<span id="cb3-33"><a href="#cb3-33" tabindex="-1"></a>      specification,<span class="st">&quot;Tuned honest forest&quot;</span>,estimator,</span>
+<span id="cb3-34"><a href="#cb3-34" tabindex="-1"></a>      <span class="fu">get_estimate</span>(honest_summary_original,estimator),</span>
+<span id="cb3-35"><a href="#cb3-35" tabindex="-1"></a>      <span class="fu">get_estimate</span>(honest_summary_shifted,estimator),</span>
+<span id="cb3-36"><a href="#cb3-36" tabindex="-1"></a>      honest_folds_identical,honest_nonoutcome_change</span>
+<span id="cb3-37"><a href="#cb3-37" tabindex="-1"></a>    )</span>
+<span id="cb3-38"><a href="#cb3-38" tabindex="-1"></a>    result_index<span class="ot">&lt;-</span>result_index<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span></span>
+<span id="cb3-39"><a href="#cb3-39" tabindex="-1"></a>  }</span>
+<span id="cb3-40"><a href="#cb3-40" tabindex="-1"></a></span>
+<span id="cb3-41"><a href="#cb3-41" tabindex="-1"></a>  smoother_parts[[<span class="fu">length</span>(smoother_parts)<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span>]]<span class="ot">&lt;-</span><span class="fu">audit_smoother</span>(</span>
+<span id="cb3-42"><a href="#cb3-42" tabindex="-1"></a>    s_o<span class="sc">$</span>S,s_k<span class="sc">$</span>S,p_o<span class="sc">$</span>Y.hat,p_k<span class="sc">$</span>Y.hat,</span>
+<span id="cb3-43"><a href="#cb3-43" tabindex="-1"></a>    specification,<span class="st">&quot;Tuned honest forest&quot;</span>,<span class="st">&quot;PLR-IV&quot;</span>,<span class="st">&quot;S&quot;</span></span>
+<span id="cb3-44"><a href="#cb3-44" tabindex="-1"></a>  )</span>
+<span id="cb3-45"><a href="#cb3-45" tabindex="-1"></a>  smoother_parts[[<span class="fu">length</span>(smoother_parts)<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span>]]<span class="ot">&lt;-</span><span class="fu">audit_smoother</span>(</span>
+<span id="cb3-46"><a href="#cb3-46" tabindex="-1"></a>    s_o<span class="sc">$</span>S.z0,s_k<span class="sc">$</span>S.z0,p_o<span class="sc">$</span>Y.hat.z0,p_k<span class="sc">$</span>Y.hat.z0,</span>
+<span id="cb3-47"><a href="#cb3-47" tabindex="-1"></a>    specification,<span class="st">&quot;Tuned honest forest&quot;</span>,<span class="st">&quot;Wald-AIPW&quot;</span>,<span class="st">&quot;S.z0&quot;</span></span>
+<span id="cb3-48"><a href="#cb3-48" tabindex="-1"></a>  )</span>
+<span id="cb3-49"><a href="#cb3-49" tabindex="-1"></a>  smoother_parts[[<span class="fu">length</span>(smoother_parts)<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span>]]<span class="ot">&lt;-</span><span class="fu">audit_smoother</span>(</span>
+<span id="cb3-50"><a href="#cb3-50" tabindex="-1"></a>    s_o<span class="sc">$</span>S.z1,s_k<span class="sc">$</span>S.z1,p_o<span class="sc">$</span>Y.hat.z1,p_k<span class="sc">$</span>Y.hat.z1,</span>
+<span id="cb3-51"><a href="#cb3-51" tabindex="-1"></a>    specification,<span class="st">&quot;Tuned honest forest&quot;</span>,<span class="st">&quot;Wald-AIPW&quot;</span>,<span class="st">&quot;S.z1&quot;</span></span>
+<span id="cb3-52"><a href="#cb3-52" tabindex="-1"></a>  )</span>
+<span id="cb3-53"><a href="#cb3-53" tabindex="-1"></a></span>
+<span id="cb3-54"><a href="#cb3-54" tabindex="-1"></a>  <span class="fu">rm</span>(honest_original,honest_shifted,honest_summary_original,</span>
+<span id="cb3-55"><a href="#cb3-55" tabindex="-1"></a>     honest_summary_shifted,p_o,p_k,s_o,s_k)</span>
+<span id="cb3-56"><a href="#cb3-56" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">gc</span>())</span>
+<span id="cb3-57"><a href="#cb3-57" tabindex="-1"></a></span>
+<span id="cb3-58"><a href="#cb3-58" tabindex="-1"></a>  <span class="cf">for</span> (estimator <span class="cf">in</span> <span class="fu">c</span>(<span class="st">&quot;PLR-IV&quot;</span>,<span class="st">&quot;Wald-AIPW&quot;</span>)) {</span>
+<span id="cb3-59"><a href="#cb3-59" tabindex="-1"></a>    ranger_original<span class="ot">&lt;-</span><span class="fu">fit_ranger</span>(Y,X,estimator)</span>
+<span id="cb3-60"><a href="#cb3-60" tabindex="-1"></a>    ranger_shifted<span class="ot">&lt;-</span><span class="fu">fit_ranger</span>(Y<span class="sc">+</span>SHIFT_K,X,estimator)</span>
+<span id="cb3-61"><a href="#cb3-61" tabindex="-1"></a>    ranger_folds_identical<span class="ot">&lt;-</span><span class="fu">identical</span>(</span>
+<span id="cb3-62"><a href="#cb3-62" tabindex="-1"></a>      ranger_original<span class="sc">$</span>object<span class="sc">$</span>smpls,</span>
+<span id="cb3-63"><a href="#cb3-63" tabindex="-1"></a>      ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>smpls</span>
+<span id="cb3-64"><a href="#cb3-64" tabindex="-1"></a>    )</span>
+<span id="cb3-65"><a href="#cb3-65" tabindex="-1"></a>    <span class="cf">if</span> (<span class="sc">!</span>ranger_folds_identical) {</span>
+<span id="cb3-66"><a href="#cb3-66" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;Ranger folds differ for %s / %s.&quot;</span>,</span>
+<span id="cb3-67"><a href="#cb3-67" tabindex="-1"></a>                   specification,estimator))</span>
+<span id="cb3-68"><a href="#cb3-68" tabindex="-1"></a>    }</span>
+<span id="cb3-69"><a href="#cb3-69" tabindex="-1"></a></span>
+<span id="cb3-70"><a href="#cb3-70" tabindex="-1"></a>    ranger_s_o<span class="ot">&lt;-</span><span class="fu">extract_ranger_smoothers</span>(ranger_original)</span>
+<span id="cb3-71"><a href="#cb3-71" tabindex="-1"></a>    ranger_s_k<span class="ot">&lt;-</span><span class="fu">extract_ranger_smoothers</span>(ranger_shifted)</span>
+<span id="cb3-72"><a href="#cb3-72" tabindex="-1"></a></span>
+<span id="cb3-73"><a href="#cb3-73" tabindex="-1"></a>    <span class="cf">if</span> (estimator<span class="sc">==</span><span class="st">&quot;PLR-IV&quot;</span>) {</span>
+<span id="cb3-74"><a href="#cb3-74" tabindex="-1"></a>      predictions_o<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb3-75"><a href="#cb3-75" tabindex="-1"></a>        <span class="at">S=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_l))</span>
+<span id="cb3-76"><a href="#cb3-76" tabindex="-1"></a>      )</span>
+<span id="cb3-77"><a href="#cb3-77" tabindex="-1"></a>      predictions_k<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb3-78"><a href="#cb3-78" tabindex="-1"></a>        <span class="at">S=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_l))</span>
+<span id="cb3-79"><a href="#cb3-79" tabindex="-1"></a>      )</span>
+<span id="cb3-80"><a href="#cb3-80" tabindex="-1"></a>      nonoutcome_change<span class="ot">&lt;-</span><span class="fu">max_abs</span>(<span class="fu">c</span>(</span>
+<span id="cb3-81"><a href="#cb3-81" tabindex="-1"></a>        ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_m<span class="sc">-</span></span>
+<span id="cb3-82"><a href="#cb3-82" tabindex="-1"></a>          ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_m,</span>
+<span id="cb3-83"><a href="#cb3-83" tabindex="-1"></a>        ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r<span class="sc">-</span></span>
+<span id="cb3-84"><a href="#cb3-84" tabindex="-1"></a>          ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r</span>
+<span id="cb3-85"><a href="#cb3-85" tabindex="-1"></a>      ))</span>
+<span id="cb3-86"><a href="#cb3-86" tabindex="-1"></a>      smoother_names<span class="ot">&lt;-</span><span class="st">&quot;S&quot;</span></span>
+<span id="cb3-87"><a href="#cb3-87" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb3-88"><a href="#cb3-88" tabindex="-1"></a>      predictions_o<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb3-89"><a href="#cb3-89" tabindex="-1"></a>        <span class="at">S.z0=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_g0)),</span>
+<span id="cb3-90"><a href="#cb3-90" tabindex="-1"></a>        <span class="at">S.z1=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_g1))</span>
+<span id="cb3-91"><a href="#cb3-91" tabindex="-1"></a>      )</span>
+<span id="cb3-92"><a href="#cb3-92" tabindex="-1"></a>      predictions_k<span class="ot">&lt;-</span><span class="fu">list</span>(</span>
+<span id="cb3-93"><a href="#cb3-93" tabindex="-1"></a>        <span class="at">S.z0=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_g0)),</span>
+<span id="cb3-94"><a href="#cb3-94" tabindex="-1"></a>        <span class="at">S.z1=</span><span class="fu">as.numeric</span>(<span class="fu">drop</span>(ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_g1))</span>
+<span id="cb3-95"><a href="#cb3-95" tabindex="-1"></a>      )</span>
+<span id="cb3-96"><a href="#cb3-96" tabindex="-1"></a>      nonoutcome_change<span class="ot">&lt;-</span><span class="fu">max_abs</span>(<span class="fu">c</span>(</span>
+<span id="cb3-97"><a href="#cb3-97" tabindex="-1"></a>        ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_m<span class="sc">-</span></span>
+<span id="cb3-98"><a href="#cb3-98" tabindex="-1"></a>          ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_m,</span>
+<span id="cb3-99"><a href="#cb3-99" tabindex="-1"></a>        ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r0<span class="sc">-</span></span>
+<span id="cb3-100"><a href="#cb3-100" tabindex="-1"></a>          ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r0,</span>
+<span id="cb3-101"><a href="#cb3-101" tabindex="-1"></a>        ranger_shifted<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r1<span class="sc">-</span></span>
+<span id="cb3-102"><a href="#cb3-102" tabindex="-1"></a>          ranger_original<span class="sc">$</span>object<span class="sc">$</span>predictions<span class="sc">$</span>ml_r1</span>
+<span id="cb3-103"><a href="#cb3-103" tabindex="-1"></a>      ))</span>
+<span id="cb3-104"><a href="#cb3-104" tabindex="-1"></a>      smoother_names<span class="ot">&lt;-</span><span class="fu">c</span>(<span class="st">&quot;S.z0&quot;</span>,<span class="st">&quot;S.z1&quot;</span>)</span>
+<span id="cb3-105"><a href="#cb3-105" tabindex="-1"></a>    }</span>
+<span id="cb3-106"><a href="#cb3-106" tabindex="-1"></a></span>
+<span id="cb3-107"><a href="#cb3-107" tabindex="-1"></a>    estimate_parts[[result_index]]<span class="ot">&lt;-</span><span class="fu">estimate_row</span>(</span>
+<span id="cb3-108"><a href="#cb3-108" tabindex="-1"></a>      specification,<span class="st">&quot;Ranger&quot;</span>,estimator,</span>
+<span id="cb3-109"><a href="#cb3-109" tabindex="-1"></a>      <span class="fu">get_dml_coef</span>(ranger_original<span class="sc">$</span>object),</span>
+<span id="cb3-110"><a href="#cb3-110" tabindex="-1"></a>      <span class="fu">get_dml_coef</span>(ranger_shifted<span class="sc">$</span>object),</span>
+<span id="cb3-111"><a href="#cb3-111" tabindex="-1"></a>      ranger_folds_identical,nonoutcome_change</span>
+<span id="cb3-112"><a href="#cb3-112" tabindex="-1"></a>    )</span>
+<span id="cb3-113"><a href="#cb3-113" tabindex="-1"></a>    result_index<span class="ot">&lt;-</span>result_index<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span></span>
+<span id="cb3-114"><a href="#cb3-114" tabindex="-1"></a></span>
+<span id="cb3-115"><a href="#cb3-115" tabindex="-1"></a>    <span class="cf">for</span> (smoother_name <span class="cf">in</span> smoother_names) {</span>
+<span id="cb3-116"><a href="#cb3-116" tabindex="-1"></a>      smoother_parts[[<span class="fu">length</span>(smoother_parts)<span class="sc">+</span><span class="dv">1</span><span class="dt">L</span>]]<span class="ot">&lt;-</span><span class="fu">audit_smoother</span>(</span>
+<span id="cb3-117"><a href="#cb3-117" tabindex="-1"></a>        ranger_s_o[[smoother_name]],ranger_s_k[[smoother_name]],</span>
+<span id="cb3-118"><a href="#cb3-118" tabindex="-1"></a>        predictions_o[[smoother_name]],predictions_k[[smoother_name]],</span>
+<span id="cb3-119"><a href="#cb3-119" tabindex="-1"></a>        specification,<span class="st">&quot;Ranger&quot;</span>,estimator,smoother_name</span>
+<span id="cb3-120"><a href="#cb3-120" tabindex="-1"></a>      )</span>
+<span id="cb3-121"><a href="#cb3-121" tabindex="-1"></a>    }</span>
+<span id="cb3-122"><a href="#cb3-122" tabindex="-1"></a></span>
+<span id="cb3-123"><a href="#cb3-123" tabindex="-1"></a>    <span class="fu">rm</span>(ranger_original,ranger_shifted,ranger_s_o,ranger_s_k,</span>
+<span id="cb3-124"><a href="#cb3-124" tabindex="-1"></a>       predictions_o,predictions_k)</span>
+<span id="cb3-125"><a href="#cb3-125" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">gc</span>())</span>
+<span id="cb3-126"><a href="#cb3-126" tabindex="-1"></a>  }</span>
+<span id="cb3-127"><a href="#cb3-127" tabindex="-1"></a>}</span></code></pre></div>
+<pre><code>##             Estimate         SE       t      p
+## PLR       -0.0057817  0.0208194 -0.2777 0.7813
+## PLR-IV     0.2429125  0.2282764  1.0641 0.2874
+## AIPW-ATE  -0.0170406  0.0226404 -0.7527 0.4517
+## Wald-AIPW  0.2290845  0.2310629  0.9914 0.3216
+## AIPW-ATT  -0.0033109  0.0211886 -0.1563 0.8758
+## AIPW-ATU  -0.0237536  0.0249825 -0.9508 0.3418
+##             Estimate         SE       t      p
+## PLR       -0.0057817  0.0208194 -0.2777 0.7813
+## PLR-IV     0.2429125  0.2282764  1.0641 0.2874
+## AIPW-ATE  -0.0170406  0.0226404 -0.7527 0.4517
+## Wald-AIPW  0.2290845  0.2310629  0.9914 0.3216
+## AIPW-ATT  -0.0033109  0.0211886 -0.1563 0.8758
+## AIPW-ATU  -0.0237536  0.0249825 -0.9508 0.3418
+##             Estimate         SE       t      p
+## PLR       -0.0058019  0.0208398 -0.2784 0.7807
+## PLR-IV     0.2415726  0.2276334  1.0612 0.2887
+## AIPW-ATE  -0.0160360  0.0223148 -0.7186 0.4724
+## Wald-AIPW  0.2442797  0.2333004  1.0471 0.2952
+## AIPW-ATT  -0.0016492  0.0211928 -0.0778 0.9380
+## AIPW-ATU  -0.0230702  0.0244028 -0.9454 0.3445
+##             Estimate         SE       t      p
+## PLR       -0.0058019  0.0208398 -0.2784 0.7807
+## PLR-IV     0.2415726  0.2276334  1.0612 0.2887
+## AIPW-ATE  -0.0160217  0.0223139 -0.7180 0.4728
+## Wald-AIPW  0.2442974  0.2333010  1.0471 0.2951
+## AIPW-ATT  -0.0016446  0.0211930 -0.0776 0.9382
+## AIPW-ATU  -0.0230512  0.0244011 -0.9447 0.3449</code></pre>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a>estimate_results<span class="ot">&lt;-</span><span class="fu">bind_rows</span>(estimate_parts)</span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>smoother_results<span class="ot">&lt;-</span><span class="fu">bind_rows</span>(smoother_parts)</span></code></pre></div>
+</div>
+<div id="results" class="section level1">
+<h1>Results</h1>
+<p>The first table reports estimate changes continuously and verifies
+the paired design.</p>
+<table class="table table-striped table-hover table-condensed" style="color: black; margin-left: auto; margin-right: auto;">
 <caption>
-Rerun setup
-</caption>
-<thead>
-<tr>
-<th style="text-align:left;">
-Sample
-</th>
-<th style="text-align:right;">
-N
-</th>
-<th style="text-align:left;">
-Translation
-</th>
-<th style="text-align:left;">
-Specifications
-</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left;">
-Main-analysis sample
-</td>
-<td style="text-align:right;">
-3027
-</td>
-<td style="text-align:left;">
-log wage + log(100)
-</td>
-<td style="text-align:left;">
-Cubic age, Saturated age
-</td>
-</tr>
-</tbody>
-</table>
-</div>
-</div>
-<div id="kappa-estimators" class="section level1">
-<h1>1. Kappa estimators</h1>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>kappa_estimator_names <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;tau_cb_u&quot;</span>,<span class="st">&quot;tau_ml_u&quot;</span>,<span class="st">&quot;tau_ml_a10&quot;</span>,</span>
-<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>  <span class="st">&quot;tau_ml_a&quot;</span>,<span class="st">&quot;tau_ml_t&quot;</span>,<span class="st">&quot;tau_ml_a0&quot;</span>)</span>
-<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>build_kappa_rows <span class="ot">&lt;-</span> <span class="cf">function</span>(wf) {</span>
-<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a>  est_o <span class="ot">&lt;-</span> <span class="fu">kappa_point_estimates</span>(wf<span class="sc">$</span>Y_orig,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>D,wf<span class="sc">$</span>X_kappa)</span>
-<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a>  est_s <span class="ot">&lt;-</span> <span class="fu">kappa_point_estimates</span>(wf<span class="sc">$</span>Y_shift,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>D,wf<span class="sc">$</span>X_kappa)</span>
-<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>  <span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(kappa_estimator_names,<span class="cf">function</span>(est){</span>
-<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">ti_vietnam_row</span>(est,est_o[[est]],est_s[[est]],wf<span class="sc">$</span>k)</span>
-<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>    row<span class="sc">$</span>Specification <span class="ot">&lt;-</span> wf<span class="sc">$</span>label; row</span>
-<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>  }))</span>
-<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>}</span></code></pre></div>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="cf">if</span>(RUN_KAPPA)kappa_ti_all<span class="ot">&lt;-</span><span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(workflows,build_kappa_rows))</span></code></pre></div>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="cf">if</span>(RUN_KAPPA) {</span>
-<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(kappa_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption=</span><span class="st">&quot;Kappa estimators: original versus shifted log wage&quot;</span>,<span class="at">row.names=</span><span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general=</span><span class="st">&quot; The visible changes are concentrated in the cubic unnormalized kappa variants.&quot;</span>)</span>
-<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a>}</span></code></pre></div>
-<table class="table table-striped table-hover table-condensed" style="color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
-<caption>
-Kappa estimators: original versus shifted log wage
+Estimate-level paired translation results
 </caption>
 <thead>
 <tr>
@@ -2100,10 +2341,10 @@ Kappa estimators: original versus shifted log wage
 Specification
 </th>
 <th style="text-align:left;">
-Estimator
+Learner
 </th>
 <th style="text-align:left;">
-Shift
+Estimator
 </th>
 <th style="text-align:left;">
 Original estimate
@@ -2114,329 +2355,24 @@ Shifted estimate
 <th style="text-align:left;">
 Rerun change
 </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_cb_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2100
-</td>
-<td style="text-align:left;">
-0.2100
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_ml_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2025
-</td>
-<td style="text-align:left;">
-0.2025
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_ml_a10
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2044
-</td>
-<td style="text-align:left;">
-0.2044
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_ml_a
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3144
-</td>
-<td style="text-align:left;">
-0.5366
-</td>
-<td style="text-align:left;">
-0.222169
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_ml_t
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3020
-</td>
-<td style="text-align:left;">
-0.5154
-</td>
-<td style="text-align:left;">
-0.213412
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-tau_ml_a0
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.3167
-</td>
-<td style="text-align:left;">
-0.5405
-</td>
-<td style="text-align:left;">
-0.223782
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_cb_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_ml_u
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_ml_a10
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_ml_a
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_ml_t
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-tau_ml_a0
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.2408
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-</tbody>
-<tfoot>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<span style="font-style: italic;">Note: </span>
-</td>
-</tr>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<sup></sup> The visible changes are concentrated in the cubic
-unnormalized kappa variants.
-</td>
-</tr>
-</tfoot>
-</table>
-</div>
-<div id="dml-tuned-forest" class="section level1">
-<h1>2. DML tuned forest</h1>
-<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a>build_dml_headline_rows <span class="ot">&lt;-</span> <span class="cf">function</span>(wf) {</span>
-<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>  <span class="fu">set.seed</span>(SEED)</span>
-<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(</span>
-<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a>    fit_o <span class="ot">&lt;-</span> <span class="fu">dml_with_smoother</span>(wf<span class="sc">$</span>Y_orig,wf<span class="sc">$</span>D,wf<span class="sc">$</span>X_dml,wf<span class="sc">$</span>Z,</span>
-<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a>      <span class="at">n_cf_folds=</span>N_CF,<span class="at">tune.parameters=</span><span class="st">&quot;all&quot;</span>)</span>
-<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a>  ))</span>
-<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a>  <span class="fu">set.seed</span>(SEED)</span>
-<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(</span>
-<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a>    fit_s <span class="ot">&lt;-</span> <span class="fu">dml_with_smoother</span>(wf<span class="sc">$</span>Y_shift,wf<span class="sc">$</span>D,wf<span class="sc">$</span>X_dml,wf<span class="sc">$</span>Z,</span>
-<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>      <span class="at">n_cf_folds=</span>N_CF,<span class="at">tune.parameters=</span><span class="st">&quot;all&quot;</span>)</span>
-<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a>  ))</span>
-<span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(ro <span class="ot">&lt;-</span> <span class="fu">summary</span>(fit_o)))</span>
-<span id="cb7-13"><a href="#cb7-13" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(rs <span class="ot">&lt;-</span> <span class="fu">summary</span>(fit_s)))</span>
-<span id="cb7-14"><a href="#cb7-14" tabindex="-1"></a>  <span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">&quot;PLR-IV&quot;</span>,<span class="st">&quot;Wald-AIPW&quot;</span>),<span class="cf">function</span>(est){</span>
-<span id="cb7-15"><a href="#cb7-15" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">ti_vietnam_row</span>(est,<span class="fu">get_estimate</span>(ro,est),</span>
-<span id="cb7-16"><a href="#cb7-16" tabindex="-1"></a>                          <span class="fu">get_estimate</span>(rs,est),wf<span class="sc">$</span>k)</span>
-<span id="cb7-17"><a href="#cb7-17" tabindex="-1"></a>    row<span class="sc">$</span>Specification <span class="ot">&lt;-</span> wf<span class="sc">$</span>label; row</span>
-<span id="cb7-18"><a href="#cb7-18" tabindex="-1"></a>  }))</span>
-<span id="cb7-19"><a href="#cb7-19" tabindex="-1"></a>}</span></code></pre></div>
-<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="cf">if</span>(RUN_DML)dml_headline_ti_all<span class="ot">&lt;-</span><span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(workflows,build_dml_headline_rows))</span></code></pre></div>
-<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="cf">if</span>(RUN_DML) {</span>
-<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(dml_headline_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption=</span><span class="st">&quot;Tuned honest forest: original versus shifted log wage&quot;</span>,<span class="at">row.names=</span><span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general=</span><span class="st">&quot;The signed rerun change is displayed to six decimal places. Values that round to zero at this precision are shown uniformly as 0.000000.&quot;</span>)</span>
-<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a>}</span></code></pre></div>
-<table class="table table-striped table-hover table-condensed" style="color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
-<caption>
-Tuned honest forest: original versus shifted log wage
-</caption>
-<thead>
-<tr>
 <th style="text-align:left;">
-Specification
+Folds identical
 </th>
 <th style="text-align:left;">
-Estimator
-</th>
-<th style="text-align:left;">
-Shift
-</th>
-<th style="text-align:left;">
-Original estimate
-</th>
-<th style="text-align:left;">
-Shifted estimate
-</th>
-<th style="text-align:left;">
-Rerun change
+Maximum non-outcome nuisance change
 </th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align:left;">
+<td style="text-align:left;vertical-align: middle !important;" rowspan="4">
 Cubic age
+</td>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Tuned honest forest
 </td>
 <td style="text-align:left;">
 PLR-IV
-</td>
-<td style="text-align:left;">
-4.6052
 </td>
 <td style="text-align:left;">
 0.2429
@@ -2445,58 +2381,107 @@ PLR-IV
 0.2429
 </td>
 <td style="text-align:left;">
-0.000000
+-4.996e-16
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
-Cubic age
-</td>
 <td style="text-align:left;">
 Wald-AIPW
 </td>
 <td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
 0.2291
 </td>
 <td style="text-align:left;">
 0.2291
 </td>
 <td style="text-align:left;">
-0.000000
+-8.160e-15
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
-Saturated age
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Ranger
 </td>
 <td style="text-align:left;">
 PLR-IV
 </td>
 <td style="text-align:left;">
-4.6052
+0.2697
 </td>
 <td style="text-align:left;">
-0.2416
+0.2697
 </td>
 <td style="text-align:left;">
-0.2416
+-1.055e-15
 </td>
 <td style="text-align:left;">
-0.000000
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
-Saturated age
-</td>
 <td style="text-align:left;">
 Wald-AIPW
 </td>
 <td style="text-align:left;">
-4.6052
+0.2461
+</td>
+<td style="text-align:left;">
+0.2461
+</td>
+<td style="text-align:left;">
+-2.776e-16
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="4">
+Saturated age
+</td>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Tuned honest forest
+</td>
+<td style="text-align:left;">
+PLR-IV
+</td>
+<td style="text-align:left;">
+0.2416
+</td>
+<td style="text-align:left;">
+0.2416
+</td>
+<td style="text-align:left;">
+5.246e-15
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Wald-AIPW
 </td>
 <td style="text-align:left;">
 0.2443
@@ -2505,210 +2490,21 @@ Wald-AIPW
 0.2443
 </td>
 <td style="text-align:left;">
-0.000018
-</td>
-</tr>
-</tbody>
-<tfoot>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<span style="font-style: italic;">Note: </span>
-</td>
-</tr>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<sup></sup> The signed rerun change is displayed to six decimal places.
-Values that round to zero at this precision are shown uniformly as
-0.000000.
-</td>
-</tr>
-</tfoot>
-</table>
-</div>
-<div id="olslogit-and-ranger-learners" class="section level1">
-<h1>3. OLS/logit and Ranger learners</h1>
-<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a>make_dml_data <span class="ot">&lt;-</span> <span class="cf">function</span>(Y,D,Z,X){df<span class="ot">&lt;-</span><span class="fu">as.data.frame</span>(X);df<span class="sc">$</span>y<span class="ot">&lt;-</span>Y;df<span class="sc">$</span>d<span class="ot">&lt;-</span>D;df<span class="sc">$</span>z<span class="ot">&lt;-</span>Z</span>
-<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a>  DoubleMLData<span class="sc">$</span><span class="fu">new</span>(<span class="at">data=</span>df,<span class="at">y_col=</span><span class="st">&quot;y&quot;</span>,<span class="at">d_cols=</span><span class="st">&quot;d&quot;</span>,<span class="at">z_cols=</span><span class="st">&quot;z&quot;</span>,<span class="at">x_cols=</span><span class="fu">colnames</span>(X))}</span>
-<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a>ml_lm_iivm<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">g=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.lm&quot;</span>),<span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.log_reg&quot;</span>),<span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.log_reg&quot;</span>))</span>
-<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a>ml_rf_iivm<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">g=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),<span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),<span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>))</span>
-<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a>ml_lm_pliv<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">l=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.lm&quot;</span>),<span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.lm&quot;</span>),<span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.lm&quot;</span>))</span>
-<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>ml_rf_pliv<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">l=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),<span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>),<span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.ranger&quot;</span>,<span class="at">keep.inbag=</span><span class="cn">TRUE</span>))</span>
-<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>fit_iivm<span class="ot">&lt;-</span><span class="cf">function</span>(dat,L){<span class="fu">set.seed</span>(SEED);o<span class="ot">&lt;-</span>DoubleMLIIVM<span class="sc">$</span><span class="fu">new</span>(<span class="at">data=</span>dat,<span class="at">ml_g=</span>L<span class="sc">$</span>g,<span class="at">ml_m=</span>L<span class="sc">$</span>m,<span class="at">ml_r=</span>L<span class="sc">$</span>r,<span class="at">n_folds=</span>N_CF,<span class="at">score=</span><span class="st">&quot;LATE&quot;</span>)</span>
-<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">fit</span>(<span class="at">store_models=</span><span class="cn">TRUE</span>,<span class="at">store_predictions=</span><span class="cn">TRUE</span>)));o}</span>
-<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a>fit_pliv<span class="ot">&lt;-</span><span class="cf">function</span>(dat,L){<span class="fu">set.seed</span>(SEED);o<span class="ot">&lt;-</span>DoubleMLPLIV<span class="sc">$</span><span class="fu">new</span>(<span class="at">data=</span>dat,<span class="at">ml_l=</span>L<span class="sc">$</span>l,<span class="at">ml_m=</span>L<span class="sc">$</span>m,<span class="at">ml_r=</span>L<span class="sc">$</span>r,<span class="at">n_folds=</span>N_CF)</span>
-<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">fit</span>(<span class="at">store_models=</span><span class="cn">TRUE</span>,<span class="at">store_predictions=</span><span class="cn">TRUE</span>)));o}</span>
-<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a>build_learner_row<span class="ot">&lt;-</span><span class="cf">function</span>(wf,label,Lfun,fitfun){</span>
-<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a>  fo<span class="ot">&lt;-</span><span class="fu">fitfun</span>(<span class="fu">make_dml_data</span>(wf<span class="sc">$</span>Y_orig,wf<span class="sc">$</span>D,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>X_dml),<span class="fu">Lfun</span>())</span>
-<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>  fs<span class="ot">&lt;-</span><span class="fu">fitfun</span>(<span class="fu">make_dml_data</span>(wf<span class="sc">$</span>Y_shift,wf<span class="sc">$</span>D,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>X_dml),<span class="fu">Lfun</span>())</span>
-<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a>  row<span class="ot">&lt;-</span><span class="fu">ti_vietnam_row</span>(label,<span class="fu">get_dml_coef</span>(fo),<span class="fu">get_dml_coef</span>(fs),wf<span class="sc">$</span>k)</span>
-<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a>  row<span class="sc">$</span>Specification<span class="ot">&lt;-</span>wf<span class="sc">$</span>label;row}</span></code></pre></div>
-<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="cf">if</span>(RUN_LM_RF)learner_ti_all<span class="ot">&lt;-</span><span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(workflows,<span class="cf">function</span>(wf)<span class="fu">rbind</span>(</span>
-<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a>  <span class="fu">build_learner_row</span>(wf,<span class="st">&quot;PLR-IV (OLS nuisances)&quot;</span>,ml_lm_pliv,fit_pliv),</span>
-<span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a>  <span class="fu">build_learner_row</span>(wf,<span class="st">&quot;Wald-AIPW (OLS/logit nuisances)&quot;</span>,ml_lm_iivm,fit_iivm),</span>
-<span id="cb11-4"><a href="#cb11-4" tabindex="-1"></a>  <span class="fu">build_learner_row</span>(wf,<span class="st">&quot;PLR-IV (Ranger)&quot;</span>,ml_rf_pliv,fit_pliv),</span>
-<span id="cb11-5"><a href="#cb11-5" tabindex="-1"></a>  <span class="fu">build_learner_row</span>(wf,<span class="st">&quot;Wald-AIPW (Ranger)&quot;</span>,ml_rf_iivm,fit_iivm))))</span></code></pre></div>
-<div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a><span class="cf">if</span>(RUN_LM_RF) {</span>
-<span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(learner_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb12-3"><a href="#cb12-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption=</span><span class="st">&quot;DoubleML learners — original versus shifted log wage&quot;</span>,<span class="at">row.names=</span><span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb12-4"><a href="#cb12-4" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb12-5"><a href="#cb12-5" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general=</span><span class="st">&quot;OLS/logit labels the nuisance learner class,  cubic and saturated identify the feature specification&quot;</span>)</span>
-<span id="cb12-6"><a href="#cb12-6" tabindex="-1"></a>}</span></code></pre></div>
-<table class="table table-striped table-hover table-condensed" style="color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
-<caption>
-DoubleML learners — original versus shifted log wage
-</caption>
-<thead>
-<tr>
-<th style="text-align:left;">
-Specification
-</th>
-<th style="text-align:left;">
-Estimator
-</th>
-<th style="text-align:left;">
-Shift
-</th>
-<th style="text-align:left;">
-Original estimate
-</th>
-<th style="text-align:left;">
-Shifted estimate
-</th>
-<th style="text-align:left;">
-Rerun change
-</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align:left;">
-Cubic age
+1.773e-05
 </td>
 <td style="text-align:left;">
-PLR-IV (OLS nuisances)
+TRUE
 </td>
 <td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2388
-</td>
-<td style="text-align:left;">
-0.2388
-</td>
-<td style="text-align:left;">
-0.000000
+0.00e+00
 </td>
 </tr>
 <tr>
-<td style="text-align:left;">
-Cubic age
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Ranger
 </td>
 <td style="text-align:left;">
-Wald-AIPW (OLS/logit nuisances)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2178
-</td>
-<td style="text-align:left;">
-0.2178
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-PLR-IV (Ranger)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2697
-</td>
-<td style="text-align:left;">
-0.2697
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Cubic age
-</td>
-<td style="text-align:left;">
-Wald-AIPW (Ranger)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2461
-</td>
-<td style="text-align:left;">
-0.2461
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-PLR-IV (OLS nuisances)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2701
-</td>
-<td style="text-align:left;">
-0.2701
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-Wald-AIPW (OLS/logit nuisances)
-</td>
-<td style="text-align:left;">
-4.6052
-</td>
-<td style="text-align:left;">
-0.2468
-</td>
-<td style="text-align:left;">
-0.2468
-</td>
-<td style="text-align:left;">
-0.000000
-</td>
-</tr>
-<tr>
-<td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-PLR-IV (Ranger)
-</td>
-<td style="text-align:left;">
-4.6052
+PLR-IV
 </td>
 <td style="text-align:left;">
 0.2834
@@ -2717,18 +2513,18 @@ PLR-IV (Ranger)
 0.2834
 </td>
 <td style="text-align:left;">
-0.000000
+-1.388e-15
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-Saturated age
-</td>
-<td style="text-align:left;">
-Wald-AIPW (Ranger)
-</td>
-<td style="text-align:left;">
-4.6052
+Wald-AIPW
 </td>
 <td style="text-align:left;">
 0.2610
@@ -2737,131 +2533,22 @@ Wald-AIPW (Ranger)
 0.2610
 </td>
 <td style="text-align:left;">
-0.000000
+-3.331e-16
+</td>
+<td style="text-align:left;">
+TRUE
+</td>
+<td style="text-align:left;">
+0.00e+00
 </td>
 </tr>
 </tbody>
-<tfoot>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<span style="font-style: italic;">Note: </span>
-</td>
-</tr>
-<tr>
-<td style="padding: 0; " colspan="100%">
-<sup></sup> OLS/logit labels the nuisance learner class, cubic and
-saturated identify the feature specification
-</td>
-</tr>
-</tfoot>
 </table>
-</div>
-<div id="tuned-xgboost-complete-pipeline-rerun" class="section level1">
-<h1>4. Tuned XGBoost complete-pipeline rerun</h1>
-<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a>XGB_RERUN_EXPORT <span class="ot">&lt;-</span> <span class="st">&quot;vietnam_translation_xgb_rerun_export.rds&quot;</span></span>
-<span id="cb13-2"><a href="#cb13-2" tabindex="-1"></a></span>
-<span id="cb13-3"><a href="#cb13-3" tabindex="-1"></a>validate_xgb_rerun_export <span class="ot">&lt;-</span> <span class="cf">function</span>(export, path, required_specs) {</span>
-<span id="cb13-4"><a href="#cb13-4" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.list</span>(export) <span class="sc">||</span> <span class="fu">is.null</span>(export<span class="sc">$</span>results) <span class="sc">||</span> <span class="fu">is.null</span>(export<span class="sc">$</span>settings))</span>
-<span id="cb13-5"><a href="#cb13-5" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s has an incomplete schema.&quot;</span>, path))</span>
-<span id="cb13-6"><a href="#cb13-6" tabindex="-1"></a>  required_columns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;Estimator&quot;</span>, <span class="st">&quot;Shift_k&quot;</span>, <span class="st">&quot;tau_original&quot;</span>, <span class="st">&quot;tau_shifted&quot;</span>,</span>
-<span id="cb13-7"><a href="#cb13-7" tabindex="-1"></a>                        <span class="st">&quot;rerun_difference&quot;</span>, <span class="st">&quot;Specification&quot;</span>)</span>
-<span id="cb13-8"><a href="#cb13-8" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(required_columns <span class="sc">%in%</span> <span class="fu">names</span>(export<span class="sc">$</span>results)))</span>
-<span id="cb13-9"><a href="#cb13-9" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s is missing required result columns.&quot;</span>, path))</span>
-<span id="cb13-10"><a href="#cb13-10" tabindex="-1"></a>  expected_settings <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">seed=</span>SEED,<span class="at">n_cf=</span>N_CF,<span class="at">tune_evals=</span>TUNE_EVALS,</span>
-<span id="cb13-11"><a href="#cb13-11" tabindex="-1"></a>                         <span class="at">inner_folds=</span>INNER_FOLDS)</span>
-<span id="cb13-12"><a href="#cb13-12" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(<span class="fu">names</span>(expected_settings) <span class="sc">%in%</span> <span class="fu">names</span>(export<span class="sc">$</span>settings)) <span class="sc">||</span></span>
-<span id="cb13-13"><a href="#cb13-13" tabindex="-1"></a>      <span class="sc">!</span><span class="fu">isTRUE</span>(export<span class="sc">$</span>settings<span class="sc">$</span>tune_on_folds))</span>
-<span id="cb13-14"><a href="#cb13-14" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s is missing required tuning metadata.&quot;</span>, path))</span>
-<span id="cb13-15"><a href="#cb13-15" tabindex="-1"></a>  observed_settings <span class="ot">&lt;-</span> <span class="fu">vapply</span>(<span class="fu">names</span>(expected_settings),</span>
-<span id="cb13-16"><a href="#cb13-16" tabindex="-1"></a>    <span class="cf">function</span>(x) <span class="fu">as.integer</span>(export<span class="sc">$</span>settings[[x]]), <span class="fu">integer</span>(<span class="dv">1</span>))</span>
-<span id="cb13-17"><a href="#cb13-17" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">identical</span>(<span class="fu">unname</span>(observed_settings),<span class="fu">unname</span>(<span class="fu">as.integer</span>(expected_settings))))</span>
-<span id="cb13-18"><a href="#cb13-18" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s uses tuning settings that differ from this notebook.&quot;</span>, path))</span>
-<span id="cb13-19"><a href="#cb13-19" tabindex="-1"></a>  required_estimators <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;Wald-AIPW (XGBoost tuned)&quot;</span>,</span>
-<span id="cb13-20"><a href="#cb13-20" tabindex="-1"></a>                           <span class="st">&quot;PLR-IV (XGBoost tuned)&quot;</span>)</span>
-<span id="cb13-21"><a href="#cb13-21" tabindex="-1"></a>  expected_keys <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(<span class="fu">outer</span>(required_specs,required_estimators,paste,<span class="at">sep=</span><span class="st">&quot;</span><span class="sc">\r</span><span class="st">&quot;</span>))</span>
-<span id="cb13-22"><a href="#cb13-22" tabindex="-1"></a>  observed_keys <span class="ot">&lt;-</span> <span class="fu">paste</span>(export<span class="sc">$</span>results<span class="sc">$</span>Specification,export<span class="sc">$</span>results<span class="sc">$</span>Estimator,<span class="at">sep=</span><span class="st">&quot;</span><span class="sc">\r</span><span class="st">&quot;</span>)</span>
-<span id="cb13-23"><a href="#cb13-23" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">anyDuplicated</span>(observed_keys) <span class="sc">||</span> <span class="sc">!</span><span class="fu">setequal</span>(observed_keys,expected_keys))</span>
-<span id="cb13-24"><a href="#cb13-24" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s does not contain exactly the required Vietnam XGBoost rows.&quot;</span>, path))</span>
-<span id="cb13-25"><a href="#cb13-25" tabindex="-1"></a>  numeric_columns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;Shift_k&quot;</span>,<span class="st">&quot;tau_original&quot;</span>,<span class="st">&quot;tau_shifted&quot;</span>,<span class="st">&quot;rerun_difference&quot;</span>)</span>
-<span id="cb13-26"><a href="#cb13-26" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">any</span>(<span class="sc">!</span><span class="fu">vapply</span>(export<span class="sc">$</span>results[numeric_columns],</span>
-<span id="cb13-27"><a href="#cb13-27" tabindex="-1"></a>                  <span class="cf">function</span>(x) <span class="fu">all</span>(<span class="fu">is.finite</span>(<span class="fu">as.numeric</span>(x))),<span class="fu">logical</span>(<span class="dv">1</span>))))</span>
-<span id="cb13-28"><a href="#cb13-28" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;%s contains non-finite translation results.&quot;</span>, path))</span>
-<span id="cb13-29"><a href="#cb13-29" tabindex="-1"></a>  export<span class="sc">$</span>results[,required_columns,drop<span class="ot">=</span><span class="cn">FALSE</span>]</span>
-<span id="cb13-30"><a href="#cb13-30" tabindex="-1"></a>}</span>
-<span id="cb13-31"><a href="#cb13-31" tabindex="-1"></a></span>
-<span id="cb13-32"><a href="#cb13-32" tabindex="-1"></a><span class="cf">if</span>(RUN_XGB_RERUN){</span>
-<span id="cb13-33"><a href="#cb13-33" tabindex="-1"></a>  <span class="cf">if</span>(<span class="sc">!</span>RUN_XGB_WALD_AIPW <span class="sc">||</span> <span class="sc">!</span>RUN_XGB_PLIV)</span>
-<span id="cb13-34"><a href="#cb13-34" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">&quot;An official Vietnam XGBoost translation rebuild must include both Wald-AIPW and PLR-IV.&quot;</span>)</span>
-<span id="cb13-35"><a href="#cb13-35" tabindex="-1"></a>  <span class="cf">if</span>(<span class="sc">!</span>USE_XGB_ORIGINAL_EXPORT)<span class="fu">stop</span>(<span class="st">&quot;USE_XGB_ORIGINAL_EXPORT must be TRUE.&quot;</span>)</span>
-<span id="cb13-36"><a href="#cb13-36" tabindex="-1"></a>  req<span class="ot">&lt;-</span><span class="fu">c</span>(<span class="st">&quot;vietnam_xgb_tuning_export.rds&quot;</span>,<span class="st">&quot;vietnam_xgb_pliv_tuning_export.rds&quot;</span>)</span>
-<span id="cb13-37"><a href="#cb13-37" tabindex="-1"></a>  <span class="cf">if</span>(<span class="sc">!</span><span class="fu">all</span>(<span class="fu">file.exists</span>(req)))<span class="fu">stop</span>(<span class="st">&quot;Run both Vietnam XGBoost tuning notebooks before the translation rerun.&quot;</span>)</span>
-<span id="cb13-38"><a href="#cb13-38" tabindex="-1"></a>  xgb_wald_export<span class="ot">&lt;-</span><span class="fu">readRDS</span>(req[<span class="dv">1</span>]);xgb_pliv_export<span class="ot">&lt;-</span><span class="fu">readRDS</span>(req[<span class="dv">2</span>])</span>
-<span id="cb13-39"><a href="#cb13-39" tabindex="-1"></a>  <span class="cf">for</span>(ex <span class="cf">in</span> <span class="fu">list</span>(xgb_wald_export,xgb_pliv_export)){</span>
-<span id="cb13-40"><a href="#cb13-40" tabindex="-1"></a>    <span class="cf">if</span>(<span class="sc">!</span><span class="fu">isTRUE</span>(ex<span class="sc">$</span>settings<span class="sc">$</span>tune_on_folds))<span class="fu">stop</span>(<span class="st">&quot;Export is not a tune_on_folds=TRUE fit.&quot;</span>)</span>
-<span id="cb13-41"><a href="#cb13-41" tabindex="-1"></a>    <span class="cf">if</span>(<span class="sc">!</span><span class="fu">all</span>(<span class="fu">names</span>(workflows)<span class="sc">%in%</span>ex<span class="sc">$</span>weight_diagnostics<span class="sc">$</span>Cell))<span class="fu">stop</span>(<span class="st">&quot;Export cells do not match the translation workflows.&quot;</span>)</span>
-<span id="cb13-42"><a href="#cb13-42" tabindex="-1"></a>    <span class="cf">if</span>(<span class="sc">!</span><span class="fu">identical</span>(<span class="fu">as.integer</span>(ex<span class="sc">$</span>settings<span class="sc">$</span>seed),<span class="fu">as.integer</span>(SEED))<span class="sc">||</span></span>
-<span id="cb13-43"><a href="#cb13-43" tabindex="-1"></a>       <span class="sc">!</span><span class="fu">identical</span>(<span class="fu">as.integer</span>(ex<span class="sc">$</span>settings<span class="sc">$</span>n_cf),<span class="fu">as.integer</span>(N_CF))<span class="sc">||</span></span>
-<span id="cb13-44"><a href="#cb13-44" tabindex="-1"></a>       <span class="sc">!</span><span class="fu">identical</span>(<span class="fu">as.integer</span>(ex<span class="sc">$</span>settings<span class="sc">$</span>tune_evals),<span class="fu">as.integer</span>(TUNE_EVALS))<span class="sc">||</span></span>
-<span id="cb13-45"><a href="#cb13-45" tabindex="-1"></a>       <span class="sc">!</span><span class="fu">identical</span>(<span class="fu">as.integer</span>(ex<span class="sc">$</span>settings<span class="sc">$</span>inner_folds),<span class="fu">as.integer</span>(INNER_FOLDS)))</span>
-<span id="cb13-46"><a href="#cb13-46" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="st">&quot;Export tuning settings do not match the shifted-outcome rerun settings.&quot;</span>)</span>
-<span id="cb13-47"><a href="#cb13-47" tabindex="-1"></a>  }</span>
-<span id="cb13-48"><a href="#cb13-48" tabindex="-1"></a>}</span>
-<span id="cb13-49"><a href="#cb13-49" tabindex="-1"></a></span>
-<span id="cb13-50"><a href="#cb13-50" tabindex="-1"></a>xgb_ps<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">ps</span>(<span class="at">nrounds=</span><span class="fu">p_int</span>(<span class="dv">50</span>,<span class="dv">400</span>),<span class="at">max_depth=</span><span class="fu">p_int</span>(<span class="dv">2</span>,<span class="dv">5</span>),<span class="at">eta=</span><span class="fu">p_dbl</span>(<span class="fl">0.02</span>,<span class="fl">0.20</span>),<span class="at">min_child_weight=</span><span class="fu">p_int</span>(<span class="dv">1</span>,<span class="dv">8</span>))</span>
-<span id="cb13-51"><a href="#cb13-51" tabindex="-1"></a>make_xgb_iivm<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">g=</span><span class="fu">lrn</span>(<span class="st">&quot;regr.xgboost&quot;</span>,<span class="at">alpha=</span><span class="dv">0</span>,<span class="at">subsample=</span><span class="dv">1</span>,<span class="at">max_delta_step=</span><span class="dv">0</span>,<span class="at">base_score=</span><span class="dv">0</span>),<span class="at">m=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.xgboost&quot;</span>,<span class="at">predict_type=</span><span class="st">&quot;prob&quot;</span>),<span class="at">r=</span><span class="fu">lrn</span>(<span class="st">&quot;classif.xgboost&quot;</span>,<span class="at">predict_type=</span><span class="st">&quot;prob&quot;</span>))</span>
-<span id="cb13-52"><a href="#cb13-52" tabindex="-1"></a>make_xgb_pliv<span class="ot">&lt;-</span><span class="cf">function</span>(){b<span class="ot">&lt;-</span><span class="fu">list</span>(<span class="at">alpha=</span><span class="dv">0</span>,<span class="at">subsample=</span><span class="dv">1</span>,<span class="at">max_delta_step=</span><span class="dv">0</span>,<span class="at">base_score=</span><span class="dv">0</span>);<span class="fu">list</span>(<span class="at">l=</span><span class="fu">do.call</span>(lrn,<span class="fu">c</span>(<span class="fu">list</span>(<span class="st">&quot;regr.xgboost&quot;</span>),b)),<span class="at">m=</span><span class="fu">do.call</span>(lrn,<span class="fu">c</span>(<span class="fu">list</span>(<span class="st">&quot;regr.xgboost&quot;</span>),b)),<span class="at">r=</span><span class="fu">do.call</span>(lrn,<span class="fu">c</span>(<span class="fu">list</span>(<span class="st">&quot;regr.xgboost&quot;</span>),b)))}</span>
-<span id="cb13-53"><a href="#cb13-53" tabindex="-1"></a>tune_set_iivm<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">ml_g=</span><span class="fu">xgb_ps</span>(),<span class="at">ml_m=</span><span class="fu">xgb_ps</span>(),<span class="at">ml_r=</span><span class="fu">xgb_ps</span>())</span>
-<span id="cb13-54"><a href="#cb13-54" tabindex="-1"></a>tune_set_pliv<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">ml_l=</span><span class="fu">xgb_ps</span>(),<span class="at">ml_m=</span><span class="fu">xgb_ps</span>(),<span class="at">ml_r=</span><span class="fu">xgb_ps</span>())</span>
-<span id="cb13-55"><a href="#cb13-55" tabindex="-1"></a>tune_settings_iivm<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">n_folds_tune=</span>INNER_FOLDS,<span class="at">rsmp_tune=</span><span class="fu">rsmp</span>(<span class="st">&quot;cv&quot;</span>,<span class="at">folds=</span>INNER_FOLDS),<span class="at">measure=</span><span class="fu">list</span>(<span class="at">ml_g=</span><span class="st">&quot;regr.rmse&quot;</span>,<span class="at">ml_m=</span><span class="st">&quot;classif.logloss&quot;</span>,<span class="at">ml_r=</span><span class="st">&quot;classif.logloss&quot;</span>),<span class="at">terminator=</span><span class="fu">trm</span>(<span class="st">&quot;evals&quot;</span>,<span class="at">n_evals=</span>TUNE_EVALS),<span class="at">algorithm=</span><span class="fu">tnr</span>(<span class="st">&quot;random_search&quot;</span>))</span>
-<span id="cb13-56"><a href="#cb13-56" tabindex="-1"></a>tune_settings_pliv<span class="ot">&lt;-</span><span class="cf">function</span>()<span class="fu">list</span>(<span class="at">n_folds_tune=</span>INNER_FOLDS,<span class="at">rsmp_tune=</span><span class="fu">rsmp</span>(<span class="st">&quot;cv&quot;</span>,<span class="at">folds=</span>INNER_FOLDS),<span class="at">measure=</span><span class="fu">list</span>(<span class="at">ml_l=</span><span class="st">&quot;regr.rmse&quot;</span>,<span class="at">ml_m=</span><span class="st">&quot;regr.rmse&quot;</span>,<span class="at">ml_r=</span><span class="st">&quot;regr.rmse&quot;</span>),<span class="at">terminator=</span><span class="fu">trm</span>(<span class="st">&quot;evals&quot;</span>,<span class="at">n_evals=</span>TUNE_EVALS),<span class="at">algorithm=</span><span class="fu">tnr</span>(<span class="st">&quot;random_search&quot;</span>))</span>
-<span id="cb13-57"><a href="#cb13-57" tabindex="-1"></a></span>
-<span id="cb13-58"><a href="#cb13-58" tabindex="-1"></a>get_original_xgb<span class="ot">&lt;-</span><span class="cf">function</span>(export,cell,learner_label){</span>
-<span id="cb13-59"><a href="#cb13-59" tabindex="-1"></a>  row<span class="ot">&lt;-</span>export<span class="sc">$</span>weight_diagnostics<span class="sc">%&gt;%</span><span class="fu">filter</span>(.data<span class="sc">$</span>Cell<span class="sc">==</span>cell,.data<span class="sc">$</span>Learner<span class="sc">==</span>learner_label)</span>
-<span id="cb13-60"><a href="#cb13-60" tabindex="-1"></a>  <span class="cf">if</span>(<span class="fu">nrow</span>(row)<span class="sc">!=</span><span class="dv">1</span>)<span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;Expected one diagnostic row for %s / %s.&quot;</span>,cell,learner_label))</span>
-<span id="cb13-61"><a href="#cb13-61" tabindex="-1"></a>  tau<span class="ot">&lt;-</span><span class="fu">as.numeric</span>(row<span class="sc">$</span>Estimate[<span class="dv">1</span>])</span>
-<span id="cb13-62"><a href="#cb13-62" tabindex="-1"></a>  <span class="cf">if</span>(<span class="sc">!</span><span class="fu">is.finite</span>(tau))<span class="fu">stop</span>(<span class="fu">sprintf</span>(<span class="st">&quot;Tuned estimate is unavailable for %s / %s.&quot;</span>,cell,learner_label))</span>
-<span id="cb13-63"><a href="#cb13-63" tabindex="-1"></a>  tau}</span>
-<span id="cb13-64"><a href="#cb13-64" tabindex="-1"></a>fit_shifted_wald<span class="ot">&lt;-</span><span class="cf">function</span>(wf){dat<span class="ot">&lt;-</span><span class="fu">make_dml_data</span>(wf<span class="sc">$</span>Y_shift,wf<span class="sc">$</span>D,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>X_dml);L<span class="ot">&lt;-</span><span class="fu">make_xgb_iivm</span>()</span>
-<span id="cb13-65"><a href="#cb13-65" tabindex="-1"></a>  o<span class="ot">&lt;-</span>DoubleMLIIVM<span class="sc">$</span><span class="fu">new</span>(<span class="at">data=</span>dat,<span class="at">ml_g=</span>L<span class="sc">$</span>g,<span class="at">ml_m=</span>L<span class="sc">$</span>m,<span class="at">ml_r=</span>L<span class="sc">$</span>r,<span class="at">n_folds=</span>N_CF,<span class="at">score=</span><span class="st">&quot;LATE&quot;</span>)</span>
-<span id="cb13-66"><a href="#cb13-66" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">tune</span>(<span class="at">param_set=</span><span class="fu">tune_set_iivm</span>(),<span class="at">tune_settings=</span><span class="fu">tune_settings_iivm</span>(),<span class="at">tune_on_folds=</span><span class="cn">TRUE</span>)))</span>
-<span id="cb13-67"><a href="#cb13-67" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">fit</span>(<span class="at">store_models=</span><span class="cn">TRUE</span>,<span class="at">store_predictions=</span><span class="cn">TRUE</span>)));<span class="fu">get_dml_coef</span>(o)}</span>
-<span id="cb13-68"><a href="#cb13-68" tabindex="-1"></a>fit_shifted_pliv<span class="ot">&lt;-</span><span class="cf">function</span>(wf){dat<span class="ot">&lt;-</span><span class="fu">make_dml_data</span>(wf<span class="sc">$</span>Y_shift,wf<span class="sc">$</span>D,wf<span class="sc">$</span>Z,wf<span class="sc">$</span>X_dml);L<span class="ot">&lt;-</span><span class="fu">make_xgb_pliv</span>()</span>
-<span id="cb13-69"><a href="#cb13-69" tabindex="-1"></a>  o<span class="ot">&lt;-</span>DoubleMLPLIV<span class="sc">$</span><span class="fu">new</span>(<span class="at">data=</span>dat,<span class="at">ml_l=</span>L<span class="sc">$</span>l,<span class="at">ml_m=</span>L<span class="sc">$</span>m,<span class="at">ml_r=</span>L<span class="sc">$</span>r,<span class="at">n_folds=</span>N_CF)</span>
-<span id="cb13-70"><a href="#cb13-70" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">tune</span>(<span class="at">param_set=</span><span class="fu">tune_set_pliv</span>(),<span class="at">tune_settings=</span><span class="fu">tune_settings_pliv</span>(),<span class="at">tune_on_folds=</span><span class="cn">TRUE</span>)))</span>
-<span id="cb13-71"><a href="#cb13-71" tabindex="-1"></a>  <span class="fu">invisible</span>(<span class="fu">capture.output</span>(o<span class="sc">$</span><span class="fu">fit</span>(<span class="at">store_models=</span><span class="cn">TRUE</span>,<span class="at">store_predictions=</span><span class="cn">TRUE</span>)));<span class="fu">get_dml_coef</span>(o)}</span>
-<span id="cb13-72"><a href="#cb13-72" tabindex="-1"></a>build_xgb_rows<span class="ot">&lt;-</span><span class="cf">function</span>(wf){out<span class="ot">&lt;-</span><span class="fu">list</span>()</span>
-<span id="cb13-73"><a href="#cb13-73" tabindex="-1"></a>  <span class="cf">if</span>(RUN_XGB_WALD_AIPW){orig<span class="ot">&lt;-</span><span class="fu">get_original_xgb</span>(xgb_wald_export,wf<span class="sc">$</span>label,<span class="st">&quot;XGB tuned&quot;</span>);<span class="fu">set.seed</span>(SEED);ts<span class="ot">&lt;-</span><span class="fu">fit_shifted_wald</span>(wf)</span>
-<span id="cb13-74"><a href="#cb13-74" tabindex="-1"></a>    r<span class="ot">&lt;-</span><span class="fu">ti_vietnam_row</span>(<span class="st">&quot;Wald-AIPW (XGBoost tuned)&quot;</span>,orig,ts,wf<span class="sc">$</span>k);r<span class="sc">$</span>Specification<span class="ot">&lt;-</span>wf<span class="sc">$</span>label;out<span class="sc">$</span>wald<span class="ot">&lt;-</span>r}</span>
-<span id="cb13-75"><a href="#cb13-75" tabindex="-1"></a>  <span class="cf">if</span>(RUN_XGB_PLIV){orig<span class="ot">&lt;-</span><span class="fu">get_original_xgb</span>(xgb_pliv_export,wf<span class="sc">$</span>label,<span class="st">&quot;PLR-IV XGB tuned&quot;</span>);<span class="fu">set.seed</span>(SEED);ts<span class="ot">&lt;-</span><span class="fu">fit_shifted_pliv</span>(wf)</span>
-<span id="cb13-76"><a href="#cb13-76" tabindex="-1"></a>    r<span class="ot">&lt;-</span><span class="fu">ti_vietnam_row</span>(<span class="st">&quot;PLR-IV (XGBoost tuned)&quot;</span>,orig,ts,wf<span class="sc">$</span>k);r<span class="sc">$</span>Specification<span class="ot">&lt;-</span>wf<span class="sc">$</span>label;out<span class="sc">$</span>pliv<span class="ot">&lt;-</span>r}</span>
-<span id="cb13-77"><a href="#cb13-77" tabindex="-1"></a>  <span class="fu">do.call</span>(rbind,out)}</span></code></pre></div>
-<div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" tabindex="-1"></a><span class="cf">if</span>(RUN_XGB_RERUN){</span>
-<span id="cb14-2"><a href="#cb14-2" tabindex="-1"></a>  xgb_ti_all<span class="ot">&lt;-</span><span class="fu">do.call</span>(rbind,<span class="fu">lapply</span>(workflows,build_xgb_rows))</span>
-<span id="cb14-3"><a href="#cb14-3" tabindex="-1"></a>  rebuilt_xgb_export<span class="ot">&lt;-</span><span class="fu">list</span>(<span class="at">results=</span>xgb_ti_all,<span class="at">settings=</span><span class="fu">list</span>(<span class="at">seed=</span>SEED,<span class="at">n_cf=</span>N_CF,</span>
-<span id="cb14-4"><a href="#cb14-4" tabindex="-1"></a>    <span class="at">tune_evals=</span>TUNE_EVALS,<span class="at">inner_folds=</span>INNER_FOLDS,<span class="at">tune_on_folds=</span><span class="cn">TRUE</span>,</span>
-<span id="cb14-5"><a href="#cb14-5" tabindex="-1"></a>    <span class="at">original_exports=</span><span class="fu">c</span>(<span class="st">&quot;vietnam_xgb_tuning_export.rds&quot;</span>,<span class="st">&quot;vietnam_xgb_pliv_tuning_export.rds&quot;</span>)))</span>
-<span id="cb14-6"><a href="#cb14-6" tabindex="-1"></a>  <span class="fu">validate_xgb_rerun_export</span>(rebuilt_xgb_export,XGB_RERUN_EXPORT,<span class="fu">names</span>(workflows))</span>
-<span id="cb14-7"><a href="#cb14-7" tabindex="-1"></a>  <span class="fu">saveRDS</span>(rebuilt_xgb_export,XGB_RERUN_EXPORT)</span>
-<span id="cb14-8"><a href="#cb14-8" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb14-9"><a href="#cb14-9" tabindex="-1"></a>  <span class="cf">if</span>(<span class="sc">!</span><span class="fu">file.exists</span>(XGB_RERUN_EXPORT))</span>
-<span id="cb14-10"><a href="#cb14-10" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">&quot;Missing verified Vietnam XGBoost translation export. Restore it or set RUN_XGB_RERUN=TRUE to rebuild it.&quot;</span>)</span>
-<span id="cb14-11"><a href="#cb14-11" tabindex="-1"></a>  xgb_ti_all<span class="ot">&lt;-</span><span class="fu">validate_xgb_rerun_export</span>(</span>
-<span id="cb14-12"><a href="#cb14-12" tabindex="-1"></a>    <span class="fu">readRDS</span>(XGB_RERUN_EXPORT),XGB_RERUN_EXPORT,<span class="fu">names</span>(workflows))</span>
-<span id="cb14-13"><a href="#cb14-13" tabindex="-1"></a>}</span></code></pre></div>
-<div class="sourceCode" id="cb15"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" tabindex="-1"></a><span class="cf">if</span>(<span class="fu">exists</span>(<span class="st">&quot;xgb_ti_all&quot;</span>)) {</span>
-<span id="cb15-2"><a href="#cb15-2" tabindex="-1"></a>  <span class="fu">display_rerun_results</span>(xgb_ti_all) <span class="sc">%&gt;%</span></span>
-<span id="cb15-3"><a href="#cb15-3" tabindex="-1"></a>    <span class="fu">kbl</span>(<span class="at">caption=</span><span class="st">&quot;Tuned XGBoost — original export versus shifted nested-tuning rerun&quot;</span>,<span class="at">row.names=</span><span class="cn">FALSE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb15-4"><a href="#cb15-4" tabindex="-1"></a>    <span class="fu">kable_styling</span>(<span class="at">bootstrap_options=</span><span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>,<span class="st">&quot;hover&quot;</span>,<span class="st">&quot;condensed&quot;</span>),<span class="at">full_width=</span><span class="cn">TRUE</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb15-5"><a href="#cb15-5" tabindex="-1"></a>    <span class="fu">footnote</span>(<span class="at">general=</span><span class="fu">paste0</span>(</span>
-<span id="cb15-6"><a href="#cb15-6" tabindex="-1"></a>      <span class="cf">if</span>(RUN_XGB_RERUN)</span>
-<span id="cb15-7"><a href="#cb15-7" tabindex="-1"></a>        <span class="st">&quot;This render rebuilt the shifted-outcome nested-tuning results. &quot;</span> <span class="cf">else</span></span>
-<span id="cb15-8"><a href="#cb15-8" tabindex="-1"></a>        <span class="st">&quot;This render loaded the verified complete-rerun XGBoost export. &quot;</span>,</span>
-<span id="cb15-9"><a href="#cb15-9" tabindex="-1"></a>      <span class="st">&quot;The signed rerun change is reported without a binary cutoff.&quot;</span></span>
-<span id="cb15-10"><a href="#cb15-10" tabindex="-1"></a>    ))</span>
-<span id="cb15-11"><a href="#cb15-11" tabindex="-1"></a>}</span></code></pre></div>
-<table class="table table-striped table-hover table-condensed" style="color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
-<caption>
-Tuned XGBoost — original export versus shifted nested-tuning rerun
+<p>The second table distinguishes a change in the smoother itself from a
+failure of its rows to sum to one.</p>
+<table class="table table-striped table-hover table-condensed" style="font-size: 10px; color: black; margin-left: auto; margin-right: auto;border-bottom: 0;">
+<caption style="font-size: initial !important;">
+Outcome-smoother change and decomposition
 </caption>
 <thead>
 <tr>
@@ -2869,101 +2556,273 @@ Tuned XGBoost — original export versus shifted nested-tuning rerun
 Specification
 </th>
 <th style="text-align:left;">
+Learner
+</th>
+<th style="text-align:left;">
 Estimator
 </th>
 <th style="text-align:left;">
-Shift
+Smoother
 </th>
 <th style="text-align:left;">
-Original estimate
+Maximum |S^k-S|
 </th>
 <th style="text-align:left;">
-Shifted estimate
+Prediction residual RMSE
 </th>
 <th style="text-align:left;">
-Rerun change
+Smoother component RMSE
+</th>
+<th style="text-align:left;">
+Normalization component maximum
 </th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td style="text-align:left;">
+<td style="text-align:left;vertical-align: middle !important;" rowspan="6">
 Cubic age
 </td>
-<td style="text-align:left;">
-Wald-AIPW (XGBoost tuned)
+<td style="text-align:left;vertical-align: middle !important;" rowspan="3">
+Tuned honest forest
 </td>
 <td style="text-align:left;">
-4.6052
+PLR-IV
 </td>
 <td style="text-align:left;">
-0.2383
+S
 </td>
 <td style="text-align:left;">
-0.2380
+0.00e+00
 </td>
 <td style="text-align:left;">
--0.000310
+6.21e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.64e-14
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Wald-AIPW
+</td>
+<td style="text-align:left;">
+S.z0
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+8.41e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.02e-14
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-Cubic age
+S.z1
 </td>
 <td style="text-align:left;">
-PLR-IV (XGBoost tuned)
+0.00e+00
 </td>
 <td style="text-align:left;">
-4.6052
+8.17e-15
 </td>
 <td style="text-align:left;">
-0.2648
+0.00e+00
 </td>
 <td style="text-align:left;">
-0.2677
+1.48e-14
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="3">
+Ranger
 </td>
 <td style="text-align:left;">
-0.002917
+PLR-IV
+</td>
+<td style="text-align:left;">
+S
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.58e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+6.14e-15
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Wald-AIPW
+</td>
+<td style="text-align:left;">
+S.z0
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.23e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+6.14e-15
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
+S.z1
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.71e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.12e-14
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="6">
 Saturated age
 </td>
-<td style="text-align:left;">
-Wald-AIPW (XGBoost tuned)
+<td style="text-align:left;vertical-align: middle !important;" rowspan="3">
+Tuned honest forest
 </td>
 <td style="text-align:left;">
-4.6052
+PLR-IV
 </td>
 <td style="text-align:left;">
-0.2533
+S
 </td>
 <td style="text-align:left;">
-0.2517
+0.00e+00
 </td>
 <td style="text-align:left;">
--0.001528
+1.09e-14
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.02e-13
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Wald-AIPW
+</td>
+<td style="text-align:left;">
+S.z0
+</td>
+<td style="text-align:left;">
+2.29e-04
+</td>
+<td style="text-align:left;">
+4.61e-05
+</td>
+<td style="text-align:left;">
+4.61e-05
+</td>
+<td style="text-align:left;">
+6.24e-14
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-Saturated age
+S.z1
 </td>
 <td style="text-align:left;">
-PLR-IV (XGBoost tuned)
+5.05e-04
 </td>
 <td style="text-align:left;">
-4.6052
+1.08e-04
 </td>
 <td style="text-align:left;">
-0.2809
+1.08e-04
 </td>
 <td style="text-align:left;">
-0.2804
+2.76e-14
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="3">
+Ranger
 </td>
 <td style="text-align:left;">
--0.000518
+PLR-IV
+</td>
+<td style="text-align:left;">
+S
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.50e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.33e-14
+</td>
+</tr>
+<tr>
+<td style="text-align:left;vertical-align: middle !important;" rowspan="2">
+Wald-AIPW
+</td>
+<td style="text-align:left;">
+S.z0
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.42e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+9.20e-15
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+S.z1
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+4.46e-15
+</td>
+<td style="text-align:left;">
+0.00e+00
+</td>
+<td style="text-align:left;">
+1.33e-14
 </td>
 </tr>
 </tbody>
@@ -2975,15 +2834,14 @@ PLR-IV (XGBoost tuned)
 </tr>
 <tr>
 <td style="padding: 0; " colspan="100%">
-<sup></sup> This render loaded the verified complete-rerun XGBoost
-export. The signed rerun change is reported without a binary cutoff.
+<sup></sup> Each observed prediction change decomposes into a
+smoother-weight term and a normalization term. The decomposition closure
+|observed - smoother - normalization| stayed below 1.13e-13 across all
+cells.
 </td>
 </tr>
 </tfoot>
 </table>
-</div>
-<div id="save-reusable-rerun-results" class="section level1">
-<h1>5. Save reusable rerun results</h1>
 </div>
 
 
@@ -3023,7 +2881,7 @@ $(document).ready(function () {
 <!-- code folding -->
 <script>
 $(document).ready(function () {
-  window.initializeCodeFolding("hide" === "show");
+  window.initializeCodeFolding("show" === "show");
 });
 </script>
 
@@ -3049,7 +2907,7 @@ $(document).ready(function ()  {
       ignoreSelector: ".toc-ignore",
       scrollTo: 0
     };
-    options.showAndHide = false;
+    options.showAndHide = true;
     options.smoothScroll = true;
 
     // tocify

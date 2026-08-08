@@ -1,5 +1,5 @@
 ---
-title: "The Vietnam Draft Lottery — Design and Descriptive Evidence"
+title: "The Vietnam Draft Lottery: Descriptive Evidence"
 subtitle: "Sample construction · treatment uptake · linear-IV building blocks · overlap"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
@@ -21,9 +21,6 @@ body { font-size: 15px; color: #2c2c2c; }
 h1   { border-bottom: 2px solid #2c7bb6; padding-bottom: 6px; margin-top: 36px; }
 h2   { color: #2c7bb6; margin-top: 28px; }
 h3   { color: #444; margin-top: 20px; }
-.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.key-box  { background:#fdeaea; border-left:4px solid #d7191c; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size: 13px; }
 ```
 
@@ -71,8 +68,8 @@ sipp$age2    <- sipp$age_5^2
 sipp$age3    <- sipp$age_5^3
 sipp$age_fac <- factor(sipp$age_5)
 
-sipp$Z      <- as.integer(sipp$rsncode)   # instrument: draft-eligibility indicator
-sipp$nvstat <- as.integer(sipp$nvstat)    # treatment: Vietnam-era veteran status
+sipp$Z      <- as.integer(sipp$rsncode)   # instrument:
+sipp$nvstat <- as.integer(sipp$nvstat)    # treatment
 sipp$lwage  <- log(sipp$kwage)            # outcome (log wage, dollars)
 
 # Design matrices (with intercept) for the three age specifications
@@ -86,17 +83,13 @@ sipp$p_cub <- logit_mle(sipp$Z, X_cub)
 sipp$p_sat <- logit_mle(sipp$Z, X_sat)
 ```
 
-<div class="note-box">
 **Purpose.** This notebook documents the analysis sample and the empirical features that matter for the draft-lottery IV design before the main estimators are compared. Following the SUW replication, the conditioning variable is `age = age_5`, entered linearly, cubically, or through age indicators. 
-</div>
 
 ---
 
 # 1. Sample Construction and Data Quality
 
-<div class="note-box">
 The analysis sample follows the SUW restriction by excluding `rsncode == 999` and observations with missing education or wages.
-</div>
 
 ```{r sample-size}
 n_drop <- nrow(sipp_raw) - nrow(sipp)
@@ -137,9 +130,7 @@ miss_tab %>%
 
 # 2. Distributions of Z, D, and Y
 
-<div class="note-box">
 **Instrument:** draft eligibility. **Treatment:** Vietnam-era veteran status (`nvstat`). **Outcome:** log wage in dollars. Age is the conditioning variable throughout the main analysis.
-</div>
 
 ```{r dist-binary, fig.height=3.6}
 bin_df <- bind_rows(
@@ -198,9 +189,7 @@ data.frame(
 
 # 3. Instrument–Treatment Composition
 
-<div class="note-box">
-The table reports unconditional veteran rates by eligibility. Under unconditional instrument independence and monotonicity, the three rate combinations also identify principal-strata shares. Because eligibility varies systematically with age and the analysis conditions on age, they are presented here as descriptive contrasts rather than direct estimates of those shares.
-</div>
+The table reports unconditional veteran rates by eligibility. Under unconditional instrument independence and monotonicity, the three rate combinations also identify principal-strata shares. Because eligibility varies systematically with age and the analysis conditions on age, they are presented here as descriptive contrasts.
 
 ```{r compliance}
 compliance_block <- function(D, treat_name) {
@@ -235,9 +224,7 @@ compliance_block(sipp$nvstat, "nvstat (veteran)") %>%
 
 # 4. First Stage, Reduced Form, and Linear-IV Benchmarks
 
-<div class="note-box">
-The first stage, reduced form, and their ratio provide transparent linear-IV benchmarks for the three age specifications. With one excluded instrument, the squared HC1 t-statistic is the corresponding one-degree-of-freedom heteroskedasticity-robust Wald statistic. It is reported descriptively and not evaluated against a fixed weak-instrument threshold.
-</div>
+The first stage, reduced form, and their ratio provide transparent linear-IV benchmarks for the three age specifications. With one excluded instrument, the t-statistic is the corresponding one-degree-of-freedom heteroskedasticity-robust Wald statistic. It is reported descriptively and not evaluated against a fixed weak-instrument threshold.
 
 ```{r first-stage-table}
 fs_diagnostic <- function(formula, data) {
@@ -263,11 +250,11 @@ fs_rows$robust_t2   <- round(fs_rows$robust_t2, 1)
 
 fs_rows %>%
   kbl(caption = "First-stage strength: effect of draft eligibility (Z) on veteran status",
-      col.names = c("Spec","First stage δ̂","HC1 SE","HC1 Wald statistic"),
+      col.names = c("Spec","First stagê","HC1 SE","HC1 Wald statistic"),
       align = c("l","r","r","r")) %>%
   kable_styling(bootstrap_options = c("striped","hover","condensed"),
                 full_width = TRUE, font_size = 13) %>%
-  footnote(general = "The HC1 Wald statistic is the squared robust t-statistic for Z. It is a descriptive first-stage diagnostic, not a formal weak-IV-robust test.")
+  footnote(general = "The HC1 Wald statistic is the squared robust t-statistic for Z.")
 ```
 
 ```{r rf-wald-table}
@@ -310,9 +297,7 @@ rbind(
 
 ## First Stage by Age 
 
-<div class="note-box">
-Because draft-eligibility ceilings differ across cohorts, eligibility and veteran rates vary with age. The figure displays the treatment contrast within observed age cells, it is a descriptive view of first-stage heterogeneity rather than a separate identification test.
-</div>
+Because draft-eligibility ceilings differ across cohorts, eligibility and veteran rates vary with age. The figure displays the treatment contrast within observed age cells.
 
 ```{r first-stage-age-plot, fig.height=5}
 age_keep <- sipp %>% count(age_5) %>% filter(n >= 50) %>% pull(age_5)
@@ -345,9 +330,7 @@ ggplot(fs_age, aes(x = factor(age_5), y = vet_rate, fill = Zlab)) +
 
 # 5. Instrument Propensity Scores and Overlap
 
-<div class="note-box">
 The instrument propensity score is p(X) = Pr(Z = 1 | X). It is fitted with the same logit MLE used by the MLE-based kappa estimators. The CBPS estimator uses its own balancing fit, while the DML estimators use learner-specific nuisance models. This section therefore describes support for the MLE-based inverse-propensity terms rather than every propensity model used later.
-</div>
 
 ## Summary Statistics
 

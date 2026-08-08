@@ -1,0 +1,499 @@
+---
+title: "Vietnam Forest Translation Audit"
+subtitle: "Tuned honest forest and Ranger smoother matrices"
+author: "Alexander Unger"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    code_folding: show
+    df_print: kable
+---
+
+```{css, echo=FALSE}
+body { font-size:15px; color:#2c2c2c; }
+h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; }
+h2 { color:#2c7bb6; }
+table { font-size:12px; }
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo=TRUE,
+  message=FALSE,
+  warning=FALSE,
+  cache=FALSE
+)
+options(knitr.kable.NA="—")
+```
+
+# Purpose
+
+This internal notebook localizes the rerun translation changes for
+the two forest implementations used in the Vietnam application. It compares
+the original log-wage outcome with \(Y+\log(100)\) for the cubic-age and
+saturated-age specifications.
+
+Within every original/translated pair, \(D\), \(Z\), \(X\), observation order,
+five-fold cross-fitting rule, initial random-number state, learner settings,
+and nuisance-fit order are held fixed. The honest forest uses the tuned
+headline specification (`tune.parameters = "all"`). Ranger uses the same
+untuned learner settings as the main translation notebook. Only \(Y\) changes.
+The audit stops if the realized cross-fitting folds differ.
+
+For each outcome smoother, it checks whether the realized matrix changes and
+verifies
+
+\[
+\widehat g^{\,k}-\widehat g-k\mathbf 1
+=
+(S^k-S)Y+k(S^k\mathbf 1-\mathbf 1).
+\]
+
+The first term isolates changes in the fitted smoother weights, the second
+isolates departures of the translated smoother's row sums from one.
+
+# Setup and fixed sample
+
+```{r packages-and-data}
+library(haven)
+library(OutcomeWeights)
+library(DoubleML)
+library(mlr3verse)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+lgr::get_logger("mlr3")$set_threshold("warn")
+source(file.path("..","functions_all.R"))
+
+if (!exists("get_DoubleML_smoother",
+            envir=asNamespace("OutcomeWeights"),inherits=FALSE)) {
+  stop("The installed OutcomeWeights version does not provide get_DoubleML_smoother().")
+}
+
+SEED<-42L
+N_CF<-5L
+SHIFT_K<-log(100)
+WEIGHT_TOLERANCE<-1e-12
+BLOCK_ROWS<-100L
+
+sipp<-read_dta("sipp.dta")
+sipp<-sipp[
+  sipp$rsncode!=999 & !is.na(sipp$educ) & !is.na(sipp$kwage),
+]
+sipp$age<-sipp$age_5
+sipp$age_fac<-factor(sipp$age_5)
+
+Y<-as.numeric(log(sipp$kwage))
+D<-as.integer(sipp$nvstat)
+Z<-as.integer(sipp$rsncode)
+
+X_cubic<-make_X(~0+age+I(age^2)+I(age^3),data=sipp)
+X_saturated_full<-make_X(~0+age_fac,data=sipp)
+X_saturated<-X_saturated_full[,-1,drop=FALSE]
+
+specifications<-list(
+  "Cubic age"=X_cubic,
+  "Saturated age"=X_saturated
+)
+
+stopifnot(
+  length(Y)==3027L,
+  all(vapply(specifications,nrow,integer(1))==length(Y))
+)
+```
+
+# Audit functions
+
+```{r helpers}
+max_abs<-function(x) max(abs(as.numeric(x)))
+rmse<-function(x) sqrt(mean(as.numeric(x)^2))
+
+make_dml_data<-function(outcome,X){
+  dat<-as.data.frame(X)
+  dat$y<-outcome
+  dat$d<-D
+  dat$z<-Z
+  DoubleMLData$new(
+    data=dat,
+    y_col="y",
+    d_cols="d",
+    z_cols="z",
+    x_cols=colnames(X)
+  )
+}
+
+fit_honest_forest<-function(outcome,X){
+  set.seed(SEED)
+  invisible(capture.output(
+    fit<-dml_with_smoother(
+      outcome,D,X,Z,
+      n_cf_folds=N_CF,
+      tune.parameters="all"
+    )
+  ))
+  fit
+}
+
+fit_ranger<-function(outcome,X,estimator){
+  dml_data<-make_dml_data(outcome,X)
+
+  if (estimator=="PLR-IV") {
+    learners<-list(
+      l=lrn("regr.ranger",keep.inbag=TRUE),
+      m=lrn("regr.ranger",keep.inbag=TRUE),
+      r=lrn("regr.ranger",keep.inbag=TRUE)
+    )
+    set.seed(SEED)
+    object<-DoubleMLPLIV$new(
+      data=dml_data,
+      ml_l=learners$l,
+      ml_m=learners$m,
+      ml_r=learners$r,
+      n_folds=N_CF
+    )
+  } else if (estimator=="Wald-AIPW") {
+    learners<-list(
+      g=lrn("regr.ranger",keep.inbag=TRUE),
+      m=lrn("classif.ranger",keep.inbag=TRUE),
+      r=lrn("classif.ranger",keep.inbag=TRUE)
+    )
+    set.seed(SEED)
+    object<-DoubleMLIIVM$new(
+      data=dml_data,
+      ml_g=learners$g,
+      ml_m=learners$m,
+      ml_r=learners$r,
+      n_folds=N_CF,
+      score="LATE"
+    )
+  } else {
+    stop("Unsupported estimator.")
+  }
+
+  invisible(capture.output(
+    object$fit(store_models=TRUE,store_predictions=TRUE)
+  ))
+  list(object=object,data=dml_data)
+}
+
+extract_ranger_smoothers<-function(fit){
+  object<-fit$object
+  dml_data<-fit$data
+  smoother<-getFromNamespace("get_DoubleML_smoother","OutcomeWeights")
+  dat<-as.matrix(dml_data$data)
+  test_ids<-object$smpls[[1]]$test_ids
+  train_ids<-object$smpls[[1]]$train_ids
+
+  if (inherits(object,"DoubleMLPLIV")) {
+    return(list(
+      S=smoother(
+        object$models$ml_l$d[[1]],
+        test_ids,train_ids,dat,dml_data$x_cols,dml_data$y_col,NULL
+      )
+    ))
+  }
+
+  z<-dat[,dml_data$z_cols]
+  list(
+    S.z0=smoother(
+      object$models$ml_g0$d[[1]],
+      test_ids,train_ids,dat,dml_data$x_cols,dml_data$y_col,z==0
+    ),
+    S.z1=smoother(
+      object$models$ml_g1$d[[1]],
+      test_ids,train_ids,dat,dml_data$x_cols,dml_data$y_col,z==1
+    )
+  )
+}
+
+smoother_dimensions<-function(S){
+  dimensions<-dim(S)
+  if (length(dimensions)==2L && dimensions[1L]==dimensions[2L]) {
+    return(c(dimensions[1L],dimensions[2L]))
+  }
+  if (length(dimensions)==3L && dimensions[1L]==1L &&
+      dimensions[2L]==dimensions[3L]) {
+    return(c(dimensions[2L],dimensions[3L]))
+  }
+  stop("Expected an N x N matrix or a 1 x N x N smoother array.")
+}
+
+smoother_block<-function(S,rows,N){
+  if (length(dim(S))==2L) return(S[rows,,drop=FALSE])
+  matrix(S[1L,rows,,drop=FALSE],nrow=length(rows),ncol=N)
+}
+
+audit_smoother<-function(
+    S_original,S_shifted,pred_original,pred_shifted,
+    specification,learner,estimator,smoother_name){
+
+  if (!identical(smoother_dimensions(S_original),
+                 smoother_dimensions(S_shifted))) {
+    stop("Original and translated smoother dimensions differ.")
+  }
+
+  N<-smoother_dimensions(S_original)[1L]
+  observed<-as.numeric(pred_shifted)-as.numeric(pred_original)-SHIFT_K
+  smoother_component<-numeric(N)
+  normalization_component<-numeric(N)
+  maximum_change<-0
+  maximum_row_sum_error<-0
+  changed_rows<-logical(N)
+
+  for (start in seq.int(1L,N,by=BLOCK_ROWS)) {
+    rows<-start:min(start+BLOCK_ROWS-1L,N)
+    S_o<-smoother_block(S_original,rows,N)
+    S_k<-smoother_block(S_shifted,rows,N)
+    difference<-S_k-S_o
+    absolute_difference<-abs(difference)
+
+    maximum_change<-max(maximum_change,absolute_difference)
+    changed_rows[rows]<-apply(absolute_difference,1L,max)>WEIGHT_TOLERANCE
+    maximum_row_sum_error<-max(
+      maximum_row_sum_error,
+      abs(rowSums(S_o)-1),
+      abs(rowSums(S_k)-1)
+    )
+    smoother_component[rows]<-as.vector(difference%*%Y)
+    normalization_component[rows]<-SHIFT_K*(rowSums(S_k)-1)
+  }
+
+  closure<-observed-smoother_component-normalization_component
+  data.frame(
+    Specification=specification,
+    Learner=learner,
+    Estimator=estimator,
+    Smoother=smoother_name,
+    `S identical`=identical(S_original,S_shifted),
+    `Maximum |S^k-S|`=maximum_change,
+    `Share rows changed`=mean(changed_rows),
+    `Maximum row-sum error`=maximum_row_sum_error,
+    `Prediction residual RMSE`=rmse(observed),
+    `Smoother component RMSE`=rmse(smoother_component),
+    `Normalization component maximum`=max_abs(normalization_component),
+    `Closure maximum`=max_abs(closure),
+    check.names=FALSE
+  )
+}
+
+estimate_row<-function(
+    specification,learner,estimator,tau_original,tau_shifted,
+    folds_identical,nonoutcome_change){
+  data.frame(
+    Specification=specification,
+    Learner=learner,
+    Estimator=estimator,
+    `Original estimate`=tau_original,
+    `Shifted estimate`=tau_shifted,
+    `Rerun change`=tau_shifted-tau_original,
+    `Folds identical`=folds_identical,
+    `Maximum non-outcome nuisance change`=nonoutcome_change,
+    check.names=FALSE
+  )
+}
+```
+
+# Paired fits
+
+```{r run-audit}
+estimate_parts<-list()
+smoother_parts<-list()
+result_index<-1L
+
+for (specification in names(specifications)) {
+  X<-specifications[[specification]]
+
+  honest_original<-fit_honest_forest(Y,X)
+  honest_shifted<-fit_honest_forest(Y+SHIFT_K,X)
+  honest_folds_identical<-identical(
+    honest_original$NuPa.hat$cf_mat,
+    honest_shifted$NuPa.hat$cf_mat
+  )
+  if (!honest_folds_identical) {
+    stop(sprintf("Honest-forest folds differ for %s.",specification))
+  }
+
+  honest_summary_original<-summary(honest_original)
+  honest_summary_shifted<-summary(honest_shifted)
+  p_o<-honest_original$NuPa.hat$predictions
+  p_k<-honest_shifted$NuPa.hat$predictions
+  s_o<-honest_original$NuPa.hat$smoothers
+  s_k<-honest_shifted$NuPa.hat$smoothers
+  honest_nonoutcome_change<-max_abs(c(
+    p_k$D.hat-p_o$D.hat,
+    p_k$D.hat.z0-p_o$D.hat.z0,
+    p_k$D.hat.z1-p_o$D.hat.z1,
+    p_k$Z.hat-p_o$Z.hat
+  ))
+
+  for (estimator in c("PLR-IV","Wald-AIPW")) {
+    estimate_parts[[result_index]]<-estimate_row(
+      specification,"Tuned honest forest",estimator,
+      get_estimate(honest_summary_original,estimator),
+      get_estimate(honest_summary_shifted,estimator),
+      honest_folds_identical,honest_nonoutcome_change
+    )
+    result_index<-result_index+1L
+  }
+
+  smoother_parts[[length(smoother_parts)+1L]]<-audit_smoother(
+    s_o$S,s_k$S,p_o$Y.hat,p_k$Y.hat,
+    specification,"Tuned honest forest","PLR-IV","S"
+  )
+  smoother_parts[[length(smoother_parts)+1L]]<-audit_smoother(
+    s_o$S.z0,s_k$S.z0,p_o$Y.hat.z0,p_k$Y.hat.z0,
+    specification,"Tuned honest forest","Wald-AIPW","S.z0"
+  )
+  smoother_parts[[length(smoother_parts)+1L]]<-audit_smoother(
+    s_o$S.z1,s_k$S.z1,p_o$Y.hat.z1,p_k$Y.hat.z1,
+    specification,"Tuned honest forest","Wald-AIPW","S.z1"
+  )
+
+  rm(honest_original,honest_shifted,honest_summary_original,
+     honest_summary_shifted,p_o,p_k,s_o,s_k)
+  invisible(gc())
+
+  for (estimator in c("PLR-IV","Wald-AIPW")) {
+    ranger_original<-fit_ranger(Y,X,estimator)
+    ranger_shifted<-fit_ranger(Y+SHIFT_K,X,estimator)
+    ranger_folds_identical<-identical(
+      ranger_original$object$smpls,
+      ranger_shifted$object$smpls
+    )
+    if (!ranger_folds_identical) {
+      stop(sprintf("Ranger folds differ for %s / %s.",
+                   specification,estimator))
+    }
+
+    ranger_s_o<-extract_ranger_smoothers(ranger_original)
+    ranger_s_k<-extract_ranger_smoothers(ranger_shifted)
+
+    if (estimator=="PLR-IV") {
+      predictions_o<-list(
+        S=as.numeric(drop(ranger_original$object$predictions$ml_l))
+      )
+      predictions_k<-list(
+        S=as.numeric(drop(ranger_shifted$object$predictions$ml_l))
+      )
+      nonoutcome_change<-max_abs(c(
+        ranger_shifted$object$predictions$ml_m-
+          ranger_original$object$predictions$ml_m,
+        ranger_shifted$object$predictions$ml_r-
+          ranger_original$object$predictions$ml_r
+      ))
+      smoother_names<-"S"
+    } else {
+      predictions_o<-list(
+        S.z0=as.numeric(drop(ranger_original$object$predictions$ml_g0)),
+        S.z1=as.numeric(drop(ranger_original$object$predictions$ml_g1))
+      )
+      predictions_k<-list(
+        S.z0=as.numeric(drop(ranger_shifted$object$predictions$ml_g0)),
+        S.z1=as.numeric(drop(ranger_shifted$object$predictions$ml_g1))
+      )
+      nonoutcome_change<-max_abs(c(
+        ranger_shifted$object$predictions$ml_m-
+          ranger_original$object$predictions$ml_m,
+        ranger_shifted$object$predictions$ml_r0-
+          ranger_original$object$predictions$ml_r0,
+        ranger_shifted$object$predictions$ml_r1-
+          ranger_original$object$predictions$ml_r1
+      ))
+      smoother_names<-c("S.z0","S.z1")
+    }
+
+    estimate_parts[[result_index]]<-estimate_row(
+      specification,"Ranger",estimator,
+      get_dml_coef(ranger_original$object),
+      get_dml_coef(ranger_shifted$object),
+      ranger_folds_identical,nonoutcome_change
+    )
+    result_index<-result_index+1L
+
+    for (smoother_name in smoother_names) {
+      smoother_parts[[length(smoother_parts)+1L]]<-audit_smoother(
+        ranger_s_o[[smoother_name]],ranger_s_k[[smoother_name]],
+        predictions_o[[smoother_name]],predictions_k[[smoother_name]],
+        specification,"Ranger",estimator,smoother_name
+      )
+    }
+
+    rm(ranger_original,ranger_shifted,ranger_s_o,ranger_s_k,
+       predictions_o,predictions_k)
+    invisible(gc())
+  }
+}
+
+estimate_results<-bind_rows(estimate_parts)
+smoother_results<-bind_rows(smoother_parts)
+```
+
+# Results
+
+The first table reports estimate changes continuously and verifies the paired
+design.
+
+```{r estimate-table, echo=FALSE}
+estimate_display<-estimate_results
+estimate_display[c("Original estimate","Shifted estimate")]<-
+  lapply(estimate_display[c("Original estimate","Shifted estimate")],
+         function(x) formatC(x,format="f",digits=4))
+estimate_display$`Rerun change`<-
+  formatC(estimate_display$`Rerun change`,format="e",digits=3)
+estimate_display$`Maximum non-outcome nuisance change`<-
+  formatC(estimate_display$`Maximum non-outcome nuisance change`,
+          format="e",digits=2)
+
+estimate_display %>%
+  kbl(caption="Estimate-level paired translation results",row.names=FALSE) %>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    full_width=TRUE
+  ) %>%
+  collapse_rows(columns=c(1,2),valign="middle")
+```
+
+The second table distinguishes a change in the smoother itself from a failure
+of its rows to sum to one. 
+
+```{r smoother-table, echo=FALSE}
+closure_max<-max(as.numeric(smoother_results$`Closure maximum`))
+
+display_columns<-c(
+  "Specification","Learner","Estimator","Smoother",
+  "Maximum |S^k-S|","Prediction residual RMSE",
+  "Smoother component RMSE","Normalization component maximum"
+)
+smoother_display<-smoother_results[,display_columns,drop=FALSE]
+
+diagnostic_columns<-setdiff(
+  names(smoother_display),
+  c("Specification","Learner","Estimator","Smoother")
+)
+smoother_display[diagnostic_columns]<-lapply(
+  smoother_display[diagnostic_columns],
+  function(x) formatC(x,format="e",digits=2)
+)
+
+smoother_display %>%
+  kbl(caption="Outcome-smoother change and decomposition",row.names=FALSE) %>%
+  kable_styling(
+    bootstrap_options=c("striped","hover","condensed"),
+    full_width=TRUE,
+    font_size=10
+  ) %>%
+  collapse_rows(columns=c(1,2,3),valign="middle") %>%
+  footnote(general=paste0(
+    "Each observed prediction change decomposes into a smoother-weight term and a ",
+    "normalization term. The decomposition closure ",
+    "|observed - smoother - normalization| stayed below ",
+    formatC(closure_max,format="e",digits=2)," across all cells."
+  ))
+```
+
+

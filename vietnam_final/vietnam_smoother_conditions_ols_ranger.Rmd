@@ -1,5 +1,5 @@
 ---
-title: "The Vietnam Draft Lottery — Smoother Conditions for Alternative DML Learners"
+title: "The Vietnam Draft Lottery: Smoother Conditions for Alternative DML Learners"
 subtitle: "PLR-IV and Wald-AIPW with OLS/logit and ranger"
 author: "Alexander Unger"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
@@ -19,8 +19,6 @@ output:
 body { font-size:15px; color:#2c2c2c; }
 h1 { border-bottom:2px solid #2c7bb6; padding-bottom:6px; margin-top:36px; }
 h2 { color:#2c7bb6; margin-top:28px; }
-.note-box { background:#eaf4ff; border-left:4px solid #2c7bb6; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
-.warn-box { background:#fff3e0; border-left:4px solid #fb8c00; padding:10px 16px; border-radius:4px; margin:14px 0; font-size:14px; }
 table { font-size:13px; }
 ```
 
@@ -65,12 +63,6 @@ S_1^zD=\widehat D_1^z
 for Wald-AIPW (Condition 5b). The two Wald-AIPW branches are reported
 separately.
 
-<div class="warn-box">
-The smoother matrices contain \(N^2\) elements. Each model is therefore
-fitted, audited, and released before the next model is processed. The
-notebook may still require substantial memory while a Wald-AIPW model is
-being checked.
-</div>
 
 # Setup
 
@@ -234,8 +226,6 @@ condition3_row<-function(S,specification,estimator,learner,smoother,
     Estimator=estimator,
     Learner=learner,
     Smoother=smoother,
-    `Minimum row sum`=min(row_sums),
-    `Maximum row sum`=max(row_sums),
     `Maximum |row sum - 1|`=max(abs(row_sums-1)),
     `Condition 3`=isTRUE(all.equal(row_sums,target)),
     `Reproduces estimate`=reproduces,
@@ -252,7 +242,6 @@ condition5_row<-function(S,D,D_hat,specification,estimator,learner,
     Estimator=estimator,
     Learner=learner,
     Condition=condition,
-    RMSE=sqrt(mean(difference^2)),
     `Maximum absolute difference`=max(abs(difference)),
     Satisfied=isTRUE(all.equal(reconstructed,as.numeric(D_hat))),
     `Reproduces estimate`=reproduces,
@@ -420,7 +409,7 @@ weight_results<-do.call(rbind,weight_parts)
 ```{r condition3-table}
 condition3_results%>%
   kbl(
-    caption="Condition 3 — affine outcome-smoother audit",
+    caption="Condition 3: affine outcome-smoother audit",
     digits=12,
     row.names=FALSE
   )%>%
@@ -436,7 +425,7 @@ condition3_results%>%
 ```{r condition5-table}
 condition5_results%>%
   kbl(
-    caption="Conditions 5a and 5b — outcome-smoother and treatment-prediction alignment",
+    caption="Conditions 5a and 5b: outcome-smoother and treatment-prediction alignment",
     digits=10,
     row.names=FALSE
   )%>%
@@ -466,16 +455,4 @@ weight_results%>%
   collapse_rows(columns=c(1,2),valign="middle")
 ```
 
-<div class="note-box">
-The smoother conditions and realized weight masses answer different
-questions. Condition 3 and Conditions 5a/5b describe why normalization
-should arise from the fitted nuisance implementation. The final table
-classifies only vectors that reproduce their estimator. A passing smoother
-condition does not override a failed outcome-weight reproduction check.
-</div>
 
-# Session information
-
-```{r session-info, cache=FALSE}
-sessionInfo()
-```
